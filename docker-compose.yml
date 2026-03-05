@@ -1,0 +1,26 @@
+services:
+  frontend:
+    container_name: saccos-frontend
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_MARKETING_OWNER_NAME: ${VITE_MARKETING_OWNER_NAME:-Platform Owner}
+        VITE_MARKETING_OWNER_EMAIL: ${VITE_MARKETING_OWNER_EMAIL:-owner@example.com}
+        VITE_MARKETING_OWNER_PHONE: ${VITE_MARKETING_OWNER_PHONE:-+255700000000}
+        VITE_MARKETING_OWNER_WHATSAPP: ${VITE_MARKETING_OWNER_WHATSAPP:-255700000000}
+        VITE_MARKETING_OWNER_COMPANY: ${VITE_MARKETING_OWNER_COMPANY:-SACCOS Control}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true

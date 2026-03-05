@@ -1,0 +1,19 @@
+.field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.hint {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.error {
+  font-size: 0.8rem;
+  color: var(--danger-text);
+}

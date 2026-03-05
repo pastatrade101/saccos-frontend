@@ -1,0 +1,64 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 40;
+}
+
+.card {
+  width: min(520px, 100%);
+  padding: 1.5rem;
+  border-radius: 24px;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+}
+
+.title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.copy {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.summary {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 18px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-subtle);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.button,
+.buttonGhost {
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 0;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--accent-contrast);
+}
+
+.buttonGhost {
+  background: var(--surface-soft);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}

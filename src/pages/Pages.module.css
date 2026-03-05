@@ -1,0 +1,423 @@
+.authShell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background:
+    radial-gradient(circle at top left, rgba(31, 168, 230, 0.18), transparent 24%),
+    linear-gradient(180deg, rgba(10, 5, 115, 0.08), rgba(31, 168, 230, 0.04)),
+    var(--surface-canvas);
+}
+
+.authFrame {
+  width: min(1180px, 100%);
+  min-height: min(760px, calc(100vh - 4rem));
+  display: grid;
+  grid-template-columns: minmax(360px, 1.08fr) minmax(420px, 0.92fr);
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 1.5rem;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(10, 5, 115, 0.16);
+}
+
+.authVisual {
+  position: relative;
+  isolation: isolate;
+  min-height: 100%;
+  background: var(--primary-900);
+}
+
+.authVisualImage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.authVisualOverlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(10, 5, 115, 0.16), rgba(10, 5, 115, 0.74)),
+    linear-gradient(135deg, rgba(10, 5, 115, 0.84), rgba(31, 168, 230, 0.58));
+}
+
+.authVisualContent {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 3rem;
+  color: white;
+}
+
+.authVisualEyebrow {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.authVisualTitle {
+  margin: 1.1rem 0 0;
+  font-size: clamp(1.9rem, 3.4vw, 3rem);
+  line-height: 1.02;
+  letter-spacing: -0.06em;
+}
+
+.authVisualCopy {
+  margin: 0.35rem 0 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.authVisualMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.authVisualMetric {
+  padding: 1rem 1.05rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.authVisualMetric strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.authVisualMetric span {
+  display: block;
+  margin-top: 0.35rem;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.authPanel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 3rem;
+  background: color-mix(in srgb, var(--surface-card) 96%, white);
+}
+
+.authPanelTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.authPanelTop > div {
+  flex: 1;
+}
+
+.authPanelEyebrow {
+  display: block;
+  color: var(--accent-700);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.authTitle {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 3rem);
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.authCopy {
+  margin: 0.65rem 0 0;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+
+.authThemeToggle {
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-primary);
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.authThemeToggle:hover {
+  background: color-mix(in srgb, var(--surface-soft) 78%, var(--accent-100));
+  border-color: color-mix(in srgb, var(--border-subtle) 55%, var(--accent-500));
+}
+
+.authThemeToggle:active {
+  transform: translateY(1px);
+}
+
+.form {
+  display: grid;
+  gap: 1rem;
+}
+
+.authPanelFooter {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1.5rem;
+}
+
+.authFooterItem {
+  padding: 1rem 1rem 1.05rem;
+  border-radius: 1rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-subtle);
+}
+
+.authFooterItem strong {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.authFooterItem span {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.86rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+
+.sectionCopy {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+}
+
+.status {
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.9rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.drawerGrid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.detailsRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.detailsLabel {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.detailsValue {
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.actionRow {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  color: var(--text-primary);
+}
+
+.checkboxLabel input {
+  margin-top: 0.2rem;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.reportGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.authLegal {
+  margin: 1rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.authLegalLink {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.authLegalLink:hover {
+  color: var(--accent-strong);
+}
+
+.legalShell {
+  min-height: 100vh;
+  padding: 2rem;
+  background:
+    radial-gradient(circle at top left, rgba(31, 168, 230, 0.14), transparent 24%),
+    linear-gradient(180deg, rgba(10, 5, 115, 0.06), rgba(31, 168, 230, 0.03)),
+    var(--surface-canvas);
+}
+
+.legalFrame {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 2rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.legalHeader {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.legalEyebrow {
+  color: var(--accent-700);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.legalTitle {
+  margin: 0;
+  font-size: clamp(1.75rem, 2.8vw, 2.25rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.legalSubtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.legalActions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 1rem 0 1.5rem;
+}
+
+.legalSection {
+  padding: 1rem 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.legalSection h3 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.legalSection p,
+.legalSection li {
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.legalSection ul {
+  margin: 0.6rem 0 0;
+  padding-left: 1rem;
+}
+
+@media (max-width: 900px) {
+  .authShell {
+    padding: 1rem;
+  }
+
+  .authFrame {
+    min-height: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .authVisual {
+    min-height: 300px;
+  }
+
+  .authVisualContent,
+  .authPanel {
+    padding: 1.5rem;
+  }
+
+  .authPanelTop {
+    flex-direction: column;
+  }
+
+  .authVisualMetrics,
+  .metricGrid,
+  .reportGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .legalShell {
+    padding: 1rem;
+  }
+
+  .legalFrame {
+    padding: 1.25rem;
+  }
+}

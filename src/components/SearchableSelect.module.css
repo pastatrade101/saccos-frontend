@@ -1,0 +1,42 @@
+.wrap {
+  position: relative;
+}
+
+.input {
+  width: 100%;
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow: auto;
+  z-index: 20;
+  border-radius: 18px;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+}
+
+.option,
+.empty {
+  width: 100%;
+  text-align: left;
+  padding: 0.85rem 1rem;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+}
+
+.option:hover {
+  background: var(--surface-soft);
+}
+
+.secondary {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
