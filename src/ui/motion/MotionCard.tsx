@@ -4,9 +4,6 @@ import { useEffect, useMemo, useRef, useState, type PropsWithChildren } from "re
 
 import { card, listItem, useReducedMotionSafe } from "./presets";
 
-const MotionMuiCard = motion(Card);
-const MotionMuiPaper = motion(Paper);
-
 interface BaseMotionSurfaceProps {
     index?: number;
     interactive?: boolean;
@@ -31,7 +28,7 @@ export function MotionCard({
     const shouldAnimate = !disabledMotion;
 
     return (
-        <MotionMuiCard
+        <motion.div
             variants={shouldAnimate ? variants : undefined}
             custom={index}
             initial={shouldAnimate ? "hidden" : false}
@@ -41,28 +38,36 @@ export function MotionCard({
             whileHover={interactive && shouldAnimate && !reducedMotion ? "hover" : undefined}
             whileTap={interactive && shouldAnimate && !reducedMotion ? "tap" : undefined}
             layout={!reducedMotion}
-            sx={{
-                position: "relative",
-                overflow: "hidden",
-                ...(interactive && !reducedMotion ? {
-                    "&::after": {
-                        content: "\"\"",
-                        position: "absolute",
-                        inset: 0,
-                        pointerEvents: "none",
-                        background:
-                            "linear-gradient(110deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.08) 48%, rgba(255,255,255,0) 66%)",
-                        transform: "translateX(-120%)",
-                        transition: "transform 420ms ease"
+            style={{ width: "100%" }}
+        >
+            <Card
+                sx={[
+                    {
+                        position: "relative",
+                        overflow: "hidden",
+                        ...(interactive && !reducedMotion
+                            ? {
+                                "&::after": {
+                                    content: "\"\"",
+                                    position: "absolute",
+                                    inset: 0,
+                                    pointerEvents: "none",
+                                    background:
+                                        "linear-gradient(110deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.08) 48%, rgba(255,255,255,0) 66%)",
+                                    transform: "translateX(-120%)",
+                                    transition: "transform 420ms ease"
+                                },
+                                "&:hover::after": {
+                                    transform: "translateX(120%)"
+                                }
+                            }
+                            : {})
                     },
-                    "&:hover::after": {
-                        transform: "translateX(120%)"
-                    }
-                } : null),
-                ...sx
-            }}
-            {...props}
-        />
+                    ...(Array.isArray(sx) ? sx : sx ? [sx] : [])
+                ]}
+                {...props}
+            />
+        </motion.div>
     );
 }
 
@@ -81,7 +86,7 @@ export function MotionListItem({
     const shouldAnimate = !disabledMotion;
 
     return (
-        <MotionMuiPaper
+        <motion.div
             variants={shouldAnimate ? variants : undefined}
             custom={index}
             initial={shouldAnimate ? "hidden" : false}
@@ -91,8 +96,10 @@ export function MotionListItem({
             whileHover={interactive && shouldAnimate && !reducedMotion ? "hover" : undefined}
             whileTap={interactive && shouldAnimate && !reducedMotion ? "tap" : undefined}
             layout={!reducedMotion}
-            {...props}
-        />
+            style={{ width: "100%" }}
+        >
+            <Paper {...props} />
+        </motion.div>
     );
 }
 

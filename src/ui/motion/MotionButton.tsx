@@ -4,8 +4,6 @@ import { useMemo, type PropsWithChildren } from "react";
 
 import { button, useReducedMotionSafe } from "./presets";
 
-const MotionMuiButton = motion(Button);
-
 export interface MotionButtonProps extends Omit<ButtonProps, "component"> {
     disableMotion?: boolean;
 }
@@ -20,15 +18,18 @@ export function MotionButton({
     const canAnimate = !disableMotion;
 
     return (
-        <MotionMuiButton
+        <motion.div
             variants={canAnimate ? variants : undefined}
             initial={canAnimate ? "rest" : false}
             animate={canAnimate ? "rest" : undefined}
             whileHover={canAnimate && !reducedMotion ? "hover" : undefined}
             whileTap={canAnimate && !reducedMotion ? "tap" : undefined}
-            {...props}
+            style={{
+                width: props.fullWidth ? "100%" : "auto",
+                display: props.fullWidth ? "block" : "inline-block"
+            }}
         >
-            {children}
-        </MotionMuiButton>
+            <Button {...props}>{children}</Button>
+        </motion.div>
     );
 }

@@ -4,8 +4,6 @@ import { useMemo, type PropsWithChildren } from "react";
 
 import { page, useReducedMotionSafe } from "./presets";
 
-const MotionBox = motion(Box);
-
 export interface MotionSectionProps extends Omit<BoxProps, "component"> {
     inView?: boolean;
     once?: boolean;
@@ -24,15 +22,14 @@ export function MotionSection({
     const canAnimate = !disableMotion;
 
     return (
-        <MotionBox
+        <motion.div
             variants={canAnimate ? variants : undefined}
             initial={canAnimate ? "hidden" : false}
             animate={!inView && canAnimate ? "visible" : undefined}
             whileInView={inView && canAnimate ? "visible" : undefined}
             viewport={inView && canAnimate ? { once, amount: 0.16 } : undefined}
-            {...props}
         >
-            {children}
-        </MotionBox>
+            <Box {...props}>{children}</Box>
+        </motion.div>
     );
 }
