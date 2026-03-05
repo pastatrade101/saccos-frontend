@@ -102,7 +102,9 @@ const routeMap = {
         accounts: "/members/accounts",
         create: "/members",
         update: (memberId: string) => `/members/${memberId}`,
+        delete: (memberId: string) => `/members/${memberId}`,
         createLogin: (memberId: string) => `/members/${memberId}/create-login`,
+        resetPassword: (memberId: string) => `/members/${memberId}/reset-password`,
         temporaryCredential: (memberId: string) => `/members/${memberId}/temporary-credential`
     },
     memberApplications: {
@@ -232,7 +234,9 @@ export const endpoints = {
         accounts: () => routeMap.members.accounts,
         create: () => routeMap.members.create,
         update: (memberId: string) => routeMap.members.update(memberId),
+        delete: (memberId: string) => routeMap.members.delete(memberId),
         createLogin: (memberId: string) => routeMap.members.createLogin(memberId),
+        resetPassword: (memberId: string) => routeMap.members.resetPassword(memberId),
         temporaryCredential: (memberId: string) => routeMap.members.temporaryCredential(memberId)
     },
     memberApplications: {
@@ -516,6 +520,10 @@ export interface CreateMemberLoginRequest {
     password?: string | null;
 }
 
+export interface ResetMemberPasswordRequest {
+    password?: string | null;
+}
+
 export type LoansResponse = ApiEnvelope<Loan[]>;
 export type LoanApplicationResponse = ApiEnvelope<LoanApplication>;
 export type LoanApplicationsResponse = ApiEnvelope<LoanApplication[]>;
@@ -617,6 +625,7 @@ export type ReceiptInitResponse = ApiEnvelope<ReceiptInitResponseData>;
 export type ReceiptDownloadResponse = ApiEnvelope<{ signed_url: string; receipt: TransactionReceipt }>;
 
 export type CreateMemberLoginResponse = ApiEnvelope<MemberLoginProvisionResult>;
+export type ResetMemberPasswordResponse = ApiEnvelope<MemberLoginProvisionResult>;
 export type TemporaryCredentialResponse = ApiEnvelope<import("../types/api").TemporaryCredential>;
 
 export interface ImportMembersResponseData {

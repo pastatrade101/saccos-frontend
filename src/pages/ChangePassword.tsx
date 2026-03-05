@@ -90,25 +90,28 @@ export function ChangePasswordPage() {
         <Box
             sx={{
                 minHeight: "100vh",
-                display: "grid",
-                placeItems: "center",
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 background: "linear-gradient(135deg, #0A0573, #1FA8E6)",
-                p: 3
+                px: 2,
+                py: 3
             }}
         >
-            <MotionCard sx={{ width: "100%", maxWidth: 520, borderRadius: 3 }}>
+            <MotionCard sx={{ width: "100%", maxWidth: 520, borderRadius: 3, mx: "auto" }}>
                 <CardContent sx={{ p: 4 }}>
-                    <Stack spacing={3}>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Stack spacing={3} alignItems="center">
+                        <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="center">
                             <ShieldRoundedIcon color="primary" />
-                            <Typography variant="h5" fontWeight={700}>
+                            <Typography variant="h5" fontWeight={700} textAlign="center">
                                 Secure your first login
                             </Typography>
                         </Stack>
-                        <Alert severity="info" icon={<LockResetRoundedIcon />}>
+                        <Alert severity="info" icon={<LockResetRoundedIcon />} sx={{ width: "100%" }}>
                             Your temporary password must be replaced before you can continue.
                         </Alert>
-                        <Stack spacing={2} component="form" onSubmit={onSubmit}>
+                        <Stack spacing={2} component="form" onSubmit={onSubmit} sx={{ width: "100%", maxWidth: 420, mx: "auto" }}>
                             <TextField
                                 label="New password"
                                 type="password"

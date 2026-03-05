@@ -3,6 +3,7 @@ import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceW
 import BadgeRoundedIcon from "@mui/icons-material/BadgeRounded";
 import CreditScoreRoundedIcon from "@mui/icons-material/CreditScoreRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import LockPersonRoundedIcon from "@mui/icons-material/LockPersonRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
@@ -50,6 +51,8 @@ import {
     type CreateMemberRequest,
     type CreateMemberResponse,
     type MembersResponse,
+    type ResetMemberPasswordRequest,
+    type ResetMemberPasswordResponse,
     type TemporaryCredentialResponse,
     type UpdateMemberRequest,
     type UpdateMemberResponse
@@ -185,6 +188,10 @@ export function MembersPage() {
     const [submitting, setSubmitting] = useState(false);
     const [updatingMember, setUpdatingMember] = useState(false);
     const [provisioningLogin, setProvisioningLogin] = useState(false);
+    const [resettingMemberPassword, setResettingMemberPassword] = useState(false);
+    const [deletingMember, setDeletingMember] = useState(false);
+    const [showDeleteMemberDialog, setShowDeleteMemberDialog] = useState(false);
+    const [showMemberWorkspaceModal, setShowMemberWorkspaceModal] = useState(false);
     const [showOnboardForm, setShowOnboardForm] = useState(false);
     const [lastMemberCredentials, setLastMemberCredentials] = useState<MemberCredentialsHandoff | null>(null);
     const [search, setSearch] = useState("");
@@ -198,12 +205,20 @@ export function MembersPage() {
     const canCreateMemberLogins = Boolean(
         profile && ["branch_manager"].includes(profile.role)
     );
+    const canResetMemberPasswords = Boolean(
+        profile && ["super_admin"].includes(profile.role)
+    );
+    const canViewMemberCredentials = canCreateMemberLogins || canResetMemberPasswords;
     const canUpdateMembers = Boolean(
         profile && ["branch_manager"].includes(profile.role)
+    );
+    const canDeleteMembers = Boolean(
+        profile && ["super_admin", "branch_manager"].includes(profile.role)
     );
     const isTeller = profile?.role === "teller";
     const canOpenCashDesk = profile?.role === "teller";
     const canOpenLoans = profile?.role === "loan_officer";
+    const useModalMemberWorkspace = profile?.role === "branch_manager";
 
     const form = useForm<MemberFormValues>({
         resolver: zodResolver(schema),
@@ -496,6 +511,47 @@ export function MembersPage() {
         }
     };
 
+    const resetMemberPassword = async () => {
+        if (!selectedMember) {
+            return;
+        }
+
+        setResettingMemberPassword(true);
+
+        try {
+            const payload: ResetMemberPasswordRequest = {};
+            const { data } = await api.post<ResetMemberPasswordResponse>(
+                endpoints.members.resetPassword(selectedMember.id),
+                payload
+            );
+
+            const temporaryPassword = data.data.temporary_password;
+
+            if (temporaryPassword && data.data.user.email) {
+                setLastMemberCredentials({
+                    full_name: data.data.member.full_name,
+                    email: data.data.user.email,
+                    temporary_password: temporaryPassword
+                });
+            }
+
+            pushToast({
+                type: "success",
+                title: "Password reset complete",
+                message: `Temporary password rotated for ${data.data.user.email || selectedMember.full_name}.`
+            });
+            await loadMembers();
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Unable to reset password",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setResettingMemberPassword(false);
+        }
+    };
+
     const updateMember = updateForm.handleSubmit(async (values) => {
         if (!selectedMember) {
             return;
@@ -541,6 +597,35 @@ export function MembersPage() {
         }
     });
 
+    const deleteSelectedMember = async () => {
+        if (!selectedMember) {
+            return;
+        }
+
+        setDeletingMember(true);
+
+        try {
+            await api.delete(endpoints.members.delete(selectedMember.id));
+            pushToast({
+                type: "success",
+                title: "Member deleted",
+                message: `${selectedMember.full_name} has been archived from active members.`
+            });
+            setShowDeleteMemberDialog(false);
+            setShowMemberWorkspaceModal(false);
+            setSelectedMember(null);
+            await loadMembers();
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Unable to delete member",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setDeletingMember(false);
+        }
+    };
+
     const memberCounts = useMemo(() => ({
         total: members.length,
         active: members.filter((member) => member.status === "active").length,
@@ -555,6 +640,13 @@ export function MembersPage() {
         () => members.filter((member) => member.status !== "active" || !member.account?.id).length,
         [members]
     );
+
+    const handleSelectMember = (member: MemberWithAccount) => {
+        setSelectedMember(member);
+        if (useModalMemberWorkspace) {
+            setShowMemberWorkspaceModal(true);
+        }
+    };
 
     const columns: Column<MemberWithAccount>[] = [
         {
@@ -619,7 +711,7 @@ export function MembersPage() {
             key: "action",
             header: "Action",
             render: (row) => (
-                <Button variant="outlined" size="small" onClick={() => setSelectedMember(row)}>
+                <Button variant="outlined" size="small" onClick={() => handleSelectMember(row)}>
                     Open
                 </Button>
             )
@@ -792,7 +884,7 @@ export function MembersPage() {
             ) : null}
 
             <Grid container spacing={2}>
-                <Grid size={{ xs: 12, xl: 7 }}>
+                <Grid size={{ xs: 12, xl: useModalMemberWorkspace ? 12 : 7 }}>
                     {isTeller ? (
                         <MotionCard
                             variant="outlined"
@@ -878,11 +970,34 @@ export function MembersPage() {
                     )}
                 </Grid>
 
-                <Grid size={{ xs: 12, xl: 5 }}>
+                <Grid
+                    size={{ xs: 12, xl: 5 }}
+                    sx={
+                        useModalMemberWorkspace
+                            ? {
+                                position: "fixed",
+                                inset: 0,
+                                zIndex: 1300,
+                                display: showMemberWorkspaceModal ? "flex" : "none",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                p: { xs: 1.5, md: 3 },
+                                bgcolor: alpha(theme.palette.common.black, 0.48)
+                            }
+                            : undefined
+                    }
+                    onClick={useModalMemberWorkspace ? () => setShowMemberWorkspaceModal(false) : undefined}
+                >
+                    <Box
+                        sx={useModalMemberWorkspace ? { width: "100%", maxWidth: 980 } : undefined}
+                        onClick={useModalMemberWorkspace ? (event) => event.stopPropagation() : undefined}
+                    >
                     <MotionCard
                         variant="outlined"
                         sx={{
                             height: "100%",
+                            maxHeight: useModalMemberWorkspace ? "92vh" : undefined,
+                            overflowY: useModalMemberWorkspace ? "auto" : undefined,
                             borderRadius: 2,
                             background: isTeller
                                 ? `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.98)}, ${alpha(theme.palette.primary.main, 0.035)})`
@@ -891,14 +1006,21 @@ export function MembersPage() {
                     >
                         <CardContent>
                             <Stack spacing={2}>
-                                <Box>
-                                    <Typography variant="h6">{isTeller ? "Member Service Snapshot" : "Member Detail Workspace"}</Typography>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                        {isTeller
-                                            ? "Select a member to confirm service readiness, inspect the primary savings account, and launch directly into the cash desk."
-                                            : "Select a member from the registry to review profile data, route to cash or loans, and manage login access."}
-                                    </Typography>
-                                </Box>
+                                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+                                    <Box>
+                                        <Typography variant="h6">{isTeller ? "Member Service Snapshot" : "Member Detail Workspace"}</Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                            {isTeller
+                                                ? "Select a member to confirm service readiness, inspect the primary savings account, and launch directly into the cash desk."
+                                                : "Select a member from the registry to review profile data, route to cash or loans, and manage login access."}
+                                        </Typography>
+                                    </Box>
+                                    {useModalMemberWorkspace ? (
+                                        <Button size="small" color="inherit" onClick={() => setShowMemberWorkspaceModal(false)}>
+                                            Close
+                                        </Button>
+                                    ) : null}
+                                </Stack>
 
                                 {selectedMember ? (
                                     <Stack spacing={2.5}>
@@ -1124,6 +1246,17 @@ export function MembersPage() {
                                                     <Button type="submit" variant="contained" disabled={updatingMember}>
                                                         {updatingMember ? "Updating member..." : "Update Member"}
                                                     </Button>
+                                                    {canDeleteMembers ? (
+                                                        <Button
+                                                            type="button"
+                                                            variant="outlined"
+                                                            color="error"
+                                                            startIcon={<DeleteOutlineRoundedIcon />}
+                                                            onClick={() => setShowDeleteMemberDialog(true)}
+                                                        >
+                                                            Delete Member
+                                                        </Button>
+                                                    ) : null}
                                                 </>
                                             )}
                                         </Box>
@@ -1145,16 +1278,30 @@ export function MembersPage() {
                                                     <Alert severity="success" variant="outlined">
                                                         This member already has a linked login account.
                                                     </Alert>
-                                                    {canCreateMemberLogins ? (
-                                                        <Button
-                                                            type="button"
-                                                            variant="outlined"
-                                                            startIcon={<ContentCopyRoundedIcon />}
-                                                            onClick={() => void viewStoredMemberCredential()}
-                                                        >
-                                                            View temp password
-                                                        </Button>
-                                                    ) : null}
+                                                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
+                                                        {canViewMemberCredentials ? (
+                                                            <Button
+                                                                type="button"
+                                                                variant="outlined"
+                                                                startIcon={<ContentCopyRoundedIcon />}
+                                                                onClick={() => void viewStoredMemberCredential()}
+                                                            >
+                                                                View temp password
+                                                            </Button>
+                                                        ) : null}
+                                                        {canResetMemberPasswords ? (
+                                                            <Button
+                                                                type="button"
+                                                                variant="contained"
+                                                                color="warning"
+                                                                startIcon={<LockPersonRoundedIcon />}
+                                                                onClick={() => void resetMemberPassword()}
+                                                                disabled={resettingMemberPassword}
+                                                            >
+                                                                {resettingMemberPassword ? "Resetting..." : "Reset Password"}
+                                                            </Button>
+                                                        ) : null}
+                                                    </Stack>
                                                 </Stack>
                                             ) : !canCreateMemberLogins ? (
                                                 <Alert severity="info" variant="outlined">
@@ -1224,6 +1371,7 @@ export function MembersPage() {
                             </Stack>
                         </CardContent>
                     </MotionCard>
+                    </Box>
                 </Grid>
             </Grid>
 
@@ -1463,6 +1611,38 @@ export function MembersPage() {
                     </Button>
                 </DialogActions>
             </MotionModal>
+
+            <Dialog
+                open={showDeleteMemberDialog}
+                onClose={deletingMember ? undefined : () => setShowDeleteMemberDialog(false)}
+                maxWidth="xs"
+                fullWidth
+            >
+                <DialogTitle>Delete member?</DialogTitle>
+                <DialogContent dividers>
+                    <Typography variant="body2" color="text.secondary">
+                        This will archive the member profile and deactivate linked access. Active or in-arrears loans block deletion.
+                    </Typography>
+                    {selectedMember ? (
+                        <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 600 }}>
+                            {selectedMember.full_name}
+                        </Typography>
+                    ) : null}
+                </DialogContent>
+                <DialogActions sx={{ px: 3, py: 2 }}>
+                    <Button onClick={() => setShowDeleteMemberDialog(false)} disabled={deletingMember} color="inherit">
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={() => void deleteSelectedMember()}
+                        variant="contained"
+                        color="error"
+                        disabled={deletingMember || !selectedMember}
+                    >
+                        {deletingMember ? "Deleting..." : "Delete Member"}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Stack>
     );
 }

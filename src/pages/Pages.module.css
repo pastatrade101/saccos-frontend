@@ -229,6 +229,29 @@
   gap: 1rem;
 }
 
+.authForgotLink {
+  align-self: flex-start;
+  padding: 0;
+  margin: -0.25rem 0 0.2rem;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.authForgotLink:hover {
+  color: var(--accent-strong);
+}
+
+.authForgotLink:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .authPanelFooter {
   display: grid;
   gap: 0.9rem;

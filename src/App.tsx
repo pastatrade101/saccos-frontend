@@ -33,6 +33,7 @@ import { ReportsPage } from "./pages/Reports";
 import { MemberPortalPage } from "./pages/MemberPortal";
 import { MemberImportPage } from "./pages/MemberImport";
 import { ChangePasswordPage } from "./pages/ChangePassword";
+import { ResetPasswordPage } from "./pages/ResetPassword";
 import { ServiceUnavailablePage } from "./pages/ServiceUnavailable";
 import { PrivacyPolicyPage, TermsAgreementPage } from "./pages/LegalPages";
 
@@ -157,6 +158,7 @@ export default function App() {
         <Routes>
             <Route path="/" element={<PublicHomePage />} />
             <Route path="/signin" element={<SignInPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
             <Route path="/terms-and-agreement" element={<TermsAgreementPage />} />
             <Route path="/access-denied" element={<AccessDeniedPage />} />
@@ -226,7 +228,7 @@ export default function App() {
                     <Route
                         element={
                             <ProtectedRoute
-                                allowedRoles={["branch_manager", "loan_officer", "teller"]}
+                                allowedRoles={["super_admin", "branch_manager", "loan_officer", "teller"]}
                                 allowInternalOps={false}
                             />
                         }

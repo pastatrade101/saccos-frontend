@@ -81,7 +81,7 @@ const navItems: NavItem[] = [
     { to: "/staff-users", label: "Team Access", roles: ["super_admin", "branch_manager"], section: "workspace", icon: PeopleAltRoundedIcon },
     { to: "/products", label: "Products", roles: ["super_admin", "branch_manager"], section: "workspace", icon: TuneRoundedIcon },
     { to: "/member-applications", label: "Applications", roles: ["super_admin", "branch_manager", "auditor"], section: "workspace", icon: DescriptionRoundedIcon },
-    { to: "/members", label: "Members", roles: ["branch_manager", "loan_officer", "teller"], section: "workspace", icon: GroupRoundedIcon },
+    { to: "/members", label: "Members", roles: ["super_admin", "branch_manager", "loan_officer", "teller"], section: "workspace", icon: GroupRoundedIcon },
     { to: "/members/import", label: "Member Import", roles: ["super_admin", "branch_manager"], section: "workspace", icon: StoreRoundedIcon },
     { to: "/auditor/exceptions", label: "Exceptions", roles: ["auditor"], section: "workspace", icon: WarningAmberRoundedIcon },
     { to: "/auditor/journals", label: "Journals", roles: ["auditor"], section: "workspace", icon: RuleFolderRoundedIcon },
