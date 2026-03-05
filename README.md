@@ -69,6 +69,38 @@ docker compose build
 docker compose up -d
 ```
 
+## Production Deploy (Important)
+
+Vite reads `VITE_*` variables at build time. If they are missing during build, the app will crash at runtime with:
+`Missing Supabase frontend environment variables.`
+
+1. Create production env file:
+
+```bash
+cp .env.production.example .env
+```
+
+2. Set real values:
+
+```env
+VITE_API_BASE_URL=https://api.yourdomain.com/api
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+3. Rebuild frontend image without cache and restart:
+
+```bash
+docker compose build --no-cache frontend
+docker compose up -d frontend
+```
+
+4. Verify built values are embedded:
+
+```bash
+docker compose logs -f frontend
+```
+
 ## Route Coverage
 
 Public:

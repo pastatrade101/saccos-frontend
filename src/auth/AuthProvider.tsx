@@ -12,7 +12,7 @@ import type { Session, User } from "@supabase/supabase-js";
 
 import { api, getApiErrorMessage } from "../lib/api";
 import { endpoints, type MeResponse, type MeSubscriptionResponse } from "../lib/endpoints";
-import { supabase } from "../lib/supabase";
+import { clearStaleSupabaseSession, supabase } from "../lib/supabase";
 import type { AuthMe } from "../types/api";
 
 interface LastApiError {
@@ -213,6 +213,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
             setBackendUnavailable(false);
             setLoading(false);
+        }).catch(async (error) => {
+            const message = error instanceof Error ? error.message : "";
+
+            if (message.toLowerCase().includes("invalid refresh token")) {
+                await supabase.auth.signOut({ scope: "local" });
+                clearStaleSupabaseSession();
+            }
+
+            clearAuthState();
+            setBackendUnavailable(false);
+            setLoading(false);
         });
 
         return () => {
@@ -237,6 +248,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }, []);
 
     const signIn = useCallback(async (email: string, password: string) => {
+        clearStaleSupabaseSession();
         localStorage.removeItem(SELECTED_TENANT_KEY);
         localStorage.removeItem(SELECTED_BRANCH_KEY);
         localStorage.removeItem(SELECTED_TENANT_NAME_KEY);
@@ -260,6 +272,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     const signOut = useCallback(async () => {
         await supabase.auth.signOut();
+        clearStaleSupabaseSession();
         localStorage.removeItem(SELECTED_TENANT_KEY);
         localStorage.removeItem(SELECTED_BRANCH_KEY);
         localStorage.removeItem(SELECTED_TENANT_NAME_KEY);

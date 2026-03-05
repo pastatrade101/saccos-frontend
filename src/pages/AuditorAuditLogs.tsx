@@ -20,10 +20,18 @@ export function AuditorAuditLogsPage() {
     const [actorUserId, setActorUserId] = useState("");
     const [from, setFrom] = useState("");
     const [to, setTo] = useState("");
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const limit = 20;
+    const hasAnyFilter = Boolean(action.trim() || entityType.trim() || actorUserId.trim() || from || to);
 
     useEffect(() => {
+        if (!hasAnyFilter) {
+            setRows([]);
+            setTotal(0);
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
         void api.get<AuditorAuditLogsResponse>(endpoints.auditor.auditLogs(), {
             params: {
@@ -48,7 +56,7 @@ export function AuditorAuditLogsPage() {
                 })
             )
             .finally(() => setLoading(false));
-    }, [action, actorUserId, entityType, from, limit, page, pushToast, to]);
+    }, [action, actorUserId, entityType, from, hasAnyFilter, limit, page, pushToast, to]);
 
     const columns: Column<AuditLogEntry>[] = [
         { key: "created_at", header: "Time", render: (row) => formatDate(row.created_at) },
@@ -108,7 +116,15 @@ export function AuditorAuditLogsPage() {
                 </CardContent>
             </MotionCard>
 
-            {loading ? (
+            {!hasAnyFilter ? (
+                <MotionCard variant="outlined">
+                    <CardContent>
+                        <Alert severity="info" variant="outlined">
+                            Please add at least one filter to view audit logs.
+                        </Alert>
+                    </CardContent>
+                </MotionCard>
+            ) : loading ? (
                 <AppLoader fullscreen={false} minHeight={280} message="Loading audit logs..." />
             ) : (
                 <MotionCard variant="outlined">

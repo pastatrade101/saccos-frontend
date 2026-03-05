@@ -1,6 +1,6 @@
 import axios, { AxiosError } from "axios";
 
-import { supabase } from "./supabase";
+import { clearStaleSupabaseSession, supabase } from "./supabase";
 import type { ApiErrorPayload } from "../types/api";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
@@ -19,8 +19,25 @@ function emitWindowEvent(name: string, detail?: unknown) {
 }
 
 api.interceptors.request.use(async (config) => {
-    const { data } = await supabase.auth.getSession();
-    const accessToken = data.session?.access_token;
+    let accessToken: string | undefined;
+
+    try {
+        const { data } = await supabase.auth.getSession();
+        accessToken = data.session?.access_token;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+
+        if (message.toLowerCase().includes("invalid refresh token")) {
+            await supabase.auth.signOut({ scope: "local" });
+            clearStaleSupabaseSession();
+
+            if (!window.location.pathname.startsWith("/signin")) {
+                window.location.assign("/signin");
+            }
+        } else {
+            throw error;
+        }
+    }
 
     config.headers["Cache-Control"] = "no-cache";
     config.headers.Pragma = "no-cache";
@@ -50,6 +67,7 @@ api.interceptors.response.use(
 
         if (status === 401) {
             await supabase.auth.signOut();
+            clearStaleSupabaseSession();
 
             if (!window.location.pathname.startsWith("/signin")) {
                 window.location.assign("/signin");
