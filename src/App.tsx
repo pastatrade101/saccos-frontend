@@ -223,6 +223,12 @@ export default function App() {
                         }
                     >
                         <Route path="/staff-users" element={<StaffUsersPage />} />
+                    </Route>
+                    <Route
+                        element={
+                            <ProtectedRoute allowedRoles={["branch_manager"]} allowInternalOps={false} />
+                        }
+                    >
                         <Route path="/products" element={<ProductCatalogPage />} />
                     </Route>
                     <Route
@@ -248,7 +254,7 @@ export default function App() {
                     <Route
                         element={
                             <ProtectedRoute
-                                allowedRoles={["super_admin", "branch_manager"]}
+                                allowedRoles={["branch_manager"]}
                                 allowInternalOps={false}
                             />
                         }
@@ -278,7 +284,7 @@ export default function App() {
                     </Route>
                     <Route
                         element={
-                            <ProtectedRoute allowedRoles={["super_admin", "branch_manager", "auditor"]} allowInternalOps={false} />
+                            <ProtectedRoute allowedRoles={["branch_manager"]} allowInternalOps={false} />
                         }
                     >
                         <Route path="/cash-control" element={<CashControlPage />} />
