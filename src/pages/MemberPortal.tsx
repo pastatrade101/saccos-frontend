@@ -11,7 +11,6 @@ import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
-import NotificationsRoundedIcon from "@mui/icons-material/NotificationsRounded";
 import NorthEastRoundedIcon from "@mui/icons-material/NorthEastRounded";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
@@ -40,6 +39,7 @@ import {
     ListItemButton,
     ListItemIcon,
     ListItemText,
+    Menu,
     MenuItem,
     Paper,
     Stack,
@@ -48,7 +48,7 @@ import {
     useMediaQuery
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type MouseEvent } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -241,6 +241,7 @@ export function MemberPortalPage() {
     const [activeSection, setActiveSection] = useState<PortalSectionId>(portalSections[0].id);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
     const loanApplicationForm = useForm<LoanApplicationValues>({
         resolver: zodResolver(loanApplicationSchema),
         defaultValues: {
@@ -259,6 +260,16 @@ export function MemberPortalPage() {
         }
 
         return fallback;
+    };
+
+    const profileMenuOpen = Boolean(profileMenuAnchor);
+
+    const handleProfileMenuOpen = (event: MouseEvent<HTMLElement>) => {
+        setProfileMenuAnchor(event.currentTarget);
+    };
+
+    const handleProfileMenuClose = () => {
+        setProfileMenuAnchor(null);
     };
 
     useEffect(() => {
@@ -1382,73 +1393,19 @@ export function MemberPortalPage() {
 
             <Box sx={{ mt: "auto", px: collapsed ? 1 : 2, pb: 2 }}>
                 <MotionCard variant="outlined" sx={{ ...contentCardSx, borderRadius: 2 }}>
-                    <CardContent sx={{ p: collapsed ? 1.25 : 2 }}>
-                        <Stack spacing={1.5}>
-                            <Stack direction={collapsed ? "column" : "row"} alignItems="center" spacing={1.25}>
-                                <Avatar
-                                    sx={{
-                                        width: 42,
-                                        height: 42,
-                                        borderRadius: 2,
-                                        bgcolor: alpha(brandColors.primary[500], 0.12),
-                                        color: brandColors.primary[900],
-                                        fontWeight: 800
-                                    }}
-                                >
-                                    {(profile?.full_name || "M").slice(0, 1).toUpperCase()}
-                                </Avatar>
-                                {!collapsed ? (
-                                    <Box sx={{ minWidth: 0 }}>
-                                        <Typography variant="subtitle2" noWrap>
-                                            {profile?.full_name || "Member"}
-                                        </Typography>
-                                        <Typography variant="caption" color="text.secondary" noWrap>
-                                            {user?.email || "No email"}
-                                        </Typography>
-                                    </Box>
-                                ) : null}
-                            </Stack>
-
-                            {!collapsed ? (
-                                <Stack spacing={0.75}>
-                                    <Stack direction="row" justifyContent="space-between">
-                                        <Typography variant="caption" color="text.secondary">
-                                            Role
-                                        </Typography>
-                                        <Typography variant="caption">Member</Typography>
-                                    </Stack>
-                                    <Stack direction="row" justifyContent="space-between">
-                                        <Typography variant="caption" color="text.secondary">
-                                            Branch
-                                        </Typography>
-                                        <Typography variant="caption">{selectedBranchName || "Assigned branch"}</Typography>
-                                    </Stack>
-                                </Stack>
-                            ) : null}
-
-                            <Stack direction={collapsed ? "column" : "row"} spacing={1}>
-                                <IconButton
-                                    onClick={toggleTheme}
-                                    sx={{
-                                        borderRadius: 1.5,
-                                        border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
-                                        flex: collapsed ? "none" : 1
-                                    }}
-                                >
-                                    {themeMode === "dark" ? <LightModeRoundedIcon fontSize="small" /> : <DarkModeRoundedIcon fontSize="small" />}
-                                </IconButton>
-                                <IconButton
-                                    onClick={() => void signOut()}
-                                    sx={{
-                                        borderRadius: 1.5,
-                                        border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
-                                        flex: collapsed ? "none" : 1
-                                    }}
-                                >
-                                    <LogoutRoundedIcon fontSize="small" />
-                                </IconButton>
-                            </Stack>
-                        </Stack>
+                    <CardContent sx={{ p: collapsed ? 1.15 : 1.5 }}>
+                        <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{
+                                display: "block",
+                                textAlign: "center",
+                                lineHeight: 1.5,
+                                fontSize: collapsed ? 10 : 11
+                            }}
+                        >
+                            © 2026 All rights reserved.
+                        </Typography>
                     </CardContent>
                 </MotionCard>
             </Box>
@@ -1575,24 +1532,104 @@ export function MemberPortalPage() {
                                 <InputBase placeholder="Search member workspace..." sx={{ flex: 1, fontSize: 14 }} />
                             </Paper>
                             <IconButton
+                                onClick={handleProfileMenuOpen}
                                 sx={{
                                     borderRadius: 1.5,
-                                    border: `1px solid ${alpha(theme.palette.divider, 0.9)}`
+                                    border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+                                    p: 0.4
                                 }}
                             >
-                                <NotificationsRoundedIcon fontSize="small" />
-                            </IconButton>
-                            <IconButton
-                                sx={{
-                                    borderRadius: 1.5,
-                                    border: `1px solid ${alpha(theme.palette.divider, 0.9)}`
-                                }}
-                            >
-                                <MoreHorizRoundedIcon fontSize="small" />
+                                <Avatar
+                                    sx={{
+                                        width: 32,
+                                        height: 32,
+                                        borderRadius: 1.3,
+                                        bgcolor: alpha(brandColors.primary[500], 0.14),
+                                        color: brandColors.primary[900],
+                                        fontWeight: 800,
+                                        fontSize: 14
+                                    }}
+                                >
+                                    {(profile?.full_name || "M").slice(0, 1).toUpperCase()}
+                                </Avatar>
                             </IconButton>
                         </Stack>
                     </Stack>
                 </Box>
+
+                <Menu
+                    anchorEl={profileMenuAnchor}
+                    open={profileMenuOpen}
+                    onClose={handleProfileMenuClose}
+                    anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                    transformOrigin={{ vertical: "top", horizontal: "right" }}
+                    PaperProps={{
+                        sx: {
+                            mt: 1,
+                            minWidth: 280,
+                            borderRadius: 2,
+                            border: `1px solid ${alpha(theme.palette.divider, 0.9)}`
+                        }
+                    }}
+                >
+                    <Box sx={{ px: 1.75, pt: 1.5, pb: 1.25 }}>
+                        <Stack direction="row" spacing={1.25} alignItems="center">
+                            <Avatar
+                                sx={{
+                                    width: 38,
+                                    height: 38,
+                                    borderRadius: 1.5,
+                                    bgcolor: alpha(brandColors.primary[500], 0.14),
+                                    color: brandColors.primary[900],
+                                    fontWeight: 800
+                                }}
+                            >
+                                {(profile?.full_name || "M").slice(0, 1).toUpperCase()}
+                            </Avatar>
+                            <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>
+                                    {profile?.full_name || "Member"}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" noWrap>
+                                    {user?.email || "No email"}
+                                </Typography>
+                            </Box>
+                        </Stack>
+                        <Stack spacing={0.4} sx={{ mt: 1.25 }}>
+                            <Typography variant="caption" color="text.secondary">
+                                Role: Member
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" noWrap>
+                                Branch: {selectedBranchName || "Assigned branch"}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" noWrap>
+                                Plan: {(subscription?.plan || "N/A").toUpperCase()}
+                            </Typography>
+                        </Stack>
+                    </Box>
+                    <MenuItem
+                        onClick={() => {
+                            toggleTheme();
+                            handleProfileMenuClose();
+                        }}
+                    >
+                        <ListItemIcon>
+                            {themeMode === "dark" ? <LightModeRoundedIcon fontSize="small" /> : <DarkModeRoundedIcon fontSize="small" />}
+                        </ListItemIcon>
+                        <ListItemText>{themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}</ListItemText>
+                    </MenuItem>
+                    <MenuItem
+                        onClick={() => {
+                            handleProfileMenuClose();
+                            void signOut();
+                        }}
+                    >
+                        <ListItemIcon>
+                            <LogoutRoundedIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>Sign out</ListItemText>
+                    </MenuItem>
+                </Menu>
 
                 <Box sx={{ px: { xs: 2, md: 3.5 }, py: { xs: 2.5, md: 3.5 }, pb: { xs: 10, lg: 4 } }}>
                     <Stack spacing={3}>
@@ -1709,60 +1746,62 @@ export function MemberPortalPage() {
                 </DialogActions>
             </MotionModal>
 
-            <Paper
-                sx={{
-                    display: { xs: "flex", lg: "none" },
-                    position: "fixed",
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    zIndex: theme.zIndex.drawer + 2,
-                    borderRadius: 0,
-                    borderTop: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
-                    justifyContent: "space-around",
-                    py: 0.75,
-                    px: 1
-                }}
-            >
-                {portalSections.slice(0, 4).map((section) => {
-                    const Icon = section.icon;
-                    const active = activeSection === section.id;
-
-                    return (
-                        <Button
-                            key={section.id}
-                            onClick={() => handleSectionSelect(section.id)}
-                            sx={{
-                                minWidth: 0,
-                                flexDirection: "column",
-                                gap: 0.25,
-                                color: active ? brandColors.primary[900] : "text.secondary",
-                                fontSize: 10,
-                                fontWeight: 700,
-                                textTransform: "none"
-                            }}
-                        >
-                            <Icon fontSize="small" />
-                            {section.label}
-                        </Button>
-                    );
-                })}
-                <Button
-                    onClick={() => setMobileMenuOpen(true)}
+            {!mobileMenuOpen ? (
+                <Paper
                     sx={{
-                        minWidth: 0,
-                        flexDirection: "column",
-                        gap: 0.25,
-                        color: "text.secondary",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        textTransform: "none"
+                        display: { xs: "flex", lg: "none" },
+                        position: "fixed",
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        zIndex: theme.zIndex.drawer + 2,
+                        borderRadius: 0,
+                        borderTop: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+                        justifyContent: "space-around",
+                        py: 0.75,
+                        px: 1
                     }}
                 >
-                    <MoreHorizRoundedIcon fontSize="small" />
-                    More
-                </Button>
-            </Paper>
+                    {portalSections.slice(0, 4).map((section) => {
+                        const Icon = section.icon;
+                        const active = activeSection === section.id;
+
+                        return (
+                            <Button
+                                key={section.id}
+                                onClick={() => handleSectionSelect(section.id)}
+                                sx={{
+                                    minWidth: 0,
+                                    flexDirection: "column",
+                                    gap: 0.25,
+                                    color: active ? brandColors.primary[900] : "text.secondary",
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    textTransform: "none"
+                                }}
+                            >
+                                <Icon fontSize="small" />
+                                {section.label}
+                            </Button>
+                        );
+                    })}
+                    <Button
+                        onClick={() => setMobileMenuOpen(true)}
+                        sx={{
+                            minWidth: 0,
+                            flexDirection: "column",
+                            gap: 0.25,
+                            color: "text.secondary",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: "none"
+                        }}
+                    >
+                        <MoreHorizRoundedIcon fontSize="small" />
+                        More
+                    </Button>
+                </Paper>
+            ) : null}
         </Box>
     );
 }

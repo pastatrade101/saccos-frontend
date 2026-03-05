@@ -116,7 +116,10 @@
   flex-direction: column;
   justify-content: center;
   padding: 3rem;
-  background: color-mix(in srgb, var(--surface-card) 96%, white);
+  background:
+    radial-gradient(circle at top right, rgba(31, 168, 230, 0.08), transparent 35%),
+    color-mix(in srgb, var(--surface-card) 97%, white);
+  border-left: 1px solid color-mix(in srgb, var(--border-subtle) 75%, var(--accent-100));
 }
 
 .authPanelTop {
@@ -124,11 +127,55 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1.75rem;
+  margin-bottom: 1.5rem;
 }
 
 .authPanelTop > div {
   flex: 1;
+}
+
+.authBrandRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 0.75rem;
+  min-height: 3.85rem;
+  margin-bottom: 0.85rem;
+  padding: 0.62rem 0.8rem;
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--surface-soft) 70%, var(--accent-100));
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 65%, var(--accent-300));
+}
+
+.authBrandIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.authBrandLogo {
+  width: 3.25rem;
+  height: 3.25rem;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.authBrandText {
+  display: block;
+  font-size: 1.08rem;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: 0.018em;
+  color: var(--text-primary);
+}
+
+.authBrandSubtext {
+  display: block;
+  margin-top: 0.24rem;
+  font-size: 0.83rem;
+  color: var(--text-secondary);
 }
 
 .authPanelEyebrow {
@@ -148,9 +195,9 @@
 }
 
 .authCopy {
-  margin: 0.65rem 0 0;
+  margin: 0.55rem 0 0;
   color: var(--text-muted);
-  line-height: 1.7;
+  line-height: 1.62;
 }
 
 .authThemeToggle {
@@ -185,7 +232,7 @@
 .authPanelFooter {
   display: grid;
   gap: 0.9rem;
-  margin-top: 1.5rem;
+  margin-top: 1.3rem;
 }
 
 .authFooterItem {
@@ -395,7 +442,7 @@
   }
 
   .authVisual {
-    min-height: 300px;
+    display: none;
   }
 
   .authVisualContent,
@@ -403,8 +450,23 @@
     padding: 1.5rem;
   }
 
+  .authPanel {
+    border-left: 0;
+    border-top: 1px solid color-mix(in srgb, var(--border-subtle) 80%, var(--accent-100));
+  }
+
   .authPanelTop {
     flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .authBrandRow {
+    width: 100%;
+  }
+
+  .authBrandLogo {
+    width: 2.75rem;
+    height: 2.75rem;
   }
 
   .authVisualMetrics,

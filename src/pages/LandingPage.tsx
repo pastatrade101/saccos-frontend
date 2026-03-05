@@ -8,8 +8,12 @@ import {
     Chip,
     Container,
     Divider,
+    Drawer,
     Grid,
     IconButton,
+    List,
+    ListItemButton,
+    ListItemText,
     Paper,
     Stack,
     Toolbar,
@@ -17,7 +21,8 @@ import {
     alpha,
     useTheme
 } from "@mui/material";
-import AccountBalanceRoundedIcon from "@mui/icons-material/AccountBalanceRounded";
+import { useState } from "react";
+import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import AutoGraphRoundedIcon from "@mui/icons-material/AutoGraphRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
@@ -206,12 +211,14 @@ const demoStorySteps = [
 export function LandingPage() {
     const theme = useTheme();
     const { theme: mode, toggleTheme } = useUI();
+    const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
     const ownerName = import.meta.env.VITE_MARKETING_OWNER_NAME || "Platform Owner";
     const ownerEmail = import.meta.env.VITE_MARKETING_OWNER_EMAIL || "";
     const ownerPhone = import.meta.env.VITE_MARKETING_OWNER_PHONE || "";
     const ownerWhatsApp = import.meta.env.VITE_MARKETING_OWNER_WHATSAPP || "";
-    const ownerCompany = import.meta.env.VITE_MARKETING_OWNER_COMPANY || "SACCOS Control";
+    const ownerCompany = import.meta.env.VITE_MARKETING_OWNER_COMPANY || "SMART SACCOS";
+    const logoSrc = "/SACCOSS-LOGO.png";
 
     const whatsappNumber = ownerWhatsApp.replace(/[^\d]/g, "");
     const contactHref = ownerEmail
@@ -233,35 +240,59 @@ export function LandingPage() {
                         : "radial-gradient(circle at top left, rgba(139,147,255,0.18), transparent 28%), radial-gradient(circle at right 12%, rgba(77,208,200,0.12), transparent 24%)"
             }}
         >
-            <AppBar position="sticky" color="transparent">
+            <AppBar
+                position="sticky"
+                color="transparent"
+                elevation={0}
+                sx={{
+                    borderBottom: `1px solid ${alpha(theme.palette.divider, 0.65)}`
+                }}
+            >
                 <Toolbar
                     sx={{
-                        minHeight: 76,
+                        minHeight: { xs: 64, md: 76 },
+                        px: { xs: 1.5, sm: 2.5 },
                         backdropFilter: "blur(18px)",
-                        bgcolor: alpha(theme.palette.background.default, 0.82)
+                        bgcolor: alpha(theme.palette.background.default, 0.9)
                     }}
                 >
-                    <Container maxWidth="xl" sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                        <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexGrow: 1 }}>
+                    <Container maxWidth="xl" sx={{ display: "flex", alignItems: "center", gap: { xs: 1, md: 2 } }}>
+                        <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flexGrow: 1, minWidth: 0 }}>
                             <Box
                                 sx={{
-                                    width: 44,
-                                    height: 44,
+                                    width: { xs: 36, md: 44 },
+                                    height: { xs: 36, md: 44 },
                                     borderRadius: 1.5,
-                                    bgcolor: "primary.main",
-                                    color: "primary.contrastText",
+                                    bgcolor: "#ffffff",
                                     display: "grid",
                                     placeItems: "center",
-                                    boxShadow: `0 18px 36px ${alpha(theme.palette.primary.main, 0.24)}`
+                                    flexShrink: 0,
+                                    boxShadow: `0 14px 30px ${alpha(theme.palette.primary.main, 0.24)}`
                                 }}
                             >
-                                <AccountBalanceRoundedIcon />
+                                <Box
+                                    component="img"
+                                    src={logoSrc}
+                                    alt="SMART SACCOS logo"
+                                    sx={{
+                                        width: { xs: 24, md: 30 },
+                                        height: { xs: 24, md: 30 },
+                                        objectFit: "contain"
+                                    }}
+                                />
                             </Box>
-                            <Box>
-                                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                            <Box sx={{ minWidth: 0 }}>
+                                <Typography
+                                    variant="subtitle1"
+                                    sx={{ fontWeight: 800, lineHeight: 1.2, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}
+                                >
                                     {ownerCompany}
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary">
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: { xs: "none", sm: "block" }, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}
+                                >
                                     Multi-tenant SACCOS operating platform
                                 </Typography>
                             </Box>
@@ -269,7 +300,7 @@ export function LandingPage() {
 
                         <Stack
                             direction="row"
-                            spacing={1}
+                            spacing={0.75}
                             sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}
                         >
                             <Button component="a" href="#solutions" color="inherit">
@@ -289,11 +320,11 @@ export function LandingPage() {
                             </Button>
                         </Stack>
 
-                        <Stack direction="row" spacing={1} alignItems="center">
-                            <IconButton onClick={toggleTheme} color="inherit">
+                        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexShrink: 0 }}>
+                            <IconButton onClick={toggleTheme} color="inherit" size="small">
                                 {mode === "dark" ? <LightModeRoundedIcon /> : <NightlightRoundedIcon />}
                             </IconButton>
-                            <Button component={RouterLink} to="/signin" variant="text" color="inherit">
+                            <Button component={RouterLink} to="/signin" variant="text" color="inherit" sx={{ display: { xs: "none", sm: "inline-flex" } }}>
                                 Sign in
                             </Button>
                             <Button
@@ -301,13 +332,65 @@ export function LandingPage() {
                                 href={contactHref}
                                 variant="contained"
                                 endIcon={<ArrowForwardRoundedIcon />}
+                                sx={{ display: { xs: "none", md: "inline-flex" } }}
                             >
                                 Contact owner
                             </Button>
+                            <IconButton
+                                color="inherit"
+                                size="small"
+                                sx={{ display: { xs: "inline-flex", md: "none" } }}
+                                onClick={() => setMobileNavOpen(true)}
+                            >
+                                <MenuRoundedIcon />
+                            </IconButton>
                         </Stack>
                     </Container>
                 </Toolbar>
             </AppBar>
+
+            <Drawer
+                anchor="top"
+                open={mobileNavOpen}
+                onClose={() => setMobileNavOpen(false)}
+                PaperProps={{
+                    sx: {
+                        mt: "64px",
+                        borderRadius: 0,
+                        borderBottom: `1px solid ${theme.palette.divider}`
+                    }
+                }}
+            >
+                <Box sx={{ px: 1.5, py: 1 }}>
+                    <List disablePadding>
+                        {[
+                            { label: "Solutions", href: "#solutions" },
+                            { label: "Why Different", href: "#why-different" },
+                            { label: "Plans", href: "#plans" },
+                            { label: "How It Works", href: "#how-it-works" },
+                            { label: "Contact", href: "#contact" }
+                        ].map((item) => (
+                            <ListItemButton
+                                key={item.href}
+                                component="a"
+                                href={item.href}
+                                onClick={() => setMobileNavOpen(false)}
+                                sx={{ borderRadius: 1 }}
+                            >
+                                <ListItemText primary={item.label} />
+                            </ListItemButton>
+                        ))}
+                    </List>
+                    <Stack direction="row" spacing={1} sx={{ px: 1, py: 1.5 }}>
+                        <Button component={RouterLink} to="/signin" variant="outlined" fullWidth onClick={() => setMobileNavOpen(false)}>
+                            Sign in
+                        </Button>
+                        <Button component="a" href={contactHref} variant="contained" fullWidth onClick={() => setMobileNavOpen(false)}>
+                            Contact owner
+                        </Button>
+                    </Stack>
+                </Box>
+            </Drawer>
 
             <Container maxWidth="xl" sx={{ py: { xs: 4, md: 6 } }}>
                 <Box
@@ -856,13 +939,18 @@ export function LandingPage() {
                                         width: 40,
                                         height: 40,
                                         borderRadius: 1.5,
-                                        bgcolor: "primary.main",
-                                        color: "primary.contrastText",
+                                        bgcolor: "#ffffff",
                                         display: "grid",
-                                        placeItems: "center"
+                                        placeItems: "center",
+                                        border: `1px solid ${alpha(theme.palette.primary.main, 0.14)}`
                                     }}
                                 >
-                                    <AccountBalanceRoundedIcon fontSize="small" />
+                                    <Box
+                                        component="img"
+                                        src={logoSrc}
+                                        alt="SMART SACCOS logo"
+                                        sx={{ width: 24, height: 24, objectFit: "contain" }}
+                                    />
                                 </Box>
                                 <Typography variant="h6">{ownerCompany}</Typography>
                             </Stack>

@@ -322,6 +322,7 @@ export function AppLayout() {
         ? alpha(brandColors.primary[900], 0.92)
         : brandColors.primary[900];
     const topBarMuted = alpha("#ffffff", 0.72);
+    const brandLogoSrc = "/SACCOSS-LOGO.png";
 
     const navigateToSearchOption = (option: SearchOption | null) => {
         if (!option) {
@@ -338,10 +339,27 @@ export function AppLayout() {
     const sidebar = (
         <Box sx={{ p: 2, height: "100%", display: "flex", flexDirection: "column", gap: 2 }}>
             <Stack direction="row" spacing={1.5} alignItems="center">
-                <Avatar sx={{ bgcolor: "primary.main", color: "#fff", width: 40, height: 40 }}>S</Avatar>
+                <Box
+                    sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 1.5,
+                        bgcolor: "#ffffff",
+                        display: "grid",
+                        placeItems: "center",
+                        border: `1px solid ${isDarkMode ? alpha(theme.palette.common.white, 0.12) : alpha(brandColors.primary[900], 0.12)}`
+                    }}
+                >
+                    <Box
+                        component="img"
+                        src={brandLogoSrc}
+                        alt="SMART SACCOS logo"
+                        sx={{ width: 26, height: 26, objectFit: "contain" }}
+                    />
+                </Box>
                 <Box>
                     <Typography variant="subtitle1" fontWeight={700} sx={{ color: sidebarText }}>
-                        SACCOS Control
+                        SMART SACCOS
                     </Typography>
                     <Typography variant="caption" sx={{ color: sidebarMuted }}>
                         Fintech operations workspace

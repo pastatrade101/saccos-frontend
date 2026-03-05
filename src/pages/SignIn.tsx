@@ -96,20 +96,33 @@ export function SignInPage() {
                 <section className={pageStyles.authPanel}>
                     <div className={pageStyles.authPanelTop}>
                         <div>
+                            <div className={pageStyles.authBrandRow}>
+                                <div className={pageStyles.authBrandIdentity}>
+                                    <img
+                                        src="/SACCOSS-LOGO.png"
+                                        alt="SMART SACCOS logo"
+                                        className={pageStyles.authBrandLogo}
+                                    />
+                                    <div>
+                                        <span className={pageStyles.authBrandText}>SMART SACCOS</span>
+                                        <span className={pageStyles.authBrandSubtext}>Secure workforce portal</span>
+                                    </div>
+                                </div>
+                                <button
+                                    aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                                    className={pageStyles.authThemeToggle}
+                                    type="button"
+                                    onClick={toggleTheme}
+                                >
+                                    {theme === "dark" ? <LightModeRoundedIcon fontSize="small" /> : <DarkModeRoundedIcon fontSize="small" />}
+                                </button>
+                            </div>
                             <span className={pageStyles.authPanelEyebrow}>Welcome back</span>
-                            <h2 className={pageStyles.authTitle}>Sign in to SACCOS Control</h2>
+                            <h2 className={pageStyles.authTitle}>Sign in to SMART SACCOS</h2>
                             <p className={pageStyles.authCopy}>
                                 Use your assigned credentials to enter the correct workspace for your role.
                             </p>
                         </div>
-                        <button
-                            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                            className={pageStyles.authThemeToggle}
-                            type="button"
-                            onClick={toggleTheme}
-                        >
-                            {theme === "dark" ? <LightModeRoundedIcon fontSize="small" /> : <DarkModeRoundedIcon fontSize="small" />}
-                        </button>
                     </div>
 
                     <form className={pageStyles.form} onSubmit={onSubmit}>
@@ -123,17 +136,6 @@ export function SignInPage() {
                             {submitting ? "Signing in..." : "Sign In"}
                         </button>
                     </form>
-
-                    <div className={pageStyles.authPanelFooter}>
-                        <div className={pageStyles.authFooterItem}>
-                            <strong>Need onboarding?</strong>
-                            <span>Contact the platform owner to provision your tenant and access.</span>
-                        </div>
-                        <div className={pageStyles.authFooterItem}>
-                            <strong>First login?</strong>
-                            <span>Temporary credentials will force a password change after sign-in.</span>
-                        </div>
-                    </div>
 
                     <p className={pageStyles.authLegal}>
                         By signing in, you acknowledge the{" "}
