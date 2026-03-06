@@ -1,17 +1,22 @@
 import { MotionCard, MotionModal } from "../ui/motion";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
+import ApartmentRoundedIcon from "@mui/icons-material/ApartmentRounded";
 import ApprovalRoundedIcon from "@mui/icons-material/ApprovalRounded";
 import AutoGraphRoundedIcon from "@mui/icons-material/AutoGraphRounded";
 import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import CreditScoreRoundedIcon from "@mui/icons-material/CreditScoreRounded";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
+import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import EastRoundedIcon from "@mui/icons-material/EastRounded";
+import EventRoundedIcon from "@mui/icons-material/EventRounded";
 import HourglassTopRoundedIcon from "@mui/icons-material/HourglassTopRounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
 import NorthEastRoundedIcon from "@mui/icons-material/NorthEastRounded";
+import ShieldRoundedIcon from "@mui/icons-material/ShieldRounded";
+import StarRoundedIcon from "@mui/icons-material/StarRounded";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
@@ -19,6 +24,7 @@ import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
 import HighlightOffRoundedIcon from "@mui/icons-material/HighlightOffRounded";
 import WalletRoundedIcon from "@mui/icons-material/WalletRounded";
+import WorkspacesRoundedIcon from "@mui/icons-material/WorkspacesRounded";
 import {
     Alert,
     Avatar,
@@ -26,6 +32,7 @@ import {
     Button,
     Card,
     CardContent,
+    Divider,
     Dialog,
     DialogActions,
     DialogContent,
@@ -36,6 +43,8 @@ import {
     IconButton,
     InputBase,
     List,
+    ListItem,
+    ListItemAvatar,
     ListItemButton,
     ListItemIcon,
     ListItemText,
@@ -43,6 +52,7 @@ import {
     MenuItem,
     Paper,
     Stack,
+    Switch,
     TextField,
     Typography,
     useMediaQuery
@@ -50,12 +60,14 @@ import {
 import { alpha, useTheme } from "@mui/material/styles";
 import { useEffect, useMemo, useState, type ChangeEvent, type MouseEvent } from "react";
 import { useForm } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
 import { useAuth } from "../auth/AuthProvider";
 import { ChartPanel } from "../components/ChartPanel";
 import { DataTable, type Column } from "../components/DataTable";
+import { MemberOverview, type MemberAlertItem } from "../components/member-overview";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { useToast } from "../components/Toast";
 import { AppLoader } from "../components/AppLoader";
@@ -67,14 +79,16 @@ import {
     type LoanApplicationsResponse,
     type LoanProductsResponse,
     type LoansResponse,
+    type LoanSchedulesResponse,
     type MemberAccountsResponse,
     type MembersResponse,
     type StatementsResponse
 } from "../lib/endpoints";
 import { brandColors, darkThemeColors } from "../theme/colors";
 import { useUI } from "../ui/UIProvider";
-import type { Loan, LoanApplication, LoanProduct, Member, MemberAccount, StatementRow } from "../types/api";
-import { formatCurrency, formatDate } from "../utils/format";
+import type { Loan, LoanApplication, LoanProduct, LoanSchedule, Member, MemberAccount, StatementRow } from "../types/api";
+import { downloadMemberStatementPdf } from "../utils/memberStatementPdf";
+import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
 const loanApplicationSchema = z.object({
     product_id: z.string().uuid("Select a loan product."),
@@ -98,6 +112,40 @@ function groupBalances(statements: StatementRow[]) {
             balance: entry.running_balance,
             amount: entry.amount
         }));
+}
+
+function groupSavingsByMonth(statements: StatementRow[]) {
+    const monthly = new Map<string, { label: string; balance: number; date: number }>();
+
+    statements.forEach((entry) => {
+        const date = new Date(entry.created_at || entry.transaction_date);
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+        const existing = monthly.get(key);
+        const timestamp = date.getTime();
+
+        if (!existing || existing.date < timestamp) {
+            monthly.set(key, {
+                label: new Intl.DateTimeFormat("en-TZ", { month: "short", year: "2-digit" }).format(date),
+                balance: entry.running_balance,
+                date: timestamp
+            });
+        }
+    });
+
+    return Array.from(monthly.values())
+        .sort((a, b) => a.date - b.date)
+        .slice(-6);
+}
+
+function getDaysUntil(dateString?: string | null) {
+    if (!dateString) {
+        return null;
+    }
+
+    const target = new Date(dateString);
+    const now = new Date();
+    const ms = target.getTime() - now.getTime();
+    return Math.ceil(ms / (1000 * 60 * 60 * 24));
 }
 
 const portalSections = [
@@ -224,12 +272,14 @@ function MetricCard({ icon: Icon, label, value, helper, tone, delta }: MetricCar
 
 export function MemberPortalPage() {
     const theme = useTheme();
+    const navigate = useNavigate();
     const isDesktop = useMediaQuery(theme.breakpoints.up("lg"));
     const { profile, selectedTenantName, selectedBranchName, signOut, subscription, user } = useAuth();
     const { pushToast } = useToast();
     const { theme: themeMode, toggleTheme } = useUI();
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
     const [loans, setLoans] = useState<Loan[]>([]);
+    const [loanSchedules, setLoanSchedules] = useState<LoanSchedule[]>([]);
     const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
     const [loanApplications, setLoanApplications] = useState<LoanApplication[]>([]);
     const [statements, setStatements] = useState<StatementRow[]>([]);
@@ -263,6 +313,18 @@ export function MemberPortalPage() {
     };
 
     const profileMenuOpen = Boolean(profileMenuAnchor);
+    const m3MenuTokens = useMemo(() => {
+        const surfaceContainerHighest = theme.palette.background.paper;
+        const surfaceVariant = theme.palette.mode === "dark"
+            ? alpha(theme.palette.common.white, 0.04)
+            : alpha(theme.palette.common.black, 0.02);
+
+        return {
+            surfaceContainerHighest,
+            surfaceVariant,
+            shapeExtraLarge: "4px"
+        };
+    }, [theme]);
 
     const handleProfileMenuOpen = (event: MouseEvent<HTMLElement>) => {
         setProfileMenuAnchor(event.currentTarget);
@@ -270,6 +332,11 @@ export function MemberPortalPage() {
 
     const handleProfileMenuClose = () => {
         setProfileMenuAnchor(null);
+    };
+
+    const handleProfileMenuAction = (action: () => void) => {
+        action();
+        handleProfileMenuClose();
     };
 
     useEffect(() => {
@@ -292,6 +359,7 @@ export function MemberPortalPage() {
                 if (!memberRecord?.id) {
                     setAccounts([]);
                     setLoans([]);
+                    setLoanSchedules([]);
                     setLoanProducts([]);
                     setLoanApplications([]);
                     setStatements([]);
@@ -310,6 +378,11 @@ export function MemberPortalPage() {
                             member_id: memberRecord.id
                         }
                     }),
+                    api.get<LoanSchedulesResponse>(endpoints.finance.loanSchedules(), {
+                        params: {
+                            tenant_id: profile.tenant_id
+                        }
+                    }),
                     api.get<LoanProductsResponse>(endpoints.products.loans()),
                     api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
                         params: {
@@ -321,7 +394,7 @@ export function MemberPortalPage() {
                     })
                 ]);
 
-                const [accountsResult, loansResult, productsResult, applicationsResult, statementsResult] = results;
+                const [accountsResult, loansResult, schedulesResult, productsResult, applicationsResult, statementsResult] = results;
                 const issues: string[] = [];
 
                 if (accountsResult.status === "fulfilled") {
@@ -336,6 +409,13 @@ export function MemberPortalPage() {
                 } else {
                     setLoans([]);
                     issues.push(getApiErrorMessage(loansResult.reason, "Loans unavailable."));
+                }
+
+                if (schedulesResult.status === "fulfilled") {
+                    setLoanSchedules(schedulesResult.value.data.data || []);
+                } else {
+                    setLoanSchedules([]);
+                    issues.push(getApiErrorMessage(schedulesResult.reason, "Loan schedules unavailable."));
                 }
 
                 if (productsResult.status === "fulfilled") {
@@ -380,12 +460,24 @@ export function MemberPortalPage() {
         }
     }, [isDesktop]);
 
+    const savingsAccounts = useMemo(() => accounts.filter((account) => account.product_type === "savings"), [accounts]);
     const totalSavings = useMemo(
-        () => accounts.filter((account) => account.product_type === "savings").reduce((sum, account) => sum + account.available_balance, 0),
-        [accounts]
+        () => savingsAccounts.reduce((sum, account) => sum + account.available_balance + account.locked_balance, 0),
+        [savingsAccounts]
+    );
+    const availableSavings = useMemo(
+        () => savingsAccounts.reduce((sum, account) => sum + account.available_balance, 0),
+        [savingsAccounts]
+    );
+    const lockedSavings = useMemo(
+        () => savingsAccounts.reduce((sum, account) => sum + account.locked_balance, 0),
+        [savingsAccounts]
     );
     const totalShareCapital = useMemo(
-        () => accounts.filter((account) => account.product_type === "shares").reduce((sum, account) => sum + account.available_balance, 0),
+        () =>
+            accounts
+                .filter((account) => account.product_type === "shares")
+                .reduce((sum, account) => sum + account.available_balance + account.locked_balance, 0),
         [accounts]
     );
     const totalDividends = useMemo(
@@ -404,10 +496,23 @@ export function MemberPortalPage() {
         [loans]
     );
     const hasNoVisibleFinancialData = accounts.length === 0 && loans.length === 0 && statements.length === 0;
-    const nextPaymentDue = useMemo(
-        () => loans.find((loan) => ["active", "in_arrears"].includes(loan.status))?.disbursed_at || null,
+    const activeLoanIds = useMemo(
+        () => loans.filter((loan) => ["active", "in_arrears"].includes(loan.status)).map((loan) => loan.id),
         [loans]
     );
+    const nextLoanInstallment = useMemo(() => {
+        if (!activeLoanIds.length) {
+            return null;
+        }
+
+        const pending = loanSchedules
+            .filter((schedule) => activeLoanIds.includes(schedule.loan_id) && schedule.status !== "paid")
+            .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+
+        return pending[0] || null;
+    }, [loanSchedules, activeLoanIds]);
+    const nextPaymentDue = nextLoanInstallment?.due_date || null;
+    const daysUntilDue = useMemo(() => getDaysUntil(nextPaymentDue), [nextPaymentDue]);
     const activeLoanCount = useMemo(() => loans.filter((loan) => ["active", "in_arrears"].includes(loan.status)).length, [loans]);
     const pendingLoanApplications = useMemo(
         () => loanApplications.filter((application) => !["rejected", "cancelled", "disbursed"].includes(application.status)),
@@ -415,12 +520,97 @@ export function MemberPortalPage() {
     );
     const transactionCount = statements.length;
     const balanceTrend = groupBalances(statements);
+    const monthlySavingsTrend = useMemo(() => groupSavingsByMonth(statements), [statements]);
     const currentView = portalSections.find((section) => section.id === activeSection) || portalSections[0];
     const latestBalance = statements[0]?.running_balance ?? 0;
     const totalVisibleCapital = totalSavings + totalShareCapital;
+    const netPosition = totalVisibleCapital - totalOutstandingLoans;
+    const hasOverdueLoan = useMemo(() => loans.some((loan) => loan.status === "in_arrears"), [loans]);
     const drawerWidth = sidebarOpen ? 272 : 88;
     const chartLabels = balanceTrend.map((entry) => entry.label);
     const chartValues = balanceTrend.map((entry) => entry.balance);
+    const savingsTrendLabels = monthlySavingsTrend.map((entry) => entry.label);
+    const savingsTrendValues = monthlySavingsTrend.map((entry) => entry.balance);
+    const monthlyInstallment = nextLoanInstallment
+        ? Math.max(
+            nextLoanInstallment.principal_due +
+            nextLoanInstallment.interest_due -
+            nextLoanInstallment.principal_paid -
+            nextLoanInstallment.interest_paid,
+            0
+        )
+        : 0;
+    const totalOriginalLoanAmount = useMemo(() => loans.reduce((sum, loan) => sum + loan.principal_amount, 0), [loans]);
+    const loanProgressPercent = totalOriginalLoanAmount > 0 ? ((totalOriginalLoanAmount - totalOutstandingLoans) / totalOriginalLoanAmount) * 100 : 0;
+    const lastContribution = useMemo(
+        () => statements.find((statement) => ["share_contribution", "dividend_allocation"].includes(statement.transaction_type)) || null,
+        [statements]
+    );
+    const lastLoanPayment = useMemo(
+        () => statements.find((statement) => ["loan_repayment", "loan_repay"].includes(statement.transaction_type)) || null,
+        [statements]
+    );
+    const standing = useMemo(() => {
+        if (hasOverdueLoan) {
+            return {
+                label: "Overdue",
+                tone: "danger" as const,
+                details: "One or more installments are overdue. Please settle immediately."
+            };
+        }
+
+        if (activeLoanCount > 0 && daysUntilDue !== null) {
+            return {
+                label: `Installment Due in ${Math.max(daysUntilDue, 0)} day${Math.abs(daysUntilDue) === 1 ? "" : "s"}`,
+                tone: daysUntilDue <= 3 ? ("warning" as const) : ("neutral" as const),
+                details: "Keep your repayment schedule current to maintain good standing."
+            };
+        }
+
+        if (activeLoanCount === 0) {
+            return {
+                label: "No Active Loans",
+                tone: "neutral" as const,
+                details: "Your account currently has no active loan obligations."
+            };
+        }
+
+        return {
+            label: "In Good Standing",
+            tone: "success" as const,
+            details: "All visible obligations are current."
+        };
+    }, [activeLoanCount, daysUntilDue, hasOverdueLoan]);
+    const memberAlerts = useMemo<MemberAlertItem[]>(() => {
+        const alerts: MemberAlertItem[] = [];
+
+        if (hasOverdueLoan) {
+            alerts.push({
+                id: "overdue-loan",
+                severity: "error",
+                title: "Overdue Installment",
+                message: "An overdue loan installment was detected. Pay the due amount to avoid further penalties."
+            });
+        } else if (activeLoanCount > 0 && daysUntilDue !== null && daysUntilDue <= 7) {
+            alerts.push({
+                id: "installment-due",
+                severity: "warning",
+                title: "Installment Due Soon",
+                message: `Your next installment is due in ${Math.max(daysUntilDue, 0)} day${Math.abs(daysUntilDue) === 1 ? "" : "s"}.`
+            });
+        }
+
+        if (lastContribution?.transaction_type === "dividend_allocation") {
+            alerts.push({
+                id: "dividend-posted",
+                severity: "info",
+                title: "Dividend Posted",
+                message: `Dividend allocation of ${formatCurrency(lastContribution.amount)} was posted to your account.`
+            });
+        }
+
+        return alerts;
+    }, [activeLoanCount, daysUntilDue, hasOverdueLoan, lastContribution]);
 
     const accountColumns: Column<MemberAccount>[] = [
         { key: "account", header: "Account", render: (row) => row.account_number },
@@ -573,6 +763,30 @@ export function MemberPortalPage() {
         }
     };
 
+    const handleDownloadStatement = () => {
+        if (!statements.length) {
+            pushToast({
+                type: "error",
+                title: "No statement data",
+                message: "No posted transactions are available to export yet."
+            });
+            return;
+        }
+
+        downloadMemberStatementPdf({
+            memberName: profile?.full_name || "Member",
+            memberEmail: user?.email || null,
+            tenantName: selectedTenantName,
+            branchName: selectedBranchName,
+            generatedBy: profile?.full_name || user?.email || "Member Portal",
+            totalSavings,
+            shareCapital: totalShareCapital,
+            outstandingLoan: totalOutstandingLoans,
+            netPosition,
+            statements
+        });
+    };
+
     const renderStatGrid = () => (
         <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
@@ -712,60 +926,54 @@ export function MemberPortalPage() {
     );
 
     const renderOverviewView = () => (
-        <Stack spacing={3}>
-            {renderHero()}
-            {renderStatGrid()}
-
-            <Grid container spacing={2.5}>
-                <Grid size={{ xs: 12, xl: 8 }}>
-                    <ChartPanel
-                        title="Capital Growth"
-                        subtitle="Monthly visible running balance trend from posted member activity."
-                        data={{
-                            labels: chartLabels,
-                            datasets: [
-                                {
-                                    label: "Savings",
-                                    data: chartValues,
-                                    borderColor: brandColors.primary[500],
-                                    backgroundColor: alpha(brandColors.primary[500], 0.14),
-                                    fill: true,
-                                    tension: 0.35
-                                }
-                            ]
-                        }}
-                        options={{
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { position: "bottom" } }
-                        }}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, xl: 4 }}>
-                    <ChartPanel
-                        title="Loan Status"
-                        type="doughnut"
-                        subtitle="Current comparison of visible savings position against loan exposure."
-                        data={{
-                            labels: ["Savings & Shares", "Outstanding Loans"],
-                            datasets: [
-                                {
-                                    data: [Math.max(totalVisibleCapital, 0), Math.max(totalOutstandingLoans, 0)],
-                                    backgroundColor: [brandColors.success, brandColors.danger],
-                                    borderWidth: 0
-                                }
-                            ]
-                        }}
-                        options={{
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { position: "bottom" } },
-                            cutout: "68%"
-                        }}
-                    />
-                </Grid>
-            </Grid>
-        </Stack>
+        <MemberOverview
+            summary={{
+                totalSavings,
+                totalShareCapital,
+                outstandingLoan: totalOutstandingLoans,
+                availableToWithdraw: availableSavings,
+                netPosition
+            }}
+            standing={standing}
+            savingsCard={{
+                totalSavings,
+                availableBalance: availableSavings,
+                lockedAmount: lockedSavings
+            }}
+            shareCard={{
+                totalShares: totalShareCapital,
+                dividendEarned: totalDividends,
+                lastContributionDate: lastContribution?.transaction_date || null
+            }}
+            loanExposure={{
+                outstandingAmount: totalOutstandingLoans,
+                nextInstallmentDueDate: nextPaymentDue,
+                monthlyInstallment,
+                loanProgressPercent,
+                activeLoans: activeLoanCount
+            }}
+            recentActivity={{
+                lastTransactionDate: statements[0]?.transaction_date || null,
+                lastContribution,
+                lastLoanPayment
+            }}
+            alerts={memberAlerts}
+            savingsTrend={{
+                labels: savingsTrendLabels.length ? savingsTrendLabels : chartLabels,
+                values: savingsTrendValues.length ? savingsTrendValues : chartValues
+            }}
+            transactions={statements}
+            onApplyLoan={() => {
+                handleSectionSelect("member-loans");
+                if (canApplyForLoan) {
+                    setShowApplyDialog(true);
+                }
+            }}
+            onMakeContribution={() => handleSectionSelect("member-contributions")}
+            onDownloadStatement={handleDownloadStatement}
+            onPayInstallment={() => handleSectionSelect("member-loans")}
+            onViewFullStatement={() => handleSectionSelect("member-transactions")}
+        />
     );
 
     const renderAccountsView = () => (
@@ -1564,71 +1772,175 @@ export function MemberPortalPage() {
                     anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
                     transformOrigin={{ vertical: "top", horizontal: "right" }}
                     PaperProps={{
+                        elevation: 3,
                         sx: {
                             mt: 1,
-                            minWidth: 280,
-                            borderRadius: 2,
-                            border: `1px solid ${alpha(theme.palette.divider, 0.9)}`
+                            width: 360,
+                            maxWidth: "calc(100vw - 20px)",
+                            borderRadius: m3MenuTokens.shapeExtraLarge,
+                            border: `1px solid ${theme.palette.divider}`,
+                            backgroundColor: m3MenuTokens.surfaceContainerHighest,
+                            p: 0.25
                         }
                     }}
                 >
-                    <Box sx={{ px: 1.75, pt: 1.5, pb: 1.25 }}>
-                        <Stack direction="row" spacing={1.25} alignItems="center">
-                            <Avatar
+                    <Box sx={{ px: 1, py: 0.5 }}>
+                        <List dense disablePadding>
+                            <ListItem
                                 sx={{
-                                    width: 38,
-                                    height: 38,
-                                    borderRadius: 1.5,
-                                    bgcolor: alpha(brandColors.primary[500], 0.14),
-                                    color: brandColors.primary[900],
-                                    fontWeight: 800
+                                    px: 1.25,
+                                    py: 1.25,
+                                    borderRadius: 0.5
+                                }}
+                                secondaryAction={
+                                    <Stack direction="row" spacing={0.5}>
+                                        <Chip label="Active" size="small" variant="outlined" sx={{ borderRadius: 0.5, fontWeight: 600 }} />
+                                        {Boolean((user as { email_confirmed_at?: string | null } | null)?.email_confirmed_at) ? (
+                                            <Chip
+                                                label="Verified"
+                                                size="small"
+                                                variant="outlined"
+                                                color="primary"
+                                                sx={{ borderRadius: 0.5, fontWeight: 600 }}
+                                            />
+                                        ) : null}
+                                    </Stack>
+                                }
+                            >
+                                <ListItemAvatar>
+                                    <Avatar
+                                        sx={{
+                                            width: 42,
+                                            height: 42,
+                                            bgcolor: alpha(theme.palette.primary.main, 0.14),
+                                            color: theme.palette.primary.main,
+                                            fontWeight: 700
+                                        }}
+                                    >
+                                        {(profile?.full_name || "M").slice(0, 1).toUpperCase()}
+                                    </Avatar>
+                                </ListItemAvatar>
+                                <ListItemText
+                                    primary={
+                                        <Typography variant="subtitle1" sx={{ fontSize: 16, fontWeight: 700 }} noWrap>
+                                            {profile?.full_name || "Member"}
+                                        </Typography>
+                                    }
+                                    secondary={
+                                        <Typography variant="caption" sx={{ fontSize: 12 }} color="text.secondary" noWrap>
+                                            {user?.email || "No email"}
+                                        </Typography>
+                                    }
+                                />
+                            </ListItem>
+                        </List>
+
+                        <Box
+                            sx={{
+                                mt: 0.75,
+                                p: 0.5,
+                                borderRadius: 0.5,
+                                bgcolor: m3MenuTokens.surfaceVariant
+                            }}
+                        >
+                            <List dense disablePadding>
+                                <ListItem sx={{ py: 0.35, px: 1.25 }}>
+                                    <ListItemIcon sx={{ minWidth: 34 }}>
+                                        <WorkspacesRoundedIcon fontSize="small" />
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={<Typography variant="body2">Role</Typography>}
+                                        secondary={<Typography variant="caption">{formatRole(profile?.role || "member")}</Typography>}
+                                    />
+                                </ListItem>
+                                <ListItem sx={{ py: 0.35, px: 1.25 }}>
+                                    <ListItemIcon sx={{ minWidth: 34 }}>
+                                        <ApartmentRoundedIcon fontSize="small" />
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={<Typography variant="body2">Branch</Typography>}
+                                        secondary={<Typography variant="caption">{selectedBranchName || "Assigned branch"}</Typography>}
+                                    />
+                                </ListItem>
+                                <ListItem sx={{ py: 0.35, px: 1.25 }}>
+                                    <ListItemIcon sx={{ minWidth: 34 }}>
+                                        <StarRoundedIcon fontSize="small" />
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={<Typography variant="body2">Plan</Typography>}
+                                        secondary={<Typography variant="caption">{(subscription?.plan || "N/A").toUpperCase()}</Typography>}
+                                    />
+                                </ListItem>
+                                <ListItem sx={{ py: 0.35, px: 1.25 }}>
+                                    <ListItemIcon sx={{ minWidth: 34 }}>
+                                        <EventRoundedIcon fontSize="small" />
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={<Typography variant="body2">Membership Since</Typography>}
+                                        secondary={<Typography variant="caption">{formatDate(profile?.created_at || user?.created_at || null)}</Typography>}
+                                    />
+                                </ListItem>
+                            </List>
+                        </Box>
+
+                        <List dense disablePadding sx={{ mt: 0.75 }}>
+                            <ListItemButton sx={{ borderRadius: 0.5, minHeight: 42 }} onClick={() => handleProfileMenuAction(handleDownloadStatement)}>
+                                <ListItemIcon sx={{ minWidth: 34 }}>
+                                    <DownloadRoundedIcon fontSize="small" />
+                                </ListItemIcon>
+                                <ListItemText primary="Download Statement" />
+                            </ListItemButton>
+                            <ListItemButton sx={{ borderRadius: 0.5, minHeight: 42 }} onClick={() => handleProfileMenuAction(() => navigate("/change-password"))}>
+                                <ListItemIcon sx={{ minWidth: 34 }}>
+                                    <ShieldRoundedIcon fontSize="small" />
+                                </ListItemIcon>
+                                <ListItemText primary="Change Password" />
+                            </ListItemButton>
+                        </List>
+
+                        <List dense disablePadding sx={{ mt: 0.75 }}>
+                            <ListItem
+                                sx={{ py: 0.25, px: 1.25 }}
+                                secondaryAction={
+                                    <Switch
+                                        edge="end"
+                                        checked={themeMode === "dark"}
+                                        onChange={() => toggleTheme()}
+                                        inputProps={{ "aria-label": "Toggle dark mode" }}
+                                    />
+                                }
+                            >
+                                <ListItemIcon sx={{ minWidth: 34 }}>
+                                    {themeMode === "dark" ? <LightModeRoundedIcon fontSize="small" /> : <DarkModeRoundedIcon fontSize="small" />}
+                                </ListItemIcon>
+                                <ListItemText primary="Dark Mode" />
+                            </ListItem>
+                        </List>
+
+                        <Divider sx={{ my: 1 }} />
+
+                        <List dense disablePadding>
+                            <ListItemButton
+                                sx={{
+                                    borderRadius: 0.5,
+                                    minHeight: 42,
+                                    color: "error.main",
+                                    "& .MuiListItemIcon-root": {
+                                        color: "error.main"
+                                    }
+                                }}
+                                onClick={() => {
+                                    handleProfileMenuClose();
+                                    void signOut();
                                 }}
                             >
-                                {(profile?.full_name || "M").slice(0, 1).toUpperCase()}
-                            </Avatar>
-                            <Box sx={{ minWidth: 0 }}>
-                                <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>
-                                    {profile?.full_name || "Member"}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" noWrap>
-                                    {user?.email || "No email"}
-                                </Typography>
-                            </Box>
-                        </Stack>
-                        <Stack spacing={0.4} sx={{ mt: 1.25 }}>
-                            <Typography variant="caption" color="text.secondary">
-                                Role: Member
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" noWrap>
-                                Branch: {selectedBranchName || "Assigned branch"}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" noWrap>
-                                Plan: {(subscription?.plan || "N/A").toUpperCase()}
-                            </Typography>
-                        </Stack>
+                                <ListItemIcon sx={{ minWidth: 34 }}>
+                                    <LogoutRoundedIcon fontSize="small" />
+                                </ListItemIcon>
+                                <ListItemText primary="Sign Out" />
+                            </ListItemButton>
+                        </List>
                     </Box>
-                    <MenuItem
-                        onClick={() => {
-                            toggleTheme();
-                            handleProfileMenuClose();
-                        }}
-                    >
-                        <ListItemIcon>
-                            {themeMode === "dark" ? <LightModeRoundedIcon fontSize="small" /> : <DarkModeRoundedIcon fontSize="small" />}
-                        </ListItemIcon>
-                        <ListItemText>{themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}</ListItemText>
-                    </MenuItem>
-                    <MenuItem
-                        onClick={() => {
-                            handleProfileMenuClose();
-                            void signOut();
-                        }}
-                    >
-                        <ListItemIcon>
-                            <LogoutRoundedIcon fontSize="small" />
-                        </ListItemIcon>
-                        <ListItemText>Sign out</ListItemText>
-                    </MenuItem>
                 </Menu>
 
                 <Box sx={{ px: { xs: 2, md: 3.5 }, py: { xs: 2.5, md: 3.5 }, pb: { xs: 10, lg: 4 } }}>

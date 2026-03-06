@@ -1,6 +1,7 @@
 import {
     Alert,
     Box,
+    Button,
     CardContent,
     Chip,
     Divider,
@@ -9,9 +10,14 @@ import {
     Typography
 } from "@mui/material";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
+import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
+import BadgeRoundedIcon from "@mui/icons-material/BadgeRounded";
 import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
 import PieChartRoundedIcon from "@mui/icons-material/PieChartRounded";
 import ReceiptLongRoundedIcon from "@mui/icons-material/ReceiptLongRounded";
+import RequestQuoteRoundedIcon from "@mui/icons-material/RequestQuoteRounded";
+import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
+import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -27,9 +33,20 @@ import { KpiCard } from "../components/teller/KpiCard";
 import { WaterfallCard } from "../components/teller/WaterfallCard";
 import { DataTable, type Column } from "../components/DataTable";
 import { api, getApiErrorMessage } from "../lib/api";
-import { endpoints, type BranchesListResponse, type LoanSchedulesResponse, type LoansResponse, type MembersResponse, type StatementsResponse, type TenantsListResponse } from "../lib/endpoints";
+import {
+    endpoints,
+    type BranchesListResponse,
+    type LoanApplicationsResponse,
+    type LoanSchedulesResponse,
+    type LoansResponse,
+    type MemberApplicationsResponse,
+    type MembersResponse,
+    type StatementsResponse,
+    type TenantsListResponse,
+    type UsersListResponse
+} from "../lib/endpoints";
 import { buildTellerDashboardData } from "../lib/tellerDashboard";
-import type { Branch, Loan, LoanSchedule, Member, StatementRow, Tenant } from "../types/api";
+import type { Branch, Loan, LoanApplication, LoanSchedule, Member, MemberApplication, StaffAccessUser, StatementRow, Tenant } from "../types/api";
 import { MotionCard, MotionListItem, MotionSection } from "../ui/motion";
 import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
@@ -38,6 +55,9 @@ interface DashboardState {
     statements: StatementRow[];
     loans: Loan[];
     schedules: LoanSchedule[];
+    loanApplications: LoanApplication[];
+    memberApplications: MemberApplication[];
+    staffUsers: StaffAccessUser[];
 }
 
 interface PlatformState {
@@ -66,6 +86,23 @@ interface FollowUpItem {
     interestDue: number;
     severity: "critical" | "warning" | "normal";
     statusLabel: string;
+}
+
+interface OperationalQueueItem {
+    id: string;
+    label: string;
+    count: number;
+    helper: string;
+    route: string;
+    tone: "success" | "warning" | "error" | "info";
+}
+
+interface StaffPerformanceRow {
+    userId: string;
+    officerName: string;
+    loansIssued: number;
+    collectionRate: number;
+    applicationsProcessed: number;
 }
 
 function groupAmountsByDate(statements: StatementRow[], direction?: "in" | "out") {
@@ -116,6 +153,51 @@ function groupSchedulesByBucket(schedules: LoanSchedule[]) {
     return [...buckets.entries()];
 }
 
+function calculateAgingSummary(schedules: LoanSchedule[]) {
+    const today = new Date();
+    const buckets = {
+        current: 0,
+        d1_30: 0,
+        d31_60: 0,
+        d60Plus: 0
+    };
+
+    let overdueAmount = 0;
+    let totalAmount = 0;
+
+    schedules.forEach((schedule) => {
+        const pendingAmount = Math.max(schedule.principal_due - schedule.principal_paid, 0) + Math.max(schedule.interest_due - schedule.interest_paid, 0);
+        if (pendingAmount <= 0) {
+            return;
+        }
+
+        totalAmount += pendingAmount;
+        const dueDate = new Date(schedule.due_date);
+        const daysPastDue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (daysPastDue <= 0) {
+            buckets.current += 1;
+            return;
+        }
+
+        overdueAmount += pendingAmount;
+
+        if (daysPastDue <= 30) {
+            buckets.d1_30 += 1;
+        } else if (daysPastDue <= 60) {
+            buckets.d31_60 += 1;
+        } else {
+            buckets.d60Plus += 1;
+        }
+    });
+
+    return {
+        ...buckets,
+        total: buckets.current + buckets.d1_30 + buckets.d31_60 + buckets.d60Plus,
+        parPercent: totalAmount ? (overdueAmount / totalAmount) * 100 : 0
+    };
+}
+
 function MetricCard({ label, value, helper }: { label: string; value: string; helper?: string }) {
     return (
         <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
@@ -133,6 +215,65 @@ function MetricCard({ label, value, helper }: { label: string; value: string; he
                 ) : null}
             </CardContent>
         </MotionCard>
+    );
+}
+
+function RiskStripCard({
+    label,
+    value,
+    helper,
+    tone
+}: {
+    label: string;
+    value: string;
+    helper: string;
+    tone: "green" | "yellow" | "red";
+}) {
+    const theme = useTheme();
+    const toneStyles = tone === "red"
+        ? { color: theme.palette.error.main, bg: alpha(theme.palette.error.main, 0.1), border: alpha(theme.palette.error.main, 0.22) }
+        : tone === "yellow"
+            ? { color: theme.palette.warning.main, bg: alpha(theme.palette.warning.main, 0.12), border: alpha(theme.palette.warning.main, 0.22) }
+            : { color: theme.palette.success.main, bg: alpha(theme.palette.success.main, 0.1), border: alpha(theme.palette.success.main, 0.22) };
+
+    return (
+        <MotionCard variant="outlined" inView sx={{ height: "100%", borderColor: toneStyles.border, bgcolor: toneStyles.bg }}>
+            <CardContent sx={{ p: 2 }}>
+                <Typography variant="overline" color="text.secondary">
+                    {label}
+                </Typography>
+                <Typography variant="h5" sx={{ mt: 0.25, color: toneStyles.color }}>
+                    {value}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                    {helper}
+                </Typography>
+            </CardContent>
+        </MotionCard>
+    );
+}
+
+function OperationalQueueCard({
+    item,
+    onOpen
+}: {
+    item: OperationalQueueItem;
+    onOpen: (route: string) => void;
+}) {
+    const color = item.tone === "error" ? "error" : item.tone === "warning" ? "warning" : item.tone === "success" ? "success" : "primary";
+
+    return (
+        <MotionListItem interactive variant="outlined" inView sx={{ p: 1.5, cursor: "pointer" }} onClick={() => onOpen(item.route)}>
+            <Stack spacing={1}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="subtitle2">{item.label}</Typography>
+                    <Chip label={String(item.count)} size="small" color={color} />
+                </Stack>
+                <Typography variant="body2" color="text.secondary">
+                    {item.helper}
+                </Typography>
+            </Stack>
+        </MotionListItem>
     );
 }
 
@@ -385,6 +526,55 @@ function FollowUpPanel({
     );
 }
 
+function StaffPerformancePanel({
+    rows
+}: {
+    rows: StaffPerformanceRow[];
+}) {
+    return (
+        <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
+            <CardContent>
+                <Stack spacing={1.5}>
+                    <Box>
+                        <Typography variant="h6">Staff Performance</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                            Loan officer output and collection quality snapshot for branch supervision.
+                        </Typography>
+                    </Box>
+                    {rows.length ? (
+                        <Stack spacing={1} divider={<Divider flexItem />}>
+                            {rows.map((row, index) => (
+                                <Stack key={row.userId} direction="row" justifyContent="space-between" alignItems="center" spacing={1.5}>
+                                    <Stack spacing={0.2}>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                            {index + 1}. {row.officerName}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            {row.applicationsProcessed} applications processed
+                                        </Typography>
+                                    </Stack>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Chip size="small" label={`${row.loansIssued} issued`} color="primary" />
+                                        <Chip
+                                            size="small"
+                                            label={`${row.collectionRate.toFixed(0)}% collection`}
+                                            color={row.collectionRate >= 85 ? "success" : row.collectionRate >= 65 ? "warning" : "error"}
+                                        />
+                                    </Stack>
+                                </Stack>
+                            ))}
+                        </Stack>
+                    ) : (
+                        <Alert severity="info" variant="outlined">
+                            No loan officer performance data is available yet.
+                        </Alert>
+                    )}
+                </Stack>
+            </CardContent>
+        </MotionCard>
+    );
+}
+
 function DashboardLoadingState() {
     return <AppLoader fullscreen={false} minHeight="72vh" message="Loading dashboard..." />;
 }
@@ -458,7 +648,10 @@ export function DashboardPage() {
         members: [],
         statements: [],
         loans: [],
-        schedules: []
+        schedules: [],
+        loanApplications: [],
+        memberApplications: [],
+        staffUsers: []
     });
     const [platformState, setPlatformState] = useState<PlatformState>({
         tenants: [],
@@ -501,6 +694,7 @@ export function DashboardPage() {
             setError(null);
 
             try {
+                const isBranchManager = profile?.role === "branch_manager";
                 const [{ data: membersResponse }, statementsResponse, { data: loansResponse }, { data: schedulesResponse }] = await Promise.all([
                     api.get<MembersResponse>(endpoints.members.list()),
                     api.get<StatementsResponse>(endpoints.finance.statements(), {
@@ -514,11 +708,44 @@ export function DashboardPage() {
                     })
                 ]);
 
+                let loanApplications: LoanApplication[] = [];
+                let memberApplications: MemberApplication[] = [];
+                let staffUsers: StaffAccessUser[] = [];
+
+                if (isBranchManager) {
+                    const supplemental = await Promise.allSettled([
+                        api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
+                            params: { tenant_id: selectedTenantId }
+                        }),
+                        api.get<MemberApplicationsResponse>(endpoints.memberApplications.list(), {
+                            params: { tenant_id: selectedTenantId }
+                        }),
+                        api.get<UsersListResponse>(endpoints.users.list(), {
+                            params: { tenant_id: selectedTenantId }
+                        })
+                    ]);
+
+                    if (supplemental[0].status === "fulfilled") {
+                        loanApplications = supplemental[0].value.data.data || [];
+                    }
+
+                    if (supplemental[1].status === "fulfilled") {
+                        memberApplications = supplemental[1].value.data.data || [];
+                    }
+
+                    if (supplemental[2].status === "fulfilled") {
+                        staffUsers = supplemental[2].value.data.data.users || [];
+                    }
+                }
+
                 setState({
                     members: membersResponse.data || [],
                     statements: statementsResponse.data.data || [],
                     loans: loansResponse.data || [],
-                    schedules: (schedulesResponse.data || []).filter((schedule) => ["pending", "partial", "overdue"].includes(schedule.status))
+                    schedules: (schedulesResponse.data || []).filter((schedule) => ["pending", "partial", "overdue"].includes(schedule.status)),
+                    loanApplications,
+                    memberApplications,
+                    staffUsers
                 });
             } catch (loadError) {
                 setError(getApiErrorMessage(loadError));
@@ -528,7 +755,7 @@ export function DashboardPage() {
         };
 
         void loadDashboard();
-    }, [isInternalOps, selectedTenantId]);
+    }, [isInternalOps, profile?.role, selectedTenantId]);
 
     const metrics = useMemo(() => {
         const branchMembers = branchIds.length
@@ -559,6 +786,18 @@ export function DashboardPage() {
         const branchContributionTotal = branchStatements
             .filter((entry) => entry.transaction_type === "share_contribution")
             .reduce((sum, entry) => sum + entry.amount, 0);
+        const branchOverdueOutstanding = branchLoans
+            .filter((loan) => loan.status === "in_arrears")
+            .reduce((sum, loan) => sum + loan.outstanding_principal + loan.accrued_interest, 0);
+        const today = new Date().toISOString().slice(0, 10);
+        const branchInflowsToday = branchStatements
+            .filter((entry) => entry.transaction_date === today && entry.direction === "in")
+            .reduce((sum, entry) => sum + entry.amount, 0);
+        const branchOutflowsToday = branchStatements
+            .filter((entry) => entry.transaction_date === today && entry.direction === "out")
+            .reduce((sum, entry) => sum + entry.amount, 0);
+        const branchNetToday = branchInflowsToday - branchOutflowsToday;
+        const branchOpeningBalance = (branchDepositIntake - branchWithdrawalOutflow) - branchNetToday;
 
         return {
             totalMembers: state.members.length,
@@ -580,6 +819,11 @@ export function DashboardPage() {
             branchAccruedInterest: branchLoans.reduce((sum, loan) => sum + loan.accrued_interest, 0),
             branchOverdueLoans: branchLoans.filter((loan) => loan.status === "in_arrears").length,
             branchOverdueSchedules: branchSchedules.filter((schedule) => schedule.status === "overdue").length,
+            branchOverdueOutstanding,
+            branchInflowsToday,
+            branchOutflowsToday,
+            branchNetToday,
+            branchOpeningBalance,
             branchStatements,
             branchLoans,
             branchSchedules
@@ -669,6 +913,132 @@ export function DashboardPage() {
     ]);
     const branchFollowUps = useMemo(() => buildFollowUpItems(metrics.branchSchedules), [metrics.branchSchedules]);
     const generalFollowUps = useMemo(() => buildFollowUpItems(state.schedules), [state.schedules]);
+    const branchLoanAging = useMemo(() => calculateAgingSummary(metrics.branchSchedules), [metrics.branchSchedules]);
+    const branchScopedLoanApplications = useMemo(
+        () =>
+            branchIds.length
+                ? state.loanApplications.filter((application) => branchIds.includes(application.branch_id))
+                : state.loanApplications,
+        [branchIds, state.loanApplications]
+    );
+    const branchScopedMemberApplications = useMemo(
+        () =>
+            branchIds.length
+                ? state.memberApplications.filter((application) => branchIds.includes(application.branch_id))
+                : state.memberApplications,
+        [branchIds, state.memberApplications]
+    );
+    const pendingLoanApprovals = useMemo(
+        () => branchScopedLoanApplications.filter((application) => application.status === "appraised").length,
+        [branchScopedLoanApplications]
+    );
+    const pendingLoanApplications = useMemo(
+        () =>
+            branchScopedLoanApplications.filter((application) =>
+                ["submitted", "appraised"].includes(application.status)
+            ).length,
+        [branchScopedLoanApplications]
+    );
+    const pendingMemberApprovals = useMemo(
+        () =>
+            branchScopedMemberApplications.filter((application) =>
+                ["submitted", "under_review"].includes(application.status)
+            ).length,
+        [branchScopedMemberApplications]
+    );
+    const pendingWithdrawalRequests = 0;
+    const hasCashImbalance = metrics.branchNetToday < 0;
+    const signOffTasks = pendingLoanApprovals + pendingMemberApprovals + (hasCashImbalance ? 1 : 0);
+    const par30Percent = Number.isFinite(branchLoanAging.parPercent) ? branchLoanAging.parPercent : 0;
+    const branchRiskStrip = [
+        {
+            id: "par30",
+            label: "Portfolio at Risk (PAR 30)",
+            value: `${par30Percent.toFixed(1)}%`,
+            helper: `${branchLoanAging.d1_30 + branchLoanAging.d31_60 + branchLoanAging.d60Plus} overdue schedule items.`,
+            tone: par30Percent >= 15 ? "red" : par30Percent >= 8 ? "yellow" : "green"
+        },
+        {
+            id: "overdue-loans",
+            label: "Overdue Loans",
+            value: String(metrics.branchOverdueLoans),
+            helper: `${formatCurrency(metrics.branchOverdueOutstanding)} exposed in arrears.`,
+            tone: metrics.branchOverdueLoans >= 5 ? "red" : metrics.branchOverdueLoans >= 2 ? "yellow" : "green"
+        },
+        {
+            id: "pending-approvals",
+            label: "Pending Approvals",
+            value: String(pendingLoanApprovals),
+            helper: "Appraised facilities waiting branch approval.",
+            tone: pendingLoanApprovals >= 8 ? "red" : pendingLoanApprovals >= 3 ? "yellow" : "green"
+        },
+        {
+            id: "cash-imbalance",
+            label: "Cash Imbalance Warning",
+            value: hasCashImbalance ? "Warning" : "Balanced",
+            helper: hasCashImbalance
+                ? `Today net change ${formatCurrency(metrics.branchNetToday)} requires branch cash review.`
+                : "Branch cash flow is currently within expected operating range.",
+            tone: hasCashImbalance ? "red" : "green"
+        }
+    ] as const;
+    const operationalQueue: OperationalQueueItem[] = [
+        {
+            id: "queue-loans",
+            label: "Pending Loan Applications",
+            count: pendingLoanApplications,
+            helper: "Submitted/appraised loan requests in branch workflow queue.",
+            route: "/loans",
+            tone: pendingLoanApplications > 0 ? "warning" : "success"
+        },
+        {
+            id: "queue-withdrawals",
+            label: "Pending Withdrawals",
+            count: pendingWithdrawalRequests,
+            helper: "No pending withdrawal approvals are currently visible.",
+            route: "/cash",
+            tone: "info"
+        },
+        {
+            id: "queue-members",
+            label: "Pending Member Approvals",
+            count: pendingMemberApprovals,
+            helper: "Member applications requiring branch management decisions.",
+            route: "/member-applications",
+            tone: pendingMemberApprovals > 0 ? "warning" : "success"
+        },
+        {
+            id: "queue-signoff",
+            label: "Tasks Requiring Branch Sign-off",
+            count: signOffTasks,
+            helper: "Combined approvals and control exceptions needing branch sign-off.",
+            route: "/follow-ups",
+            tone: signOffTasks > 0 ? "error" : "success"
+        }
+    ];
+    const staffPerformance = useMemo<StaffPerformanceRow[]>(() => {
+        const officers = state.staffUsers.filter((user) => user.role === "loan_officer" && user.is_active);
+
+        return officers
+            .map((officer) => {
+                const officerApplications = branchScopedLoanApplications.filter((application) => application.appraised_by === officer.user_id);
+                const issued = officerApplications.filter((application) => ["approved", "disbursed"].includes(application.status)).length;
+                const linkedLoanIds = new Set(officerApplications.map((application) => application.loan_id).filter(Boolean) as string[]);
+                const linkedLoans = metrics.branchLoans.filter((loan) => linkedLoanIds.has(loan.id));
+                const performingLoans = linkedLoans.filter((loan) => loan.status !== "in_arrears").length;
+                const collectionRate = linkedLoans.length ? (performingLoans / linkedLoans.length) * 100 : 0;
+
+                return {
+                    userId: officer.user_id,
+                    officerName: officer.full_name,
+                    loansIssued: issued,
+                    collectionRate,
+                    applicationsProcessed: officerApplications.length
+                };
+            })
+            .sort((left, right) => right.loansIssued - left.loansIssued || right.collectionRate - left.collectionRate)
+            .slice(0, 6);
+    }, [branchScopedLoanApplications, metrics.branchLoans, state.staffUsers]);
     const tellerDepositAverage = tellerDashboard.timeseries_7d.length
         ? tellerDashboard.kpis.deposit_intake_7d / tellerDashboard.timeseries_7d.length
         : 0;
@@ -948,67 +1318,16 @@ export function DashboardPage() {
             ) : role === "branch_manager" ? (
                 <MotionSection inView>
                 <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, xl: 5 }}>
-                        <BranchManagerTopCard
-                            label="Branch Savings Position"
-                            value={formatCurrency(metrics.branchSavings)}
-                            helper="Current branch-controlled savings position based on posted member savings movements and cash-side activity."
-                            status={branchNetMovement >= 0 ? "Net movement positive" : "Outflow pressure"}
-                            icon={<AccountBalanceWalletRoundedIcon fontSize="small" />}
-                            tone={branchNetMovement >= 0 ? "positive" : "negative"}
-                            featured
-                            footer={
-                                <Grid container spacing={1.25}>
-                                    <Grid size={{ xs: 6 }}>
-                                        <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: alpha(theme.palette.success.main, 0.08) }}>
-                                            <Typography variant="caption" color="text.secondary">Active members</Typography>
-                                            <Typography variant="subtitle1" fontWeight={700}>{metrics.branchActiveMembers}</Typography>
-                                        </Box>
-                                    </Grid>
-                                    <Grid size={{ xs: 6 }}>
-                                        <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: alpha(theme.palette.warning.main, 0.1) }}>
-                                            <Typography variant="caption" color="text.secondary">Overdue loans</Typography>
-                                            <Typography variant="subtitle1" fontWeight={700}>{metrics.branchOverdueLoans}</Typography>
-                                        </Box>
-                                    </Grid>
-                                </Grid>
-                            }
-                        />
-                    </Grid>
-                    <Grid size={{ xs: 12, xl: 7 }}>
-                        <Grid container spacing={2}>
-                            <Grid size={{ xs: 12, md: 4 }}>
-                                <BranchManagerTopCard
-                                    label="Deposit Intake"
-                                    value={formatCurrency(metrics.branchDepositIntake)}
-                                    helper={buildDeltaLabel(metrics.branchDepositIntake, branchDepositAverage, "vs recent branch average")}
-                                    status={metrics.branchDepositIntake >= branchDepositAverage ? "Funding pace healthy" : "Below recent pace"}
-                                    icon={<PaymentsRoundedIcon fontSize="small" />}
-                                    tone={getDeltaTone(metrics.branchDepositIntake, branchDepositAverage)}
-                                />
-                            </Grid>
-                            <Grid size={{ xs: 12, md: 4 }}>
-                                <BranchManagerTopCard
-                                    label="Share Contributions"
-                                    value={formatCurrency(metrics.branchContributionTotal)}
-                                    helper={buildDeltaLabel(metrics.branchContributionTotal, branchContributionAverage, "vs recent branch average")}
-                                    status={metrics.branchContributionTotal >= branchContributionAverage ? "Capital build-up healthy" : "Contribution pace softer"}
-                                    icon={<PieChartRoundedIcon fontSize="small" />}
-                                    tone={getDeltaTone(metrics.branchContributionTotal, branchContributionAverage)}
-                                />
-                            </Grid>
-                            <Grid size={{ xs: 12, md: 4 }}>
-                                <BranchManagerTopCard
-                                    label="Loan Portfolio"
-                                    value={formatCurrency(metrics.branchOutstanding)}
-                                    helper={`${metrics.branchLoans.length} active branch loans under supervision.`}
-                                    status={metrics.branchOverdueLoans > 0 ? "Collection action needed" : "Portfolio quality stable"}
-                                    icon={<ReceiptLongRoundedIcon fontSize="small" />}
-                                    tone={metrics.branchOverdueLoans > 0 ? "negative" : "positive"}
-                                />
-                            </Grid>
+                    {branchRiskStrip.map((item) => (
+                        <Grid key={item.id} size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <RiskStripCard
+                                label={item.label}
+                                value={item.value}
+                                helper={item.helper}
+                                tone={item.tone}
+                            />
                         </Grid>
-                    </Grid>
+                    ))}
                 </Grid>
                 </MotionSection>
             ) : (
@@ -1090,86 +1409,121 @@ export function DashboardPage() {
                     </>
                 ) : role === "branch_manager" ? (
                     <>
-                        <Grid size={{ xs: 12, lg: 8 }}>
+                        <Grid size={{ xs: 12, lg: 7 }}>
                             <ChartPanel
-                                title="Branch Savings Flow"
-                                subtitle="Deposit and withdrawal direction across the visible branch member base."
+                                title="Loan Aging Summary"
+                                subtitle="Current portfolio quality by overdue days and PAR percentage."
                                 data={{
-                                    labels: branchCashTrend.map(([label]) => label),
+                                    labels: ["Current", "1-30 days", "31-60 days", "60+ days"],
                                     datasets: [
                                         {
-                                            label: "Deposits",
-                                            data: branchCashTrend.map(([label]) => branchDepositTrend.find(([date]) => date === label)?.[1] || 0),
-                                            borderColor: theme.palette.primary.main,
-                                            backgroundColor: alpha(theme.palette.primary.main, 0.16),
-                                            fill: true
-                                        },
-                                        {
-                                            label: "Withdrawals",
-                                            data: branchCashTrend.map(([label]) => branchWithdrawalTrend.find(([date]) => date === label)?.[1] || 0),
-                                            borderColor: theme.palette.error.main,
-                                            backgroundColor: alpha(theme.palette.error.main, 0.08),
-                                            fill: true
+                                            label: "Schedules",
+                                            data: [
+                                                branchLoanAging.current,
+                                                branchLoanAging.d1_30,
+                                                branchLoanAging.d31_60,
+                                                branchLoanAging.d60Plus
+                                            ],
+                                            backgroundColor: [
+                                                alpha(theme.palette.success.main, 0.74),
+                                                alpha(theme.palette.warning.main, 0.74),
+                                                alpha(theme.palette.warning.main, 0.58),
+                                                alpha(theme.palette.error.main, 0.74)
+                                            ]
                                         }
                                     ]
                                 }}
-                                options={commonLineOptions}
-                            />
-                        </Grid>
-                        <Grid size={{ xs: 12, lg: 4 }}>
-                            <ChartPanel
-                                title="Branch Portfolio Mix"
-                                type="doughnut"
-                                subtitle="Savings, share capital, and loan exposure under supervision."
-                                data={{
-                                    labels: ["Savings Position", "Share Capital Inflow", "Loan Portfolio"],
-                                    datasets: [{
-                                        data: [
-                                            Math.max(metrics.branchSavings, 0),
-                                            metrics.branchContributionTotal,
-                                            metrics.branchOutstanding
-                                        ],
-                                        backgroundColor: [
-                                            theme.palette.primary.main,
-                                            theme.palette.success.main,
-                                            theme.palette.warning.main
-                                        ]
-                                    }]
-                                }}
-                                options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom" } } }}
-                            />
-                        </Grid>
-                        <Grid size={{ xs: 12, lg: 5 }}>
-                            <ChartPanel
-                                title="Loan Quality Watch"
-                                subtitle="Schedule aging across the supervised branch portfolio."
                                 type="bar"
-                                data={{
-                                    labels: ["Current", "Partial", "Overdue"],
-                                    datasets: [{
-                                        label: "Schedules",
-                                        data: [
-                                            metrics.branchSchedules.filter((schedule) => schedule.status === "pending").length,
-                                            metrics.branchSchedules.filter((schedule) => schedule.status === "partial").length,
-                                            metrics.branchSchedules.filter((schedule) => schedule.status === "overdue").length
-                                        ],
-                                        backgroundColor: [
-                                            alpha(theme.palette.success.main, 0.72),
-                                            alpha(theme.palette.warning.main, 0.72),
-                                            alpha(theme.palette.error.main, 0.72)
-                                        ]
-                                    }]
-                                }}
                                 options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }}
                             />
                         </Grid>
+                        <Grid size={{ xs: 12, lg: 5 }}>
+                            <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
+                                <CardContent sx={{ height: "100%" }}>
+                                    <Stack spacing={2} sx={{ height: "100%" }}>
+                                        <Box>
+                                            <Typography variant="h6">Cash Position</Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Opening balance, today inflows/outflows, and current net cash direction.
+                                            </Typography>
+                                        </Box>
+                                        <Stack spacing={1.25}>
+                                            <Stack direction="row" justifyContent="space-between">
+                                                <Typography variant="body2" color="text.secondary">Opening balance</Typography>
+                                                <Typography variant="subtitle2">{formatCurrency(metrics.branchOpeningBalance)}</Typography>
+                                            </Stack>
+                                            <Stack direction="row" justifyContent="space-between">
+                                                <Typography variant="body2" color="text.secondary">Inflows today</Typography>
+                                                <Typography variant="subtitle2" color="success.main">{formatCurrency(metrics.branchInflowsToday)}</Typography>
+                                            </Stack>
+                                            <Stack direction="row" justifyContent="space-between">
+                                                <Typography variant="body2" color="text.secondary">Outflows today</Typography>
+                                                <Typography variant="subtitle2" color="error.main">{formatCurrency(metrics.branchOutflowsToday)}</Typography>
+                                            </Stack>
+                                            <Divider />
+                                            <Stack direction="row" justifyContent="space-between">
+                                                <Typography variant="subtitle2">Net change</Typography>
+                                                <Typography variant="subtitle2" color={metrics.branchNetToday >= 0 ? "success.main" : "error.main"}>
+                                                    {formatCurrency(metrics.branchNetToday)}
+                                                </Typography>
+                                            </Stack>
+                                            <Chip
+                                                icon={<WarningAmberRoundedIcon />}
+                                                label={metrics.branchNetToday < 0 ? "Cash imbalance requires review" : "Cash movement within tolerance"}
+                                                color={metrics.branchNetToday < 0 ? "error" : "success"}
+                                                variant="outlined"
+                                            />
+                                        </Stack>
+                                    </Stack>
+                                </CardContent>
+                            </MotionCard>
+                        </Grid>
                         <Grid size={{ xs: 12, lg: 7 }}>
                             <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
+                                <CardContent sx={{ height: "100%" }}>
+                                    <Stack spacing={2.25} sx={{ height: "100%" }}>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                            <Box>
+                                                <Typography variant="h6">Operational Queue</Typography>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    Work items requiring immediate branch action.
+                                                </Typography>
+                                            </Box>
+                                            <Button size="small" variant="outlined" onClick={() => navigate("/follow-ups")}>
+                                                View all
+                                            </Button>
+                                        </Stack>
+                                        <Grid container spacing={1.25}>
+                                            {operationalQueue.map((item) => (
+                                                <Grid key={item.id} size={{ xs: 12, sm: 6 }}>
+                                                    <OperationalQueueCard item={item} onOpen={(route) => navigate(route)} />
+                                                </Grid>
+                                            ))}
+                                        </Grid>
+                                    </Stack>
+                                </CardContent>
+                            </MotionCard>
+                        </Grid>
+                        <Grid size={{ xs: 12, lg: 7 }}>
+                            <StaffPerformancePanel rows={staffPerformance} />
+                        </Grid>
+                        <Grid size={{ xs: 12, lg: 5 }}>
+                            <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
                                 <CardContent>
-                                    <Typography variant="h6" gutterBottom>
-                                        Branch Manager Signals
-                                    </Typography>
                                     <Stack spacing={1.5}>
+                                        <Box>
+                                            <Typography variant="h6">Branch Risk & Governance</Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Exception view for overdue assets, approval pressure, and operational controls.
+                                            </Typography>
+                                        </Box>
+                                        <Chip
+                                            color={par30Percent >= 15 ? "error" : par30Percent >= 8 ? "warning" : "success"}
+                                            variant="outlined"
+                                            label={`PAR ${par30Percent.toFixed(1)}%`}
+                                            icon={<RuleRoundedIcon />}
+                                            sx={{ width: "fit-content" }}
+                                        />
                                         {branchAlerts.map((alert) => (
                                             <Alert key={alert.id} severity={alert.severity} variant="outlined">
                                                 <Typography variant="subtitle2">{alert.title}</Typography>
