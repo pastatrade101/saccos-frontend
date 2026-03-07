@@ -49,7 +49,7 @@ export function AppThemeProvider({ children }: PropsWithChildren) {
             borderRadius: 8
         },
         typography: {
-            fontFamily: '"Source Sans 3", "Segoe UI", sans-serif',
+            fontFamily: '"Inter", "Segoe UI", sans-serif',
             h4: {
                 fontWeight: 700,
                 letterSpacing: -0.4

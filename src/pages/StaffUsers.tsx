@@ -628,7 +628,7 @@ export function StaffUsersPage() {
                                     alignItems={{ xs: "flex-start", sm: "center" }}
                                     sx={{ mt: 0.75 }}
                                 >
-                                    <Typography variant="h6" fontFamily='"Source Sans 3", "Segoe UI", sans-serif'>
+                                    <Typography variant="h6" fontFamily='"Inter", "Segoe UI", sans-serif'>
                                         {lastProvisionedCredentials.temporary_password}
                                     </Typography>
                                     <Button
@@ -876,7 +876,7 @@ export function StaffUsersPage() {
                                     Temporary password
                                 </Typography>
                                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", sm: "center" }} sx={{ mt: 0.75 }}>
-                                    <Typography variant="h6" fontFamily='"Source Sans 3", "Segoe UI", sans-serif'>
+                                    <Typography variant="h6" fontFamily='"Inter", "Segoe UI", sans-serif'>
                                         {lastProvisionedCredentials.temporary_password}
                                     </Typography>
                                     <Button

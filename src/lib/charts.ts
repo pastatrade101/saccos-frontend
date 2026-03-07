@@ -33,7 +33,7 @@ export function registerCharts() {
 
     ChartJS.defaults.color = brandColors.neutral.textSecondary;
     ChartJS.defaults.borderColor = brandColors.neutral.border;
-    ChartJS.defaults.font.family = '"Source Sans 3", "Segoe UI", sans-serif';
+    ChartJS.defaults.font.family = '"Inter", "Segoe UI", sans-serif';
     ChartJS.defaults.plugins.legend.labels.usePointStyle = true;
     ChartJS.defaults.plugins.legend.labels.color = brandColors.neutral.textSecondary;
     ChartJS.defaults.plugins.tooltip.backgroundColor = darkThemeColors.paper;
