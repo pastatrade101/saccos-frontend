@@ -14,6 +14,7 @@ export interface FinancialStanding {
     label: string;
     tone: FinancialStandingTone;
     details?: string;
+    showChip?: boolean;
 }
 
 export interface LoanExposureData {

@@ -36,7 +36,6 @@ interface MemberOverviewProps {
     onApplyLoan: () => void;
     onMakeContribution: () => void;
     onDownloadStatement: () => void;
-    onPayInstallment: () => void;
     onViewFullStatement: () => void;
 }
 
@@ -53,7 +52,6 @@ export function MemberOverview({
     onApplyLoan,
     onMakeContribution,
     onDownloadStatement,
-    onPayInstallment,
     onViewFullStatement
 }: MemberOverviewProps) {
     return (
@@ -64,7 +62,6 @@ export function MemberOverview({
                 onApplyLoan={onApplyLoan}
                 onMakeContribution={onMakeContribution}
                 onDownloadStatement={onDownloadStatement}
-                onPayInstallment={onPayInstallment}
             />
 
             <Grid container spacing={2} alignItems="stretch">

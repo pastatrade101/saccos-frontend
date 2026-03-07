@@ -358,6 +358,64 @@ function MetricCard({ icon: Icon, label, value, helper, tone, delta }: MetricCar
     );
 }
 
+function AccountSummaryCard({ icon: Icon, label, value, helper, tone, delta }: MetricCardProps) {
+    const toneStyles = getToneStyles(tone);
+
+    return (
+        <MotionCard
+            variant="outlined"
+            sx={{
+                ...contentCardSx,
+                height: "100%"
+            }}
+        >
+            <CardContent sx={{ p: 2.25, height: "100%", display: "flex" }}>
+                <Stack spacing={1.4} sx={{ width: 1 }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Chip
+                            size="small"
+                            label={delta || "Live"}
+                            sx={{
+                                borderRadius: 1.25,
+                                bgcolor: toneStyles.bg,
+                                color: toneStyles.color,
+                                fontWeight: 700
+                            }}
+                        />
+                        <Box
+                            sx={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 1.3,
+                                display: "grid",
+                                placeItems: "center",
+                                bgcolor: toneStyles.bg,
+                                color: toneStyles.color
+                            }}
+                        >
+                            <Icon fontSize="small" />
+                        </Box>
+                    </Stack>
+
+                    <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                        {value}
+                    </Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                        {label}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        {helper}
+                    </Typography>
+
+                    <Box sx={{ mt: "auto", height: 4, borderRadius: 999, bgcolor: alpha(toneStyles.color, 0.18) }}>
+                        <Box sx={{ height: 1, width: "56%", borderRadius: 999, bgcolor: toneStyles.color }} />
+                    </Box>
+                </Stack>
+            </CardContent>
+        </MotionCard>
+    );
+}
+
 export function MemberPortalPage() {
     const theme = useTheme();
     const navigate = useNavigate();
@@ -676,7 +734,8 @@ export function MemberPortalPage() {
             return {
                 label: "No Active Loans",
                 tone: "neutral" as const,
-                details: "Your account currently has no active loan obligations."
+                details: "Your account currently has no active loan obligations.",
+                showChip: false
             };
         }
 
@@ -1458,39 +1517,15 @@ export function MemberPortalPage() {
             }}
             onMakeContribution={() => handleSectionSelect("member-contributions")}
             onDownloadStatement={handleDownloadStatement}
-            onPayInstallment={() => handleSectionSelect("member-loans")}
             onViewFullStatement={() => handleSectionSelect("member-transactions")}
         />
     );
 
     const renderAccountsView = () => (
         <Stack spacing={3}>
-            <MotionCard variant="outlined" sx={contentCardSx}>
-                <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
-                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-                        <Box>
-                            <Typography variant="overline" color="text.secondary">
-                                Accounts
-                            </Typography>
-                            <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>
-                                Member Account Position
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                Review all linked savings and share accounts, including current balances and active product status.
-                            </Typography>
-                        </Box>
-                        <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap">
-                            <Chip label={`Savings ${formatCurrency(totalSavings)}`} sx={{ borderRadius: 1.5 }} />
-                            <Chip label={`Shares ${formatCurrency(totalShareCapital)}`} sx={{ borderRadius: 1.5 }} />
-                            <Chip label={`Interest earned ${formatCurrency(interestEarned)}`} sx={{ borderRadius: 1.5 }} />
-                        </Stack>
-                    </Stack>
-                </CardContent>
-            </MotionCard>
-
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
-                    <MetricCard
+                    <AccountSummaryCard
                         icon={SavingsRoundedIcon}
                         label="Savings Balance"
                         value={formatCurrency(totalSavings)}
@@ -1499,7 +1534,7 @@ export function MemberPortalPage() {
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
-                    <MetricCard
+                    <AccountSummaryCard
                         icon={AccountBalanceWalletRoundedIcon}
                         label="Share Capital"
                         value={formatCurrency(totalShareCapital)}
@@ -1508,7 +1543,7 @@ export function MemberPortalPage() {
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
-                    <MetricCard
+                    <AccountSummaryCard
                         icon={WalletRoundedIcon}
                         label="Visible Accounts"
                         value={filteredAccounts.length}
@@ -1521,37 +1556,129 @@ export function MemberPortalPage() {
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
                     <MotionCard variant="outlined" sx={contentCardSx}>
-                        <CardContent>
-                            <Typography variant="h6" sx={{ mb: 1.5 }}>
-                                Product Rules Visibility
-                            </Typography>
-                            <Stack spacing={1.1}>
-                                <Typography variant="body2" color="text.secondary">Savings minimum balance: TSh 50,000 (tenant policy)</Typography>
-                                <Typography variant="body2" color="text.secondary">Withdrawal limit: branch policy with teller review threshold</Typography>
-                                <Typography variant="body2" color="text.secondary">Dormant accounts: no qualifying movement in policy period</Typography>
+                        <CardContent sx={{ p: 2.25 }}>
+                            <Stack spacing={1.5}>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                    <Box
+                                        sx={{
+                                            width: 30,
+                                            height: 30,
+                                            borderRadius: 1.25,
+                                            display: "grid",
+                                            placeItems: "center",
+                                            bgcolor: alpha(brandColors.primary[500], 0.12),
+                                            color: brandColors.primary[700]
+                                        }}
+                                    >
+                                        <ShieldRoundedIcon fontSize="small" />
+                                    </Box>
+                                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                        Product Rules Visibility
+                                    </Typography>
+                                </Stack>
+
+                                <Stack spacing={1}>
+                                    {[
+                                        "Savings minimum balance: TSh 50,000 (tenant policy)",
+                                        "Withdrawal limit: branch policy with teller review threshold",
+                                        "Dormant accounts: no qualifying movement in policy period"
+                                    ].map((rule) => (
+                                        <Paper
+                                            key={rule}
+                                            variant="outlined"
+                                            sx={{
+                                                p: 1.1,
+                                                borderRadius: 1.4,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 1,
+                                                borderColor: alpha(brandColors.primary[500], 0.18),
+                                                bgcolor: alpha(brandColors.primary[500], 0.04)
+                                            }}
+                                        >
+                                            <TaskAltRoundedIcon sx={{ fontSize: 16, color: brandColors.primary[700] }} />
+                                            <Typography variant="body2" color="text.secondary">
+                                                {rule}
+                                            </Typography>
+                                        </Paper>
+                                    ))}
+                                </Stack>
                             </Stack>
                         </CardContent>
                     </MotionCard>
                 </Grid>
                 <Grid size={{ xs: 12, md: 6 }}>
                     <MotionCard variant="outlined" sx={contentCardSx}>
-                        <CardContent>
-                            <Typography variant="h6" sx={{ mb: 1.5 }}>
-                                Account Health
-                            </Typography>
-                            <Stack spacing={1} direction="row" useFlexGap flexWrap="wrap">
-                                <Chip label={`${Math.max(filteredAccounts.length - accountDormancyCount, 0)} active`} color="success" variant="outlined" />
-                                <Chip label={`${accountDormancyCount} dormant`} color={accountDormancyCount ? "warning" : "default"} variant="outlined" />
-                                <Chip label={`${filteredInterestHistory.length} interest postings`} color="primary" variant="outlined" />
-                                <Chip label={`${filteredDividendMapping.length} dividend mappings`} color="secondary" variant="outlined" />
-                            </Stack>
-                            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mt: 2 }}>
-                                <Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={handleDownloadStatement}>
-                                    Export Savings Statement
-                                </Button>
-                                <Button variant="outlined" startIcon={<PrintRoundedIcon />} onClick={() => window.print()}>
-                                    Printable View
-                                </Button>
+                        <CardContent sx={{ p: 2.25 }}>
+                            <Stack spacing={1.5}>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                    <Box
+                                        sx={{
+                                            width: 30,
+                                            height: 30,
+                                            borderRadius: 1.25,
+                                            display: "grid",
+                                            placeItems: "center",
+                                            bgcolor: alpha(brandColors.success, 0.12),
+                                            color: brandColors.success
+                                        }}
+                                    >
+                                        <TrendingUpRoundedIcon fontSize="small" />
+                                    </Box>
+                                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                        Account Health
+                                    </Typography>
+                                </Stack>
+
+                                <Box
+                                    sx={{
+                                        display: "grid",
+                                        gap: 1,
+                                        gridTemplateColumns: { xs: "repeat(2, minmax(0, 1fr))", sm: "repeat(4, minmax(0, 1fr))" }
+                                    }}
+                                >
+                                    <Paper variant="outlined" sx={{ p: 1.15, borderRadius: 1.4, textAlign: "center" }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 800, color: brandColors.success }}>
+                                            {Math.max(filteredAccounts.length - accountDormancyCount, 0)}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            active
+                                        </Typography>
+                                    </Paper>
+                                    <Paper variant="outlined" sx={{ p: 1.15, borderRadius: 1.4, textAlign: "center" }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 800, color: accountDormancyCount ? "#9A6700" : "text.primary" }}>
+                                            {accountDormancyCount}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            dormant
+                                        </Typography>
+                                    </Paper>
+                                    <Paper variant="outlined" sx={{ p: 1.15, borderRadius: 1.4, textAlign: "center" }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 800, color: brandColors.primary[700] }}>
+                                            {filteredInterestHistory.length}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            interest postings
+                                        </Typography>
+                                    </Paper>
+                                    <Paper variant="outlined" sx={{ p: 1.15, borderRadius: 1.4, textAlign: "center" }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 800, color: brandColors.accent[700] }}>
+                                            {filteredDividendMapping.length}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            dividend mappings
+                                        </Typography>
+                                    </Paper>
+                                </Box>
+
+                                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ pt: 0.5 }}>
+                                    <Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={handleDownloadStatement}>
+                                        Export Savings Statement
+                                    </Button>
+                                    <Button variant="outlined" startIcon={<PrintRoundedIcon />} onClick={() => window.print()}>
+                                        Printable View
+                                    </Button>
+                                </Stack>
                             </Stack>
                         </CardContent>
                     </MotionCard>
@@ -2062,19 +2189,39 @@ export function MemberPortalPage() {
     const renderTransactionsView = () => (
         <Stack spacing={3}>
             <MotionCard variant="outlined" sx={contentCardSx}>
-                <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
-                    <Stack spacing={2}>
-                        <Box>
-                            <Typography variant="overline" color="text.secondary">
-                                Transactions
-                            </Typography>
-                            <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>
-                                Bank-Grade Statement View
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                Filter by date and type, verify running balances, and review transaction references for audit traceability.
-                            </Typography>
-                        </Box>
+                <CardContent sx={{ p: 2.25 }}>
+                    <Stack spacing={1.5}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                                <Box
+                                    sx={{
+                                        width: 30,
+                                        height: 30,
+                                        borderRadius: 1.25,
+                                        display: "grid",
+                                        placeItems: "center",
+                                        bgcolor: alpha(brandColors.accent[500], 0.14),
+                                        color: brandColors.accent[700]
+                                    }}
+                                >
+                                    <TimelineRoundedIcon fontSize="small" />
+                                </Box>
+                                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                    Transactions
+                                </Typography>
+                            </Stack>
+                            <Chip
+                                size="small"
+                                label={`${filteredTransactions.length} visible`}
+                                sx={{
+                                    borderRadius: 1.25,
+                                    bgcolor: alpha(brandColors.accent[500], 0.12),
+                                    color: brandColors.accent[700],
+                                    fontWeight: 700
+                                }}
+                            />
+                        </Stack>
+
                         <Stack direction={{ xs: "column", md: "row" }} spacing={1.25}>
                             <TextField
                                 select
@@ -2082,7 +2229,7 @@ export function MemberPortalPage() {
                                 label="Type"
                                 value={transactionTypeFilter}
                                 onChange={(event) => setTransactionTypeFilter(event.target.value)}
-                                sx={{ minWidth: 220 }}
+                                sx={{ minWidth: 200 }}
                             >
                                 <MenuItem value="all">All types</MenuItem>
                                 <MenuItem value="deposit">Deposit</MenuItem>
@@ -2097,7 +2244,7 @@ export function MemberPortalPage() {
                                 placeholder="Search by reference"
                                 value={transactionSearch}
                                 onChange={(event) => setTransactionSearch(event.target.value)}
-                                sx={{ minWidth: 240 }}
+                                sx={{ minWidth: 220 }}
                             />
                             <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                                 <Button
@@ -2118,7 +2265,7 @@ export function MemberPortalPage() {
 
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MetricCard
+                    <AccountSummaryCard
                         icon={TimelineRoundedIcon}
                         label="Filtered Transactions"
                         value={filteredTransactions.length}
@@ -2127,7 +2274,7 @@ export function MemberPortalPage() {
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MetricCard
+                    <AccountSummaryCard
                         icon={WalletRoundedIcon}
                         label="Latest Balance"
                         value={formatCurrency(latestFilteredTransaction?.running_balance || 0)}
@@ -2136,7 +2283,7 @@ export function MemberPortalPage() {
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MetricCard
+                    <AccountSummaryCard
                         icon={FlagRoundedIcon}
                         label="Disputed Flags"
                         value={disputedTransactionIds.length}
@@ -2146,9 +2293,27 @@ export function MemberPortalPage() {
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%" }}>
-                        <CardContent>
-                            <Typography variant="subtitle2">Running Balance Validation</Typography>
-                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                        <CardContent sx={{ p: 2.25, height: "100%", display: "flex" }}>
+                            <Stack spacing={1.25} sx={{ width: 1 }}>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                    <Box
+                                        sx={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 1.25,
+                                            display: "grid",
+                                            placeItems: "center",
+                                            bgcolor: alpha(runningBalanceMismatches ? brandColors.warning : brandColors.success, 0.14),
+                                            color: runningBalanceMismatches ? "#9A6700" : brandColors.success
+                                        }}
+                                    >
+                                        <TaskAltRoundedIcon fontSize="small" />
+                                    </Box>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                        Running Balance Validation
+                                    </Typography>
+                                </Stack>
+                                <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
                                 <Chip
                                     label={runningBalanceMismatches ? "Check required" : "Validated"}
                                     color={runningBalanceMismatches ? "warning" : "success"}
@@ -2160,6 +2325,7 @@ export function MemberPortalPage() {
                                         ? `${runningBalanceMismatches} mismatch(es) detected`
                                         : "No mismatches detected in current filter."}
                                 </Typography>
+                            </Stack>
                             </Stack>
                         </CardContent>
                     </MotionCard>
@@ -2424,6 +2590,9 @@ export function MemberPortalPage() {
     const renderSidebarContent = (collapsed: boolean, mobile = false) => (
         <Box
             sx={{
+                width: "100%",
+                minWidth: 0,
+                flex: 1,
                 height: "100%",
                 display: "flex",
                 flexDirection: "column",

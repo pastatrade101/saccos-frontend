@@ -1,8 +1,10 @@
 import AccountBalanceRoundedIcon from "@mui/icons-material/AccountBalanceRounded";
 import EventAvailableRoundedIcon from "@mui/icons-material/EventAvailableRounded";
 import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
-import { CardContent, Stack, Typography } from "@mui/material";
+import { Box, CardContent, Stack, Typography } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 
+import { brandColors } from "../../theme/colors";
 import { formatCurrency, formatDate } from "../../utils/format";
 import { MotionCard } from "../../ui/motion";
 
@@ -25,44 +27,90 @@ export function ShareCapitalCard({ totalShares, dividendEarned, lastContribution
                 display: "flex"
             }}
         >
-            <CardContent>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-                    <AccountBalanceRoundedIcon fontSize="small" color="warning" />
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                        Share Capital
-                    </Typography>
-                </Stack>
+            <CardContent sx={{ p: 2.25, width: 1, display: "flex" }}>
+                <Stack spacing={1.2} sx={{ width: 1 }}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <Box
+                            sx={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 1.25,
+                                display: "grid",
+                                placeItems: "center",
+                                bgcolor: alpha(brandColors.warning, 0.16),
+                                color: "#B45309"
+                            }}
+                        >
+                            <AccountBalanceRoundedIcon fontSize="small" />
+                        </Box>
+                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                            Share Capital
+                        </Typography>
+                    </Stack>
 
-                <Stack spacing={1.25}>
-                    <Stack direction="row" justifyContent="space-between">
-                        <Typography variant="body2" color="text.secondary">
+                    <Box
+                        sx={{
+                            p: 1.5,
+                            borderRadius: 1.5,
+                            border: "1px solid",
+                            borderColor: "divider",
+                            bgcolor: (theme) => alpha(theme.palette.background.paper, 0.72)
+                        }}
+                    >
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                             Total Shares
                         </Typography>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                        <Typography variant="h6" sx={{ mt: 1, fontWeight: 800, lineHeight: 1.2 }}>
                             {formatCurrency(totalShares)}
                         </Typography>
-                    </Stack>
-                    <Stack direction="row" justifyContent="space-between">
-                        <Stack direction="row" spacing={0.75} alignItems="center">
-                            <PaidRoundedIcon fontSize="small" color="success" />
-                            <Typography variant="body2" color="text.secondary">
-                                Dividend Earned
+                    </Box>
+
+                    <Stack spacing={0.9}>
+                        <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            sx={{
+                                p: 1.2,
+                                borderRadius: 1.5,
+                                border: "1px solid",
+                                borderColor: "divider",
+                                bgcolor: (theme) => alpha(theme.palette.background.paper, 0.72)
+                            }}
+                        >
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                                <PaidRoundedIcon fontSize="small" sx={{ color: alpha(brandColors.success, 0.92) }} />
+                                <Typography variant="body2" color="text.secondary">
+                                    Dividend Earned
+                                </Typography>
+                            </Stack>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                {formatCurrency(dividendEarned)}
                             </Typography>
                         </Stack>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                            {formatCurrency(dividendEarned)}
-                        </Typography>
-                    </Stack>
-                    <Stack direction="row" justifyContent="space-between">
-                        <Stack direction="row" spacing={0.75} alignItems="center">
-                            <EventAvailableRoundedIcon fontSize="small" color="info" />
-                            <Typography variant="body2" color="text.secondary">
-                                Last Contribution Date
+
+                        <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            sx={{
+                                p: 1.2,
+                                borderRadius: 1.5,
+                                border: "1px solid",
+                                borderColor: "divider",
+                                bgcolor: (theme) => alpha(theme.palette.background.paper, 0.72)
+                            }}
+                        >
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                                <EventAvailableRoundedIcon fontSize="small" sx={{ color: brandColors.info }} />
+                                <Typography variant="body2" color="text.secondary">
+                                    Last Contribution Date
+                                </Typography>
+                            </Stack>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                {formatDate(lastContributionDate)}
                             </Typography>
                         </Stack>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                            {formatDate(lastContributionDate)}
-                        </Typography>
                     </Stack>
                 </Stack>
             </CardContent>

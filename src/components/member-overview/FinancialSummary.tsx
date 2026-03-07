@@ -1,11 +1,10 @@
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 import CreditScoreRoundedIcon from "@mui/icons-material/CreditScoreRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
 import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
 import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
-import { Box, Button, CardContent, Chip, Divider, Stack, Typography } from "@mui/material";
+import { Box, Button, CardContent, Chip, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import { brandColors } from "../../theme/colors";
@@ -19,7 +18,6 @@ interface FinancialSummaryProps {
     onApplyLoan: () => void;
     onMakeContribution: () => void;
     onDownloadStatement: () => void;
-    onPayInstallment: () => void;
 }
 
 function getStandingStyles(tone: FinancialStanding["tone"]) {
@@ -59,8 +57,7 @@ export function FinancialSummary({
     standing,
     onApplyLoan,
     onMakeContribution,
-    onDownloadStatement,
-    onPayInstallment
+    onDownloadStatement
 }: FinancialSummaryProps) {
     const standingStyles = getStandingStyles(standing.tone);
     const summaryCards = [
@@ -124,17 +121,48 @@ export function FinancialSummary({
                                 </Typography>
                             ) : null}
                         </Box>
-                        <Chip
-                            label={standing.label}
-                            sx={{
-                                alignSelf: { xs: "flex-start", md: "center" },
-                                borderRadius: 1.5,
-                                color: standingStyles.color,
-                                bgcolor: standingStyles.bg,
-                                border: `1px solid ${standingStyles.border}`,
-                                fontWeight: 700
-                            }}
-                        />
+                        <Stack spacing={1} sx={{ width: { xs: "100%", md: "auto" }, alignItems: { xs: "stretch", md: "flex-end" } }}>
+                            {standing.showChip !== false ? (
+                                <Chip
+                                    label={standing.label}
+                                    sx={{
+                                        alignSelf: { xs: "flex-start", md: "flex-end" },
+                                        borderRadius: 1.5,
+                                        color: standingStyles.color,
+                                        bgcolor: standingStyles.bg,
+                                        border: `1px solid ${standingStyles.border}`,
+                                        fontWeight: 700
+                                    }}
+                                />
+                            ) : null}
+                            <Stack
+                                direction="row"
+                                spacing={1}
+                                useFlexGap
+                                flexWrap="wrap"
+                                sx={{ justifyContent: { xs: "flex-start", md: "flex-end" } }}
+                            >
+                                <Button variant="contained" onClick={onApplyLoan} startIcon={<PaidRoundedIcon />} sx={{ borderRadius: 1.5, fontWeight: 700 }}>
+                                    Apply for Loan
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    onClick={onMakeContribution}
+                                    startIcon={<SavingsRoundedIcon />}
+                                    sx={{ borderRadius: 1.5, fontWeight: 700 }}
+                                >
+                                    Make Contribution
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    onClick={onDownloadStatement}
+                                    startIcon={<DownloadRoundedIcon />}
+                                    sx={{ borderRadius: 1.5, fontWeight: 700 }}
+                                >
+                                    Download Statement
+                                </Button>
+                            </Stack>
+                        </Stack>
                     </Stack>
 
                     <Box
@@ -191,38 +219,6 @@ export function FinancialSummary({
                             );
                         })}
                     </Box>
-
-                    <Divider />
-
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} useFlexGap flexWrap="wrap">
-                        <Button variant="contained" onClick={onApplyLoan} startIcon={<PaidRoundedIcon />} sx={{ borderRadius: 1.5, fontWeight: 700 }}>
-                            Apply for Loan
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            onClick={onMakeContribution}
-                            startIcon={<SavingsRoundedIcon />}
-                            sx={{ borderRadius: 1.5, fontWeight: 700 }}
-                        >
-                            Make Contribution
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            onClick={onDownloadStatement}
-                            startIcon={<DownloadRoundedIcon />}
-                            sx={{ borderRadius: 1.5, fontWeight: 700 }}
-                        >
-                            Download Statement
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            onClick={onPayInstallment}
-                            startIcon={<PaymentsRoundedIcon />}
-                            sx={{ borderRadius: 1.5, fontWeight: 700 }}
-                        >
-                            Pay Installment
-                        </Button>
-                    </Stack>
                 </Stack>
             </CardContent>
         </MotionCard>

@@ -1,7 +1,7 @@
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
 import WalletRoundedIcon from "@mui/icons-material/WalletRounded";
-import { CardContent, Stack, Typography } from "@mui/material";
+import { Box, CardContent, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import { brandColors } from "../../theme/colors";
@@ -27,44 +27,90 @@ export function SavingsCard({ totalSavings, availableBalance, lockedAmount }: Sa
                 display: "flex"
             }}
         >
-            <CardContent>
-                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-                    <SavingsRoundedIcon fontSize="small" sx={{ color: brandColors.primary[700] }} />
-                    <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                        Savings
-                    </Typography>
-                </Stack>
+            <CardContent sx={{ p: 2.25, width: 1, display: "flex" }}>
+                <Stack spacing={1.2} sx={{ width: 1 }}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <Box
+                            sx={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 1.25,
+                                display: "grid",
+                                placeItems: "center",
+                                bgcolor: alpha(brandColors.primary[500], 0.12),
+                                color: brandColors.primary[700]
+                            }}
+                        >
+                            <SavingsRoundedIcon fontSize="small" />
+                        </Box>
+                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                            Savings
+                        </Typography>
+                    </Stack>
 
-                <Stack spacing={1.25}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography variant="body2" color="text.secondary">
+                    <Box
+                        sx={{
+                            p: 1.5,
+                            borderRadius: 1.5,
+                            border: "1px solid",
+                            borderColor: "divider",
+                            bgcolor: (theme) => alpha(theme.palette.background.paper, 0.72)
+                        }}
+                    >
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                             Total Savings
                         </Typography>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                        <Typography variant="h6" sx={{ mt: 1, fontWeight: 800, lineHeight: 1.2 }}>
                             {formatCurrency(totalSavings)}
                         </Typography>
-                    </Stack>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Stack direction="row" spacing={0.75} alignItems="center">
-                            <WalletRoundedIcon fontSize="small" sx={{ color: alpha(brandColors.success, 0.9) }} />
-                            <Typography variant="body2" color="text.secondary">
-                                Available Balance
+                    </Box>
+
+                    <Stack spacing={0.9}>
+                        <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            sx={{
+                                p: 1.2,
+                                borderRadius: 1.5,
+                                border: "1px solid",
+                                borderColor: "divider",
+                                bgcolor: (theme) => alpha(theme.palette.background.paper, 0.72)
+                            }}
+                        >
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                                <WalletRoundedIcon fontSize="small" sx={{ color: alpha(brandColors.success, 0.9) }} />
+                                <Typography variant="body2" color="text.secondary">
+                                    Available Balance
+                                </Typography>
+                            </Stack>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: brandColors.success }}>
+                                {formatCurrency(availableBalance)}
                             </Typography>
                         </Stack>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: brandColors.success }}>
-                            {formatCurrency(availableBalance)}
-                        </Typography>
-                    </Stack>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Stack direction="row" spacing={0.75} alignItems="center">
-                            <LockRoundedIcon fontSize="small" sx={{ color: alpha(brandColors.warning, 0.95) }} />
-                            <Typography variant="body2" color="text.secondary">
-                                Locked / Pledged
+
+                        <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            sx={{
+                                p: 1.2,
+                                borderRadius: 1.5,
+                                border: "1px solid",
+                                borderColor: "divider",
+                                bgcolor: (theme) => alpha(theme.palette.background.paper, 0.72)
+                            }}
+                        >
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                                <LockRoundedIcon fontSize="small" sx={{ color: alpha(brandColors.warning, 0.95) }} />
+                                <Typography variant="body2" color="text.secondary">
+                                    Locked / Pledged
+                                </Typography>
+                            </Stack>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#9A6700" }}>
+                                {formatCurrency(lockedAmount)}
                             </Typography>
                         </Stack>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#9A6700" }}>
-                            {formatCurrency(lockedAmount)}
-                        </Typography>
                     </Stack>
                 </Stack>
             </CardContent>
