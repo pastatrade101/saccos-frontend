@@ -1,4 +1,5 @@
 import {
+    useEffect,
     useRef,
     useState,
     type ClipboardEvent,
@@ -28,6 +29,7 @@ interface OtpRequiredDetails {
     challenge_id?: string;
     expires_at?: string;
     destination_hint?: string;
+    otp_enroll_required?: boolean;
 }
 
 interface AuthFlowError extends Error {
@@ -52,6 +54,9 @@ export function SignInPage() {
     const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
     const [otpDestinationHint, setOtpDestinationHint] = useState<string | null>(null);
     const [otpExpiresAt, setOtpExpiresAt] = useState<string | null>(null);
+    const [otpPhoneRequired, setOtpPhoneRequired] = useState(false);
+    const [otpPhoneInput, setOtpPhoneInput] = useState("");
+    const [lastAutoSubmittedOtp, setLastAutoSubmittedOtp] = useState<string | null>(null);
     const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
     const otpCode = otpDigits.join("");
 
@@ -72,6 +77,9 @@ export function SignInPage() {
         setOtpChallengeId(null);
         setOtpDestinationHint(null);
         setOtpExpiresAt(null);
+        setOtpPhoneRequired(false);
+        setOtpPhoneInput("");
+        setLastAutoSubmittedOtp(null);
     };
 
     const handleOtpChallenge = (details: OtpRequiredDetails | null | undefined) => {
@@ -82,6 +90,7 @@ export function SignInPage() {
         setOtpChallengeId(details.challenge_id);
         setOtpDestinationHint(details.destination_hint || null);
         setOtpExpiresAt(details.expires_at || null);
+        setOtpPhoneRequired(false);
         setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ""));
         setOtpModalOpen(true);
         window.setTimeout(() => {
@@ -94,11 +103,68 @@ export function SignInPage() {
         clearOtpState();
     };
 
+    const toOtpDetails = (details: unknown): OtpRequiredDetails => {
+        if (!details || typeof details !== "object") {
+            return {};
+        }
+
+        return details as OtpRequiredDetails;
+    };
+
+    const handleEnrollPhoneAndSendOtp = async () => {
+        const values = form.getValues();
+        const valid = await form.trigger(["email", "password"]);
+
+        if (!valid) {
+            return;
+        }
+
+        if (!otpPhoneInput.trim()) {
+            pushToast({
+                type: "error",
+                title: "Phone required",
+                message: "Enter a phone number in 2557XXXXXXXX format."
+            });
+            return;
+        }
+
+        setResendingOtp(true);
+
+        try {
+            const result = await requestOtp(
+                values.email,
+                values.password,
+                otpChallengeId,
+                otpPhoneInput.trim()
+            );
+            setOtpPhoneRequired(false);
+            handleOtpChallenge(result);
+            pushToast({
+                type: "success",
+                title: "OTP sent",
+                message: "Verification code sent to the enrolled phone number."
+            });
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "OTP send failed",
+                message: error instanceof Error ? error.message : "Unable to send OTP."
+            });
+        } finally {
+            setResendingOtp(false);
+        }
+    };
+
     const handleResendOtp = async () => {
         const values = form.getValues();
         const valid = await form.trigger(["email", "password"]);
 
         if (!valid) {
+            return;
+        }
+
+        if (otpPhoneRequired) {
+            await handleEnrollPhoneAndSendOtp();
             return;
         }
 
@@ -110,6 +176,7 @@ export function SignInPage() {
             setOtpDestinationHint(result.destination_hint || null);
             setOtpExpiresAt(result.expires_at || null);
             setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ""));
+            setLastAutoSubmittedOtp(null);
             window.setTimeout(() => {
                 otpInputRefs.current[0]?.focus();
             }, 0);
@@ -119,6 +186,17 @@ export function SignInPage() {
                 message: "A new verification code has been sent to your registered phone."
             });
         } catch (error) {
+            const otpError = error as AuthFlowError;
+            if (otpError.code === "OTP_ENROLL_REQUIRED") {
+                setOtpPhoneRequired(true);
+                pushToast({
+                    type: "error",
+                    title: "Phone required",
+                    message: "Add a phone number to receive OTP."
+                });
+                return;
+            }
+
             pushToast({
                 type: "error",
                 title: "OTP resend failed",
@@ -137,6 +215,7 @@ export function SignInPage() {
             next[index] = nextDigit;
             return next;
         });
+        setLastAutoSubmittedOtp(null);
 
         if (nextDigit && index < OTP_LENGTH - 1) {
             otpInputRefs.current[index + 1]?.focus();
@@ -190,6 +269,7 @@ export function SignInPage() {
 
         const next = Array.from({ length: OTP_LENGTH }, (_, index) => value[index] || "");
         setOtpDigits(next);
+        setLastAutoSubmittedOtp(null);
 
         const focusIndex = Math.min(value.length, OTP_LENGTH - 1);
         otpInputRefs.current[focusIndex]?.focus();
@@ -209,9 +289,27 @@ export function SignInPage() {
             navigate("/", { replace: true });
         } catch (error) {
             const authFlowError = error as AuthFlowError;
+            const details = toOtpDetails(authFlowError.details);
 
-            if (authFlowError.code === "OTP_REQUIRED") {
+            if (authFlowError.code === "OTP_REQUIRED" || authFlowError.code === "OTP_ENROLL_REQUIRED") {
                 setOtpModalOpen(true);
+
+                const requiresPhone =
+                    authFlowError.code === "OTP_ENROLL_REQUIRED" ||
+                    details.otp_enroll_required === true;
+
+                if (requiresPhone) {
+                    setOtpPhoneRequired(true);
+                    setOtpChallengeId(details.challenge_id || null);
+                    setOtpDestinationHint(details.destination_hint || null);
+                    setOtpExpiresAt(details.expires_at || null);
+                    pushToast({
+                        type: "error",
+                        title: "Phone required",
+                        message: "Add a phone number in 2557XXXXXXXX format to receive OTP."
+                    });
+                    return;
+                }
 
                 try {
                     const result = await requestOtp(values.email, values.password, otpChallengeId);
@@ -222,6 +320,17 @@ export function SignInPage() {
                         message: "A one-time verification code has been sent to your registered phone."
                     });
                 } catch (otpError) {
+                    const otpFlowError = otpError as AuthFlowError;
+                    if (otpFlowError.code === "OTP_ENROLL_REQUIRED") {
+                        setOtpPhoneRequired(true);
+                        pushToast({
+                            type: "error",
+                            title: "Phone required",
+                            message: "Add a phone number in 2557XXXXXXXX format to receive OTP."
+                        });
+                        return;
+                    }
+
                     pushToast({
                         type: "error",
                         title: "OTP send failed",
@@ -243,15 +352,16 @@ export function SignInPage() {
         }
     });
 
-    const handleVerifyOtp = async () => {
+    const handleVerifyOtp = async (codeOverride?: string) => {
         const values = form.getValues();
         const valid = await form.trigger(["email", "password"]);
+        const code = codeOverride || otpCode;
 
         if (!valid || !otpChallengeId) {
             return;
         }
 
-        if (!/^\d{6}$/.test(otpCode)) {
+        if (!/^\d{6}$/.test(code)) {
             pushToast({
                 type: "error",
                 title: "Invalid OTP",
@@ -260,12 +370,13 @@ export function SignInPage() {
             return;
         }
 
+        setLastAutoSubmittedOtp(code);
         setVerifyingOtp(true);
 
         try {
             await signIn(values.email, values.password, {
                 challengeId: otpChallengeId,
-                otpCode
+                otpCode: code
             });
             pushToast({
                 type: "success",
@@ -284,6 +395,22 @@ export function SignInPage() {
             setVerifyingOtp(false);
         }
     };
+
+    useEffect(() => {
+        if (!otpModalOpen || !otpChallengeId || verifyingOtp || otpPhoneRequired) {
+            return;
+        }
+
+        if (otpCode.length !== OTP_LENGTH) {
+            return;
+        }
+
+        if (lastAutoSubmittedOtp === otpCode) {
+            return;
+        }
+
+        void handleVerifyOtp(otpCode);
+    }, [lastAutoSubmittedOtp, otpChallengeId, otpCode, otpModalOpen, otpPhoneRequired, verifyingOtp]);
 
     return (
         <div className={pageStyles.authShell}>
@@ -390,43 +517,59 @@ export function SignInPage() {
                         <div className={pageStyles.otpModalBackdrop}>
                             <div className={pageStyles.otpModalCard} role="dialog" aria-modal="true" aria-label="OTP verification">
                                 <div className={pageStyles.otpModalHeader}>
-                                    <h3>Verify one-time code</h3>
+                                    <h3>{otpPhoneRequired ? "Add phone for OTP" : "Verify one-time code"}</h3>
                                     <p>
-                                        Enter the OTP sent to {otpDestinationHint || "your registered phone"} to complete sign in.
+                                        {otpPhoneRequired
+                                            ? "Provide your phone number in 2557XXXXXXXX format to receive the sign-in OTP."
+                                            : `Enter the OTP sent to ${otpDestinationHint || "your registered phone"} to complete sign in.`}
                                     </p>
                                 </div>
 
-                                <FormField label="OTP code" error={otpCode && !/^\d{6}$/.test(otpCode) ? "Enter a valid 6-digit code." : undefined}>
-                                    <div className={pageStyles.otpDigitsRow}>
-                                        {otpDigits.map((digit, index) => (
-                                            <input
-                                                key={index}
-                                                ref={(element) => {
-                                                    otpInputRefs.current[index] = element;
-                                                }}
-                                                className={pageStyles.otpDigitBox}
-                                                type="text"
-                                                inputMode="numeric"
-                                                pattern="[0-9]*"
-                                                maxLength={1}
-                                                value={digit}
-                                                onChange={(event) =>
-                                                    handleOtpDigitChange(index, event.target.value)
-                                                }
-                                                onKeyDown={(event) =>
-                                                    handleOtpDigitKeyDown(index, event)
-                                                }
-                                                onPaste={handleOtpPaste}
-                                                aria-label={`OTP digit ${index + 1}`}
-                                            />
-                                        ))}
-                                    </div>
-                                </FormField>
+                                {otpPhoneRequired ? (
+                                    <FormField label="Phone number" error={undefined}>
+                                        <input
+                                            type="tel"
+                                            inputMode="numeric"
+                                            placeholder="2557XXXXXXXX"
+                                            value={otpPhoneInput}
+                                            onChange={(event) => setOtpPhoneInput(event.target.value.replace(/\s+/g, ""))}
+                                        />
+                                    </FormField>
+                                ) : (
+                                    <FormField label="OTP code" error={otpCode && !/^\d{6}$/.test(otpCode) ? "Enter a valid 6-digit code." : undefined}>
+                                        <div className={pageStyles.otpDigitsRow}>
+                                            {otpDigits.map((digit, index) => (
+                                                <input
+                                                    key={index}
+                                                    ref={(element) => {
+                                                        otpInputRefs.current[index] = element;
+                                                    }}
+                                                    className={pageStyles.otpDigitBox}
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    pattern="[0-9]*"
+                                                    maxLength={1}
+                                                    value={digit}
+                                                    onChange={(event) =>
+                                                        handleOtpDigitChange(index, event.target.value)
+                                                    }
+                                                    onKeyDown={(event) =>
+                                                        handleOtpDigitKeyDown(index, event)
+                                                    }
+                                                    onPaste={handleOtpPaste}
+                                                    aria-label={`OTP digit ${index + 1}`}
+                                                />
+                                            ))}
+                                        </div>
+                                    </FormField>
+                                )}
 
                                 <p className={pageStyles.authCopy}>
-                                    {otpExpiresAt
+                                    {!otpPhoneRequired && otpExpiresAt
                                         ? `Code expires at ${new Date(otpExpiresAt).toLocaleTimeString()}.`
-                                        : "Your OTP expires in a few minutes."}
+                                        : otpPhoneRequired
+                                            ? "Phone is saved after password verification and OTP send."
+                                            : "Your OTP expires in a few minutes."}
                                 </p>
 
                                 <div className={pageStyles.otpModalActions}>
@@ -434,9 +577,9 @@ export function SignInPage() {
                                         className="secondary-button"
                                         disabled={resendingOtp || verifyingOtp}
                                         type="button"
-                                        onClick={handleResendOtp}
+                                        onClick={otpPhoneRequired ? handleEnrollPhoneAndSendOtp : handleResendOtp}
                                     >
-                                        {resendingOtp ? "Resending..." : "Resend OTP"}
+                                        {resendingOtp ? "Sending..." : otpPhoneRequired ? "Save Phone & Send OTP" : "Resend OTP"}
                                     </button>
                                     <button
                                         className={pageStyles.otpModalLink}
@@ -445,14 +588,7 @@ export function SignInPage() {
                                     >
                                         Change credentials
                                     </button>
-                                    <button
-                                        className="primary-button"
-                                        type="button"
-                                        disabled={verifyingOtp || !otpChallengeId || otpCode.length !== 6}
-                                        onClick={handleVerifyOtp}
-                                    >
-                                        {verifyingOtp ? "Verifying..." : "Verify & Sign In"}
-                                    </button>
+                                    {verifyingOtp ? <span className={pageStyles.authCopy}>Verifying OTP...</span> : null}
                                 </div>
                             </div>
                         </div>

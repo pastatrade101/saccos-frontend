@@ -56,7 +56,8 @@ interface AuthContextValue {
     requestOtp: (
         email: string,
         password: string,
-        challengeId?: string | null
+        challengeId?: string | null,
+        phone?: string | null
     ) => Promise<OtpChallengeResponse>;
     signOut: () => Promise<void>;
     refreshProfile: (tenantOverride?: string | null) => Promise<void>;
@@ -345,13 +346,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const requestOtp = useCallback(async (
         email: string,
         password: string,
-        challengeId?: string | null
+        challengeId?: string | null,
+        phone?: string | null
     ) => {
         try {
             const { data } = await api.post<OtpChallengeResponse>(endpoints.auth.otpSend(), {
                 email,
                 password,
-                challenge_id: challengeId || undefined
+                challenge_id: challengeId || undefined,
+                phone: phone || undefined
             });
 
             return data;

@@ -115,22 +115,22 @@ const buyerValuePillars = [
     {
         title: "Financial Safety",
         copy: "Protects real-money operations with controlled posting paths, role enforcement, and auditable transaction trails.",
-        icon: <HealthAndSafetyRoundedIcon color="primary" />
+        icon: <HealthAndSafetyRoundedIcon />
     },
     {
         title: "Operational Efficiency",
         copy: "Reduces manual work by unifying member onboarding, cash desk, loan workflow, dividends, and reporting.",
-        icon: <AutoGraphRoundedIcon color="primary" />
+        icon: <AutoGraphRoundedIcon />
     },
     {
         title: "Member Transparency",
         copy: "Improves trust through clearer statements, receipts, member portal visibility, and consistent decision workflows.",
-        icon: <PeopleAltRoundedIcon color="primary" />
+        icon: <PeopleAltRoundedIcon />
     },
     {
         title: "Growth Capability",
         copy: "Scales from small cooperatives to larger institutions with plan upgrades, limits, and governance-ready controls.",
-        icon: <LanRoundedIcon color="primary" />
+        icon: <LanRoundedIcon />
     }
 ] as const;
 
@@ -212,6 +212,7 @@ export function LandingPage() {
     const theme = useTheme();
     const { theme: mode, toggleTheme } = useUI();
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
+    const isDark = mode === "dark";
 
     const ownerName = import.meta.env.VITE_MARKETING_OWNER_NAME || "Platform Owner";
     const ownerEmail = import.meta.env.VITE_MARKETING_OWNER_EMAIL || "";
@@ -227,6 +228,26 @@ export function LandingPage() {
             ? `tel:${ownerPhone}`
             : "/signin";
     const whatsappHref = whatsappNumber ? `https://wa.me/${whatsappNumber}` : null;
+    const shellBg = isDark
+        ? "radial-gradient(circle at 14% 12%, rgba(90,112,156,0.16), transparent 30%), radial-gradient(circle at 84% 10%, rgba(72,153,145,0.11), transparent 28%), radial-gradient(circle at 52% 88%, rgba(206,162,82,0.12), transparent 30%), linear-gradient(180deg, #070c16 0%, #0b121d 55%, #101827 100%)"
+        : "radial-gradient(circle at 14% 12%, rgba(92,109,255,0.14), transparent 30%), radial-gradient(circle at 84% 10%, rgba(39,209,187,0.12), transparent 28%), linear-gradient(180deg, #f8fbff 0%, #f3f8ff 55%, #f7fbff 100%)";
+    const glassSurface = isDark
+        ? alpha(theme.palette.background.paper, 0.62)
+        : alpha(theme.palette.common.white, 0.84);
+    const sectionSurface = isDark
+        ? alpha(theme.palette.background.paper, 0.54)
+        : alpha(theme.palette.common.white, 0.9);
+    const cardBorder = alpha(theme.palette.divider, isDark ? 0.52 : 0.82);
+    const accentColor = isDark ? "#D9B273" : theme.palette.primary.main;
+    const sectionCardSx = {
+        borderRadius: 3,
+        border: `1px solid ${cardBorder}`,
+        bgcolor: sectionSurface,
+        backdropFilter: "blur(10px)",
+        boxShadow: isDark
+            ? "0 20px 44px rgba(0, 0, 0, 0.34)"
+            : "0 18px 40px rgba(12, 23, 44, 0.1)"
+    } as const;
 
     return (
         <Box
@@ -234,10 +255,7 @@ export function LandingPage() {
                 minHeight: "100vh",
                 bgcolor: "background.default",
                 color: "text.primary",
-                backgroundImage:
-                    mode === "light"
-                        ? "radial-gradient(circle at top left, rgba(79,70,229,0.12), transparent 28%), radial-gradient(circle at right 12%, rgba(15,118,110,0.12), transparent 24%)"
-                        : "radial-gradient(circle at top left, rgba(139,147,255,0.18), transparent 28%), radial-gradient(circle at right 12%, rgba(77,208,200,0.12), transparent 24%)"
+                backgroundImage: shellBg
             }}
         >
             <AppBar
@@ -245,7 +263,7 @@ export function LandingPage() {
                 color="transparent"
                 elevation={0}
                 sx={{
-                    borderBottom: `1px solid ${alpha(theme.palette.divider, 0.65)}`
+                    borderBottom: `1px solid ${alpha(theme.palette.divider, isDark ? 0.45 : 0.72)}`
                 }}
             >
                 <Toolbar
@@ -253,7 +271,7 @@ export function LandingPage() {
                         minHeight: { xs: 64, md: 76 },
                         px: { xs: 1.5, sm: 2.5 },
                         backdropFilter: "blur(18px)",
-                        bgcolor: alpha(theme.palette.background.default, 0.9)
+                        bgcolor: glassSurface
                     }}
                 >
                     <Container maxWidth="xl" sx={{ display: "flex", alignItems: "center", gap: { xs: 1, md: 2 } }}>
@@ -267,7 +285,7 @@ export function LandingPage() {
                                     display: "grid",
                                     placeItems: "center",
                                     flexShrink: 0,
-                                    boxShadow: `0 14px 30px ${alpha(theme.palette.primary.main, 0.24)}`
+                                    boxShadow: `0 14px 30px ${alpha(accentColor, isDark ? 0.3 : 0.22)}`
                                 }}
                             >
                                 <Box
@@ -332,7 +350,16 @@ export function LandingPage() {
                                 href={contactHref}
                                 variant="contained"
                                 endIcon={<ArrowForwardRoundedIcon />}
-                                sx={{ display: { xs: "none", md: "inline-flex" } }}
+                                sx={{
+                                    display: { xs: "none", md: "inline-flex" },
+                                    ...(isDark
+                                        ? {
+                                              bgcolor: accentColor,
+                                              color: "#1a1a1a",
+                                              "&:hover": { bgcolor: alpha(accentColor, 0.86) }
+                                          }
+                                        : {})
+                                }}
                             >
                                 Contact owner
                             </Button>
@@ -382,10 +409,43 @@ export function LandingPage() {
                         ))}
                     </List>
                     <Stack direction="row" spacing={1} sx={{ px: 1, py: 1.5 }}>
-                        <Button component={RouterLink} to="/signin" variant="outlined" fullWidth onClick={() => setMobileNavOpen(false)}>
+                        <Button
+                            component={RouterLink}
+                            to="/signin"
+                            variant="outlined"
+                            fullWidth
+                            onClick={() => setMobileNavOpen(false)}
+                            sx={
+                                isDark
+                                    ? {
+                                          borderColor: alpha(accentColor, 0.5),
+                                          color: accentColor,
+                                          "&:hover": {
+                                              borderColor: alpha(accentColor, 0.8),
+                                              bgcolor: alpha(accentColor, 0.12)
+                                          }
+                                      }
+                                    : undefined
+                            }
+                        >
                             Sign in
                         </Button>
-                        <Button component="a" href={contactHref} variant="contained" fullWidth onClick={() => setMobileNavOpen(false)}>
+                        <Button
+                            component="a"
+                            href={contactHref}
+                            variant="contained"
+                            fullWidth
+                            onClick={() => setMobileNavOpen(false)}
+                            sx={
+                                isDark
+                                    ? {
+                                          bgcolor: accentColor,
+                                          color: "#1a1a1a",
+                                          "&:hover": { bgcolor: alpha(accentColor, 0.86) }
+                                      }
+                                    : undefined
+                            }
+                        >
                             Contact owner
                         </Button>
                     </Stack>
@@ -397,26 +457,40 @@ export function LandingPage() {
                     sx={{
                         position: "relative",
                         overflow: "hidden",
-                        borderRadius: 2,
-                        px: { xs: 2.5, md: 4.5 },
-                        py: { xs: 5, md: 7 },
+                        borderRadius: 3,
+                        px: { xs: 2.25, md: 4.5 },
+                        py: { xs: 4, md: 6.5 },
                         mb: { xs: 4, md: 5 },
                         backgroundImage: `linear-gradient(135deg, ${
                             mode === "light"
-                                ? "rgba(9, 18, 43, 0.76), rgba(20, 56, 84, 0.48)"
-                                : "rgba(4, 9, 19, 0.82), rgba(16, 34, 58, 0.62)"
+                                ? "rgba(8, 18, 44, 0.78), rgba(16, 44, 74, 0.5)"
+                                : "rgba(6, 10, 18, 0.88), rgba(25, 34, 42, 0.72)"
                         }), url('/13321.jpg')`,
                         backgroundSize: "cover",
                         backgroundPosition: "center",
-                        boxShadow: `0 28px 56px ${alpha(theme.palette.common.black, mode === "light" ? 0.12 : 0.32)}`,
+                        border: `1px solid ${alpha("#ffffff", isDark ? 0.14 : 0.28)}`,
+                        boxShadow: `0 30px 70px ${alpha(theme.palette.common.black, mode === "light" ? 0.14 : 0.36)}`,
                         "&::after": {
                             content: '""',
                             position: "absolute",
                             inset: 0,
                             background:
                                 mode === "light"
-                                    ? "linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0))"
-                                    : "linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0))",
+                                    ? "linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0))"
+                                    : "linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0))",
+                            pointerEvents: "none"
+                        },
+                        "&::before": {
+                            content: '""',
+                            position: "absolute",
+                            width: 420,
+                            height: 420,
+                            borderRadius: "50%",
+                            top: -220,
+                            right: -120,
+                            background: isDark
+                                ? "radial-gradient(circle, rgba(199,162,95,0.24), rgba(199,162,95,0) 65%)"
+                                : "radial-gradient(circle, rgba(115,134,255,0.3), rgba(115,134,255,0) 65%)",
                             pointerEvents: "none"
                         }
                     }}
@@ -438,9 +512,9 @@ export function LandingPage() {
                                 variant="h2"
                                 sx={{
                                     color: "#ffffff",
-                                    fontSize: { xs: "2.5rem", md: "4.35rem" },
-                                    lineHeight: 1.02,
-                                    letterSpacing: -2.4,
+                                    fontSize: { xs: "2.15rem", md: "3.9rem" },
+                                    lineHeight: 1.04,
+                                    letterSpacing: { xs: -1.3, md: -2.2 },
                                     fontWeight: 800,
                                     maxWidth: 820
                                 }}
@@ -452,8 +526,8 @@ export function LandingPage() {
                                 sx={{
                                     maxWidth: 720,
                                     fontWeight: 500,
-                                    lineHeight: 1.65,
-                                    color: alpha("#ffffff", 0.82)
+                                    lineHeight: 1.6,
+                                    color: alpha("#ffffff", 0.86)
                                 }}
                             >
                                 This is not a dashboard over spreadsheets. It is a governed operating platform for
@@ -467,10 +541,25 @@ export function LandingPage() {
                                     size="large"
                                     variant="contained"
                                     endIcon={<ArrowForwardRoundedIcon />}
+                                    sx={{
+                                        bgcolor: "#ffffff",
+                                        color: accentColor,
+                                        "&:hover": { bgcolor: alpha("#ffffff", 0.92) }
+                                    }}
                                 >
                                     Request onboarding
                                 </Button>
-                                <Button component="a" href="#plans" size="large" variant="outlined">
+                                <Button
+                                    component="a"
+                                    href="#plans"
+                                    size="large"
+                                    variant="outlined"
+                                    sx={{
+                                        borderColor: alpha("#ffffff", 0.4),
+                                        color: "#ffffff",
+                                        "&:hover": { borderColor: alpha("#ffffff", 0.7), bgcolor: alpha("#ffffff", 0.08) }
+                                    }}
+                                >
                                     Explore plans
                                 </Button>
                             </Stack>
@@ -501,24 +590,32 @@ export function LandingPage() {
                         <Paper
                             sx={{
                                 p: { xs: 2.5, md: 3.5 },
-                                borderRadius: 2,
+                                borderRadius: 2.5,
                                 background:
                                     mode === "light"
                                         ? "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(247,249,255,0.92) 100%)"
                                         : "linear-gradient(180deg, rgba(26,31,41,0.94) 0%, rgba(20,24,34,0.92) 100%)",
                                 backdropFilter: "blur(8px)",
+                                border: `1px solid ${alpha(theme.palette.divider, isDark ? 0.42 : 0.82)}`,
                                 boxShadow: `0 30px 60px ${alpha(theme.palette.common.black, mode === "light" ? 0.1 : 0.32)}`
                             }}
                         >
                             <Stack spacing={2.5}>
                                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                                     <Box>
-                                        <Typography variant="overline" color="primary.main" sx={{ fontWeight: 800 }}>
+                                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
                                             Client onboarding path
                                         </Typography>
                                         <Typography variant="h5">Contact-led deployment</Typography>
                                     </Box>
-                                    <Chip label="Owner managed" color="primary" variant="outlined" />
+                                    <Chip
+                                        label="Owner managed"
+                                        variant="outlined"
+                                        sx={{
+                                            borderColor: alpha(accentColor, isDark ? 0.66 : 0.48),
+                                            color: accentColor
+                                        }}
+                                    />
                                 </Stack>
 
                                 <Grid container spacing={1.5}>
@@ -528,11 +625,11 @@ export function LandingPage() {
                                                 sx={{
                                                     height: "100%",
                                                     borderRadius: 2,
-                                                    bgcolor: alpha(theme.palette.primary.main, 0.04)
+                                                    bgcolor: alpha(accentColor, isDark ? 0.15 : 0.04)
                                                 }}
                                             >
                                                 <CardContent sx={{ p: 2.25 }}>
-                                                    <Typography variant="caption" color="primary.main" sx={{ fontWeight: 800 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: accentColor }}>
                                                         {step.step}
                                                     </Typography>
                                                     <Typography variant="subtitle1" sx={{ mt: 0.5, fontWeight: 700 }}>
@@ -576,11 +673,11 @@ export function LandingPage() {
                         { value: "24/7", label: "Leadership visibility", caption: "dashboards, exports, and follow-up views by role" }
                     ].map((stat) => (
                         <Grid key={stat.label} size={{ xs: 12, md: 4 }}>
-                            <Paper sx={{ p: 3, borderRadius: 2 }}>
-                                <Typography variant="h3" sx={{ fontWeight: 800 }}>
+                            <Paper sx={{ ...sectionCardSx, p: 3 }}>
+                                <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: -1.1 }}>
                                     {stat.value}
                                 </Typography>
-                                <Typography variant="h6" sx={{ mt: 0.5 }}>
+                                <Typography variant="h6" sx={{ mt: 0.6, fontWeight: 700 }}>
                                     {stat.label}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
@@ -592,10 +689,18 @@ export function LandingPage() {
                 </Grid>
             </Container>
 
-            <Box id="solutions" sx={{ py: { xs: 7, md: 9 } }}>
+            <Box
+                id="solutions"
+                sx={{
+                    py: { xs: 7, md: 9 },
+                    background: isDark
+                        ? "linear-gradient(180deg, rgba(9, 14, 22, 0) 0%, rgba(26, 29, 31, 0.42) 100%)"
+                        : "linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(231, 241, 255, 0.42) 100%)"
+                }}
+            >
                 <Container maxWidth="xl">
                     <Stack spacing={1} sx={{ mb: 4 }}>
-                        <Typography variant="overline" color="primary.main" sx={{ fontWeight: 800 }}>
+                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
                             What the platform offers
                         </Typography>
                         <Typography variant="h3" sx={{ maxWidth: 760 }}>
@@ -610,9 +715,9 @@ export function LandingPage() {
                     <Grid container spacing={2} sx={{ mb: 3 }}>
                         {buyerValuePillars.map((item) => (
                             <Grid key={item.title} size={{ xs: 12, sm: 6, lg: 3 }}>
-                                <MotionCard sx={{ height: "100%", borderRadius: 2 }}>
+                                <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
                                     <CardContent sx={{ p: 2.75 }}>
-                                        {item.icon}
+                                        <Box sx={{ color: accentColor, lineHeight: 0 }}>{item.icon}</Box>
                                         <Typography variant="h6" sx={{ mt: 1.5 }}>
                                             {item.title}
                                         </Typography>
@@ -626,7 +731,7 @@ export function LandingPage() {
                     </Grid>
 
                     <Stack spacing={1} sx={{ mb: 3 }}>
-                        <Typography variant="overline" color="primary.main" sx={{ fontWeight: 800 }}>
+                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
                             Product modules
                         </Typography>
                         <Typography variant="h4" sx={{ maxWidth: 760 }}>
@@ -641,7 +746,7 @@ export function LandingPage() {
                     <Grid container spacing={2}>
                         {productModules.map((module) => (
                             <Grid key={module.title} size={{ xs: 12, md: 6, lg: 4 }}>
-                                <MotionCard sx={{ height: "100%", borderRadius: 2 }}>
+                                <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
                                     <CardContent sx={{ p: 3 }}>
                                         <Box
                                             sx={{
@@ -650,8 +755,8 @@ export function LandingPage() {
                                                 borderRadius: 2.5,
                                                 display: "grid",
                                                 placeItems: "center",
-                                                bgcolor: alpha(theme.palette.primary.main, 0.1),
-                                                color: "primary.main",
+                                                bgcolor: alpha(accentColor, isDark ? 0.2 : 0.1),
+                                                color: accentColor,
                                                 mb: 2
                                             }}
                                         >
@@ -673,14 +778,16 @@ export function LandingPage() {
                 id="why-different"
                 sx={{
                     py: { xs: 7, md: 9 },
-                    bgcolor: alpha(theme.palette.primary.main, mode === "light" ? 0.03 : 0.08)
+                    background: isDark
+                        ? "linear-gradient(180deg, rgba(28, 31, 40, 0.34), rgba(14, 18, 28, 0.5))"
+                        : "linear-gradient(180deg, rgba(51, 99, 255, 0.08), rgba(51, 99, 255, 0.03))"
                 }}
             >
                 <Container maxWidth="xl">
                     <Grid container spacing={4} alignItems="stretch">
                         <Grid size={{ xs: 12, lg: 6 }}>
-                            <Paper sx={{ p: { xs: 3, md: 4 }, borderRadius: 2, height: "100%" }}>
-                                <Typography variant="overline" color="primary.main" sx={{ fontWeight: 800 }}>
+                            <Paper sx={{ ...sectionCardSx, p: { xs: 3, md: 4 }, height: "100%" }}>
+                                <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
                                     Why this platform is different
                                 </Typography>
                                 <Typography variant="h4" sx={{ mt: 1, mb: 1.5 }}>
@@ -694,7 +801,7 @@ export function LandingPage() {
                                 <Stack spacing={1.75}>
                                     {whyDifferentPoints.map((point) => (
                                         <Stack key={point} direction="row" spacing={1.5} alignItems="flex-start">
-                                            <LockRoundedIcon color="primary" fontSize="small" sx={{ mt: 0.2 }} />
+                                            <LockRoundedIcon fontSize="small" sx={{ mt: 0.2, color: accentColor }} />
                                             <Typography variant="body2" color="text.secondary">
                                                 {point}
                                             </Typography>
@@ -705,8 +812,8 @@ export function LandingPage() {
                         </Grid>
 
                         <Grid size={{ xs: 12, lg: 6 }}>
-                            <Paper sx={{ p: { xs: 3, md: 4 }, borderRadius: 2, height: "100%" }}>
-                                <Typography variant="overline" color="primary.main" sx={{ fontWeight: 800 }}>
+                            <Paper sx={{ ...sectionCardSx, p: { xs: 3, md: 4 }, height: "100%" }}>
+                                <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
                                     Governance outcomes
                                 </Typography>
                                 <Typography variant="h4" sx={{ mt: 1, mb: 3 }}>
@@ -718,26 +825,26 @@ export function LandingPage() {
                                         {
                                             title: "Correct role enforcement",
                                             copy: "No sensitive action executes without a role that is explicitly authorized.",
-                                            icon: <GavelRoundedIcon color="primary" />
+                                            icon: <GavelRoundedIcon sx={{ color: accentColor }} />
                                         },
                                         {
                                             title: "Traceable operation chain",
                                             copy: "Financial and governance steps remain auditable from request to posting outcome.",
-                                            icon: <InsightsRoundedIcon color="primary" />
+                                            icon: <InsightsRoundedIcon sx={{ color: accentColor }} />
                                         },
                                         {
                                             title: "Balanced accounting integrity",
                                             copy: "Posting paths are tied to controlled accounting logic and balanced journal outcomes.",
-                                            icon: <HealthAndSafetyRoundedIcon color="primary" />
+                                            icon: <HealthAndSafetyRoundedIcon sx={{ color: accentColor }} />
                                         },
                                         {
                                             title: "Approval-gated execution",
                                             copy: "High-risk steps like disbursement stay blocked until required approvals are complete.",
-                                            icon: <SecurityRoundedIcon color="primary" />
+                                            icon: <SecurityRoundedIcon sx={{ color: accentColor }} />
                                         }
                                     ].map((item) => (
                                         <Grid key={item.title} size={{ xs: 12, sm: 6 }}>
-                                            <MotionCard sx={{ height: "100%", borderRadius: 2 }}>
+                                            <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
                                                 <CardContent sx={{ p: 2.5 }}>
                                                     {item.icon}
                                                     <Typography variant="subtitle1" sx={{ mt: 1.5, fontWeight: 700 }}>
@@ -760,7 +867,7 @@ export function LandingPage() {
             <Box id="plans" sx={{ py: { xs: 7, md: 9 } }}>
                 <Container maxWidth="xl">
                     <Stack spacing={1} sx={{ mb: 4 }}>
-                        <Typography variant="overline" color="primary.main" sx={{ fontWeight: 800 }}>
+                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
                             Plans
                         </Typography>
                         <Typography variant="h3">Choose the right operating depth for the SACCOS.</Typography>
@@ -775,22 +882,29 @@ export function LandingPage() {
                             <Grid key={plan.code} size={{ xs: 12, md: 4 }}>
                                 <Paper
                                     sx={{
+                                        ...sectionCardSx,
                                         height: "100%",
                                         p: 3,
-                                        borderRadius: 2,
                                         position: "relative",
                                         overflow: "hidden",
-                                        borderColor: plan.highlight ? "primary.main" : "divider",
+                                        borderColor: plan.highlight ? alpha(accentColor, 0.8) : cardBorder,
                                         boxShadow: plan.highlight
-                                            ? `0 22px 44px ${alpha(theme.palette.primary.main, 0.18)}`
+                                            ? `0 24px 50px ${alpha(accentColor, 0.24)}`
                                             : undefined
                                     }}
                                 >
                                     {plan.highlight ? (
                                         <Chip
                                             label="Most requested"
-                                            color="primary"
-                                            sx={{ position: "absolute", top: 20, right: 20, fontWeight: 700 }}
+                                            sx={{
+                                                position: "absolute",
+                                                top: 20,
+                                                right: 20,
+                                                fontWeight: 700,
+                                                bgcolor: alpha(accentColor, isDark ? 0.24 : 0.14),
+                                                color: accentColor,
+                                                border: `1px solid ${alpha(accentColor, isDark ? 0.5 : 0.32)}`
+                                            }}
                                         />
                                     ) : null}
                                     <Typography variant="h5">{plan.code}</Typography>
@@ -801,7 +915,7 @@ export function LandingPage() {
                                     <Stack spacing={1.5}>
                                         {plan.features.map((feature) => (
                                             <Stack key={feature} direction="row" spacing={1.25} alignItems="flex-start">
-                                                <CheckCircleRoundedIcon color="primary" fontSize="small" sx={{ mt: 0.2 }} />
+                                                <CheckCircleRoundedIcon fontSize="small" sx={{ mt: 0.2, color: accentColor }} />
                                                 <Typography variant="body2" color="text.secondary">
                                                     {feature}
                                                 </Typography>
@@ -817,10 +931,10 @@ export function LandingPage() {
 
             <Box id="how-it-works" sx={{ py: { xs: 7, md: 9 } }}>
                 <Container maxWidth="xl">
-                    <Paper sx={{ p: { xs: 3, md: 4 }, borderRadius: 2 }}>
+                    <Paper sx={{ ...sectionCardSx, p: { xs: 3, md: 4 } }}>
                         <Grid container spacing={4}>
                             <Grid size={{ xs: 12, lg: 5 }}>
-                                <Typography variant="overline" color="primary.main" sx={{ fontWeight: 800 }}>
+                                <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
                                     Demo story
                                 </Typography>
                                 <Typography variant="h3" sx={{ mt: 1.25 }}>
@@ -832,11 +946,42 @@ export function LandingPage() {
                                     disbursement with receipt capture, and the auditor can trace the full lifecycle.
                                 </Typography>
                                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 3 }}>
-                                    <Button component="a" href={contactHref} variant="contained">
+                                    <Button
+                                        component="a"
+                                        href={contactHref}
+                                        variant="contained"
+                                        sx={
+                                            isDark
+                                                ? {
+                                                      bgcolor: accentColor,
+                                                      color: "#1a1a1a",
+                                                      "&:hover": { bgcolor: alpha(accentColor, 0.86) }
+                                                  }
+                                                : undefined
+                                        }
+                                    >
                                         Contact owner
                                     </Button>
                                     {whatsappHref ? (
-                                        <Button component="a" href={whatsappHref} target="_blank" rel="noreferrer" variant="outlined">
+                                        <Button
+                                            component="a"
+                                            href={whatsappHref}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            variant="outlined"
+                                            sx={
+                                                isDark
+                                                    ? {
+                                                          borderColor: alpha(accentColor, 0.5),
+                                                          color: accentColor,
+                                                          "&:hover": {
+                                                              borderColor: alpha(accentColor, 0.8),
+                                                              bgcolor: alpha(accentColor, 0.12)
+                                                          }
+                                                      }
+                                                    : undefined
+                                            }
+                                        >
                                             WhatsApp
                                         </Button>
                                     ) : null}
@@ -846,9 +991,9 @@ export function LandingPage() {
                                 <Grid container spacing={2}>
                                     {demoStorySteps.map((step) => (
                                         <Grid key={step.step} size={{ xs: 12, md: 6 }}>
-                                            <MotionCard sx={{ height: "100%", borderRadius: 2 }}>
+                                            <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
                                                 <CardContent sx={{ p: 2.5 }}>
-                                                    <Typography variant="h4" color="primary.main" sx={{ fontWeight: 800 }}>
+                                                    <Typography variant="h4" sx={{ fontWeight: 800, color: accentColor }}>
                                                         {step.step}
                                                     </Typography>
                                                     <Typography variant="subtitle1" sx={{ mt: 1, fontWeight: 700 }}>
@@ -872,8 +1017,11 @@ export function LandingPage() {
                 <Paper
                     sx={{
                         p: { xs: 3, md: 4 },
-                        borderRadius: 2,
-                        background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 120%)`,
+                        borderRadius: 3,
+                        border: `1px solid ${alpha(theme.palette.divider, isDark ? 0.36 : 0.22)}`,
+                        background: isDark
+                            ? "linear-gradient(135deg, rgba(26, 35, 50, 0.92) 0%, rgba(55, 77, 88, 0.82) 58%, rgba(123, 95, 52, 0.78) 120%)"
+                            : `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 120%)`,
                         color: "#ffffff"
                     }}
                 >
@@ -899,7 +1047,7 @@ export function LandingPage() {
                                     variant="contained"
                                     sx={{
                                         bgcolor: "#ffffff",
-                                        color: "primary.main",
+                                        color: accentColor,
                                         "&:hover": { bgcolor: alpha("#ffffff", 0.92) }
                                     }}
                                 >
@@ -927,7 +1075,8 @@ export function LandingPage() {
                 component="footer"
                 sx={{
                     borderTop: `1px solid ${theme.palette.divider}`,
-                    py: 4
+                    py: 4,
+                    bgcolor: isDark ? alpha(theme.palette.background.paper, 0.4) : alpha("#ffffff", 0.7)
                 }}
             >
                 <Container maxWidth="xl">
@@ -942,7 +1091,7 @@ export function LandingPage() {
                                         bgcolor: "#ffffff",
                                         display: "grid",
                                         placeItems: "center",
-                                        border: `1px solid ${alpha(theme.palette.primary.main, 0.14)}`
+                                        border: `1px solid ${alpha(accentColor, 0.24)}`
                                     }}
                                 >
                                     <Box

@@ -136,20 +136,28 @@ export function FinancialSummary({
                                 />
                             ) : null}
                             <Stack
-                                direction="row"
+                                direction={{ xs: "column", sm: "row" }}
                                 spacing={1}
                                 useFlexGap
                                 flexWrap="wrap"
-                                sx={{ justifyContent: { xs: "flex-start", md: "flex-end" } }}
+                                sx={{
+                                    width: { xs: "100%", md: "auto" },
+                                    justifyContent: { xs: "flex-start", md: "flex-end" }
+                                }}
                             >
-                                <Button variant="contained" onClick={onApplyLoan} startIcon={<PaidRoundedIcon />} sx={{ borderRadius: 1.5, fontWeight: 700 }}>
+                                <Button
+                                    variant="contained"
+                                    onClick={onApplyLoan}
+                                    startIcon={<PaidRoundedIcon />}
+                                    sx={{ borderRadius: 1.5, fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
+                                >
                                     Apply for Loan
                                 </Button>
                                 <Button
                                     variant="outlined"
                                     onClick={onMakeContribution}
                                     startIcon={<SavingsRoundedIcon />}
-                                    sx={{ borderRadius: 1.5, fontWeight: 700 }}
+                                    sx={{ borderRadius: 1.5, fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
                                 >
                                     Make Contribution
                                 </Button>
@@ -157,7 +165,7 @@ export function FinancialSummary({
                                     variant="outlined"
                                     onClick={onDownloadStatement}
                                     startIcon={<DownloadRoundedIcon />}
-                                    sx={{ borderRadius: 1.5, fontWeight: 700 }}
+                                    sx={{ borderRadius: 1.5, fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
                                 >
                                     Download Statement
                                 </Button>
