@@ -65,7 +65,13 @@ api.interceptors.response.use(
             emitWindowEvent("saccos:subscription-inactive", apiError);
         }
 
-        if (status === 401) {
+        const requestUrl = error.config?.url || "";
+        const isAuthBootstrapRequest =
+            requestUrl.includes("/auth/signin") ||
+            requestUrl.includes("/auth/otp/send") ||
+            requestUrl.includes("/auth/otp/verify");
+
+        if (status === 401 && !isAuthBootstrapRequest) {
             await supabase.auth.signOut();
             clearStaleSupabaseSession();
 

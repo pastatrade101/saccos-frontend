@@ -44,7 +44,9 @@ import type {
 
 const routeMap = {
     auth: {
-        backendSignIn: "/auth/signin"
+        backendSignIn: "/auth/signin",
+        otpSend: "/auth/otp/send",
+        otpVerify: "/auth/otp/verify"
     },
     tenants: {
         create: "/tenants",
@@ -176,7 +178,9 @@ const routeMap = {
 
 export const endpoints = {
     auth: {
-        backendSignIn: () => routeMap.auth.backendSignIn
+        backendSignIn: () => routeMap.auth.backendSignIn,
+        otpSend: () => routeMap.auth.otpSend,
+        otpVerify: () => routeMap.auth.otpVerify
     },
     tenants: {
         create: () => routeMap.tenants.create,
@@ -305,6 +309,48 @@ export const endpoints = {
         loanAging: () => routeMap.reports.loanAging
     }
 };
+
+export interface AuthSessionTokens {
+    access_token: string;
+    refresh_token: string;
+}
+
+export interface OtpChallengeResponse {
+    challenge_id: string;
+    expires_at: string;
+    destination_hint: string;
+    resend_count: number;
+    resend_remaining: number;
+}
+
+export interface BackendSignInRequest {
+    email: string;
+    password: string;
+    challenge_id?: string | null;
+    otp_code?: string | null;
+}
+
+export interface BackendSignInResponse {
+    session: AuthSessionTokens & Record<string, unknown>;
+    user: {
+        id: string;
+        email?: string;
+    };
+    profile: UserProfile | null;
+}
+
+export interface OtpSendRequest {
+    email: string;
+    password: string;
+    challenge_id?: string | null;
+}
+
+export interface OtpVerifyRequest {
+    email: string;
+    password: string;
+    challenge_id: string;
+    otp_code: string;
+}
 
 export interface CreateTenantRequest {
     name: string;

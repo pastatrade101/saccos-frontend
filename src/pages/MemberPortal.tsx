@@ -6,6 +6,7 @@ import AutoGraphRoundedIcon from "@mui/icons-material/AutoGraphRounded";
 import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import CreditScoreRoundedIcon from "@mui/icons-material/CreditScoreRounded";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
+import FlagRoundedIcon from "@mui/icons-material/FlagRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import EastRoundedIcon from "@mui/icons-material/EastRounded";
 import EventRoundedIcon from "@mui/icons-material/EventRounded";
@@ -15,6 +16,7 @@ import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
 import NorthEastRoundedIcon from "@mui/icons-material/NorthEastRounded";
+import PrintRoundedIcon from "@mui/icons-material/PrintRounded";
 import ShieldRoundedIcon from "@mui/icons-material/ShieldRounded";
 import StarRoundedIcon from "@mui/icons-material/StarRounded";
 import TaskAltRoundedIcon from "@mui/icons-material/TaskAltRounded";
@@ -51,8 +53,11 @@ import {
     Menu,
     MenuItem,
     Paper,
+    LinearProgress,
+    Skeleton,
     Stack,
     Switch,
+    TablePagination,
     TextField,
     Typography,
     useMediaQuery
@@ -101,6 +106,13 @@ const loanApplicationSchema = z.object({
 });
 
 type LoanApplicationValues = z.infer<typeof loanApplicationSchema>;
+type DateRangePreset = "month" | "quarter" | "year" | "custom";
+
+interface DateRangeState {
+    preset: DateRangePreset;
+    from: string;
+    to: string;
+}
 
 function groupBalances(statements: StatementRow[]) {
     return statements
@@ -146,6 +158,82 @@ function getDaysUntil(dateString?: string | null) {
     const now = new Date();
     const ms = target.getTime() - now.getTime();
     return Math.ceil(ms / (1000 * 60 * 60 * 24));
+}
+
+function toDateInputValue(date: Date) {
+    return date.toISOString().slice(0, 10);
+}
+
+function parseDateValue(value: string) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return new Date(`${value}T00:00:00`);
+    }
+
+    return new Date(value);
+}
+
+function getPresetRange(preset: DateRangePreset) {
+    const now = new Date();
+    const from = new Date(now);
+
+    if (preset === "month") {
+        from.setMonth(from.getMonth() - 1);
+    } else if (preset === "quarter") {
+        from.setMonth(from.getMonth() - 3);
+    } else if (preset === "year") {
+        from.setFullYear(from.getFullYear() - 1);
+    }
+
+    return {
+        from: toDateInputValue(from),
+        to: toDateInputValue(now)
+    };
+}
+
+function isWithinDateRange(value: string | null | undefined, range: DateRangeState) {
+    if (!value) {
+        return false;
+    }
+
+    const date = parseDateValue(value).getTime();
+    if (Number.isNaN(date)) {
+        return false;
+    }
+
+    const fromDate = range.from ? parseDateValue(range.from) : null;
+    const toDate = range.to ? parseDateValue(range.to) : null;
+
+    if (fromDate) {
+        fromDate.setHours(0, 0, 0, 0);
+    }
+
+    if (toDate) {
+        toDate.setHours(23, 59, 59, 999);
+    }
+
+    const lower = fromDate ? fromDate.getTime() : Number.NEGATIVE_INFINITY;
+    const upper = toDate ? toDate.getTime() : Number.POSITIVE_INFINITY;
+    const min = Math.min(lower, upper);
+    const max = Math.max(lower, upper);
+
+    return date >= min && date <= max;
+}
+
+function formatTxType(type: string) {
+    return type.replace(/_/g, " ");
+}
+
+function getAuditReference(row: StatementRow) {
+    return row.reference || `AUD-${row.transaction_id.slice(0, 8).toUpperCase()}`;
+}
+
+function estimatePenaltyForSchedule(schedule: LoanSchedule) {
+    if (schedule.status !== "overdue") {
+        return 0;
+    }
+
+    const outstanding = Math.max(schedule.principal_due - schedule.principal_paid, 0) + Math.max(schedule.interest_due - schedule.interest_paid, 0);
+    return outstanding * 0.02;
 }
 
 const portalSections = [
@@ -292,6 +380,23 @@ export function MemberPortalPage() {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [profileMenuAnchor, setProfileMenuAnchor] = useState<null | HTMLElement>(null);
+    const [transactionsRange] = useState<DateRangeState>({ preset: "custom", from: "", to: "" });
+    const [contributionsRange] = useState<DateRangeState>({ preset: "custom", from: "", to: "" });
+    const [loansRange] = useState<DateRangeState>({ preset: "custom", from: "", to: "" });
+    const [accountsRange] = useState<DateRangeState>({ preset: "custom", from: "", to: "" });
+    const [transactionTypeFilter, setTransactionTypeFilter] = useState<string>("all");
+    const [transactionSearch, setTransactionSearch] = useState("");
+    const [disputedTransactionIds, setDisputedTransactionIds] = useState<string[]>([]);
+    const [transactionsPage, setTransactionsPage] = useState(0);
+    const [transactionsRowsPerPage, setTransactionsRowsPerPage] = useState(10);
+    const [contributionsPage, setContributionsPage] = useState(0);
+    const [contributionsRowsPerPage, setContributionsRowsPerPage] = useState(10);
+    const [accountsPage, setAccountsPage] = useState(0);
+    const [accountsRowsPerPage, setAccountsRowsPerPage] = useState(10);
+    const [loanSchedulePage, setLoanSchedulePage] = useState(0);
+    const [loanScheduleRowsPerPage, setLoanScheduleRowsPerPage] = useState(10);
+    const [loanDetailId, setLoanDetailId] = useState<string>("");
+    const [prepaymentAmount, setPrepaymentAmount] = useState<number>(0);
     const loanApplicationForm = useForm<LoanApplicationValues>({
         resolver: zodResolver(loanApplicationSchema),
         defaultValues: {
@@ -612,23 +717,381 @@ export function MemberPortalPage() {
         return alerts;
     }, [activeLoanCount, daysUntilDue, hasOverdueLoan, lastContribution]);
 
+    const sortedStatements = useMemo(
+        () =>
+            statements
+                .slice()
+                .sort((left, right) => new Date(right.created_at || right.transaction_date).getTime() - new Date(left.created_at || left.transaction_date).getTime()),
+        [statements]
+    );
+    const filteredTransactions = useMemo(() => {
+        const normalizedSearch = transactionSearch.trim().toLowerCase();
+
+        return sortedStatements.filter((row) => {
+            if (!isWithinDateRange(row.created_at || row.transaction_date, transactionsRange)) {
+                return false;
+            }
+
+            if (transactionTypeFilter !== "all") {
+                if (transactionTypeFilter === "loan" && !row.transaction_type.includes("loan")) {
+                    return false;
+                }
+                if (transactionTypeFilter === "deposit" && row.transaction_type !== "deposit") {
+                    return false;
+                }
+                if (transactionTypeFilter === "withdrawal" && row.transaction_type !== "withdrawal") {
+                    return false;
+                }
+                if (transactionTypeFilter === "contribution" && row.transaction_type !== "share_contribution") {
+                    return false;
+                }
+                if (transactionTypeFilter === "dividend" && row.transaction_type !== "dividend_allocation") {
+                    return false;
+                }
+            }
+
+            if (normalizedSearch) {
+                const reference = getAuditReference(row).toLowerCase();
+                return reference.includes(normalizedSearch);
+            }
+
+            return true;
+        });
+    }, [sortedStatements, transactionSearch, transactionTypeFilter, transactionsRange]);
+    const runningBalanceMismatches = useMemo(() => {
+        const grouped = new Map<string, StatementRow[]>();
+
+        filteredTransactions
+            .slice()
+            .sort((left, right) => new Date(left.created_at || left.transaction_date).getTime() - new Date(right.created_at || right.transaction_date).getTime())
+            .forEach((row) => {
+                const key = row.account_id || "global";
+                const list = grouped.get(key) || [];
+                list.push(row);
+                grouped.set(key, list);
+            });
+
+        let mismatches = 0;
+        grouped.forEach((rows) => {
+            let previousBalance: number | null = null;
+            rows.forEach((row) => {
+                if (previousBalance === null) {
+                    previousBalance = row.running_balance;
+                    return;
+                }
+                const signedAmount = row.direction === "in" ? row.amount : -row.amount;
+                const expected = Number((previousBalance + signedAmount).toFixed(2));
+                if (Math.abs(expected - row.running_balance) > 1) {
+                    mismatches += 1;
+                }
+                previousBalance = row.running_balance;
+            });
+        });
+
+        return mismatches;
+    }, [filteredTransactions]);
+    const paginatedTransactions = useMemo(
+        () =>
+            filteredTransactions.slice(
+                transactionsPage * transactionsRowsPerPage,
+                transactionsPage * transactionsRowsPerPage + transactionsRowsPerPage
+            ),
+        [filteredTransactions, transactionsPage, transactionsRowsPerPage]
+    );
+
+    const filteredContributions = useMemo(
+        () => contributionHistory.filter((row) => isWithinDateRange(row.created_at || row.transaction_date, contributionsRange)),
+        [contributionHistory, contributionsRange]
+    );
+    const contributionActual = useMemo(
+        () => filteredContributions.filter((row) => row.transaction_type === "share_contribution").reduce((sum, row) => sum + row.amount, 0),
+        [filteredContributions]
+    );
+    const contributionBaselineMonthly = useMemo(() => {
+        const recent = contributionHistory
+            .filter((row) => row.transaction_type === "share_contribution")
+            .slice(0, 6)
+            .map((row) => row.amount);
+
+        if (!recent.length) {
+            return 50000;
+        }
+
+        return Math.max(Math.round(recent.reduce((sum, value) => sum + value, 0) / recent.length), 50000);
+    }, [contributionHistory]);
+    const contributionExpected = useMemo(() => {
+        const from = new Date(contributionsRange.from);
+        const to = new Date(contributionsRange.to);
+        const months = Math.max((to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1, 1);
+        return months * contributionBaselineMonthly;
+    }, [contributionBaselineMonthly, contributionsRange]);
+    const contributionComplianceRatio = contributionExpected ? (contributionActual / contributionExpected) * 100 : 0;
+    const contributionComplianceStatus = contributionComplianceRatio >= 100 ? "On track" : "Behind schedule";
+    const dividendHistoryByYear = useMemo(() => {
+        const grouped = new Map<string, number>();
+        filteredContributions
+            .filter((row) => row.transaction_type === "dividend_allocation")
+            .forEach((row) => {
+                const year = new Date(row.transaction_date).getFullYear().toString();
+                grouped.set(year, (grouped.get(year) || 0) + row.amount);
+            });
+
+        return Array.from(grouped.entries())
+            .sort(([left], [right]) => right.localeCompare(left))
+            .map(([year, amount]) => ({ year, amount }));
+    }, [filteredContributions]);
+    const effectiveDividendRate = useMemo(
+        () => (totalShareCapital > 0 ? (totalDividends / totalShareCapital) * 100 : 0),
+        [totalDividends, totalShareCapital]
+    );
+    const nextContributionDue = useMemo(() => {
+        const latest = contributionHistory.find((row) => row.transaction_type === "share_contribution");
+        if (!latest) {
+            return null;
+        }
+        const due = new Date(latest.transaction_date);
+        due.setMonth(due.getMonth() + 1);
+        return due.toISOString();
+    }, [contributionHistory]);
+    const contributionScheduleStatus = useMemo(() => {
+        if (!nextContributionDue) {
+            return "No schedule";
+        }
+
+        const days = getDaysUntil(nextContributionDue);
+        if (days === null) {
+            return "No schedule";
+        }
+        if (days < 0) {
+            return "Overdue";
+        }
+        if (days <= 5) {
+            return "Due soon";
+        }
+
+        return "Scheduled";
+    }, [nextContributionDue]);
+    const contributionRunningTotal = useMemo(
+        () => filteredContributions.reduce((sum, row) => sum + row.amount, 0),
+        [filteredContributions]
+    );
+    const contributionEntriesCount = filteredContributions.filter((row) => row.transaction_type === "share_contribution").length;
+    const dividendEntriesCount = filteredContributions.filter((row) => row.transaction_type === "dividend_allocation").length;
+    const paginatedContributions = useMemo(
+        () =>
+            filteredContributions.slice(
+                contributionsPage * contributionsRowsPerPage,
+                contributionsPage * contributionsRowsPerPage + contributionsRowsPerPage
+            ),
+        [contributionsPage, contributionsRowsPerPage, filteredContributions]
+    );
+
+    const filteredAccounts = useMemo(
+        () => accounts.filter((account) => isWithinDateRange(account.created_at, accountsRange)),
+        [accounts, accountsRange]
+    );
+    const paginatedAccounts = useMemo(
+        () => filteredAccounts.slice(accountsPage * accountsRowsPerPage, accountsPage * accountsRowsPerPage + accountsRowsPerPage),
+        [filteredAccounts, accountsPage, accountsRowsPerPage]
+    );
+    const filteredInterestHistory = useMemo(
+        () =>
+            sortedStatements.filter(
+                (row) => row.transaction_type.includes("interest") && isWithinDateRange(row.created_at || row.transaction_date, accountsRange)
+            ),
+        [accountsRange, sortedStatements]
+    );
+    const filteredDividendMapping = useMemo(
+        () =>
+            sortedStatements.filter(
+                (row) => row.transaction_type === "dividend_allocation" && isWithinDateRange(row.created_at || row.transaction_date, accountsRange)
+            ),
+        [accountsRange, sortedStatements]
+    );
+    const accountDormancyCount = useMemo(
+        () => filteredAccounts.filter((account) => account.status === "dormant").length,
+        [filteredAccounts]
+    );
+    const interestEarned = useMemo(
+        () => filteredInterestHistory.reduce((sum, row) => sum + row.amount, 0),
+        [filteredInterestHistory]
+    );
+    const filteredLoans = useMemo(
+        () =>
+            loans.filter((loan) => isWithinDateRange(loan.disbursed_at || loan.created_at, loansRange)),
+        [loans, loansRange]
+    );
+    const filteredLoansOutstanding = useMemo(
+        () => filteredLoans.reduce((sum, loan) => sum + loan.outstanding_principal + loan.accrued_interest, 0),
+        [filteredLoans]
+    );
+    const filteredLoanOriginalAmount = useMemo(
+        () => filteredLoans.reduce((sum, loan) => sum + loan.principal_amount, 0),
+        [filteredLoans]
+    );
+    const filteredLoanProgressPercent = filteredLoanOriginalAmount > 0
+        ? ((filteredLoanOriginalAmount - filteredLoansOutstanding) / filteredLoanOriginalAmount) * 100
+        : 0;
+    const filteredActiveLoanCount = useMemo(
+        () => filteredLoans.filter((loan) => ["active", "in_arrears"].includes(loan.status)).length,
+        [filteredLoans]
+    );
+    const transactionTrend = useMemo(() => groupBalances(filteredTransactions), [filteredTransactions]);
+    const transactionTrendLabels = transactionTrend.map((entry) => entry.label);
+    const transactionTrendValues = transactionTrend.map((entry) => entry.balance);
+    const latestFilteredTransaction = filteredTransactions[0] || null;
+
+    useEffect(() => {
+        setTransactionsPage(0);
+    }, [transactionSearch, transactionTypeFilter, transactionsRange.from, transactionsRange.to]);
+
+    useEffect(() => {
+        setContributionsPage(0);
+    }, [contributionsRange.from, contributionsRange.to]);
+
+    useEffect(() => {
+        setAccountsPage(0);
+    }, [accountsRange.from, accountsRange.to]);
+
+    useEffect(() => {
+        setLoanSchedulePage(0);
+    }, [loansRange.from, loansRange.to, loanDetailId]);
+
+    useEffect(() => {
+        if (!filteredLoans.length) {
+            if (loanDetailId) {
+                setLoanDetailId("");
+            }
+            return;
+        }
+
+        const existsInFiltered = filteredLoans.some((loan) => loan.id === loanDetailId);
+        if (!existsInFiltered) {
+            setLoanDetailId(filteredLoans[0].id);
+        }
+    }, [filteredLoans, loanDetailId]);
+
+    const selectedLoan = useMemo(
+        () => filteredLoans.find((loan) => loan.id === loanDetailId) || filteredLoans[0] || null,
+        [filteredLoans, loanDetailId]
+    );
+    const filteredLoanSchedules = useMemo(
+        () =>
+            loanSchedules
+                .filter(
+                    (schedule) =>
+                        (!selectedLoan || schedule.loan_id === selectedLoan.id) &&
+                        isWithinDateRange(schedule.due_date, loansRange)
+                )
+                .sort((left, right) => new Date(left.due_date).getTime() - new Date(right.due_date).getTime()),
+        [loanSchedules, loansRange, selectedLoan]
+    );
+    const paginatedLoanSchedules = useMemo(
+        () =>
+            filteredLoanSchedules.slice(
+                loanSchedulePage * loanScheduleRowsPerPage,
+                loanSchedulePage * loanScheduleRowsPerPage + loanScheduleRowsPerPage
+            ),
+        [filteredLoanSchedules, loanSchedulePage, loanScheduleRowsPerPage]
+    );
+    const loanRepaymentHistory = useMemo(
+        () =>
+            sortedStatements.filter(
+                (row) =>
+                    row.transaction_type.includes("loan_repay") &&
+                    isWithinDateRange(row.created_at || row.transaction_date, loansRange)
+            ),
+        [loansRange, sortedStatements]
+    );
+    const selectedLoanNextDue = useMemo(
+        () => filteredLoanSchedules.find((schedule) => schedule.status !== "paid") || null,
+        [filteredLoanSchedules]
+    );
+    const selectedLoanNextDueAmount = selectedLoanNextDue
+        ? Math.max(selectedLoanNextDue.principal_due - selectedLoanNextDue.principal_paid, 0) +
+          Math.max(selectedLoanNextDue.interest_due - selectedLoanNextDue.interest_paid, 0)
+        : 0;
+    const selectedLoanPenaltyEstimate = useMemo(
+        () => filteredLoanSchedules.reduce((sum, schedule) => sum + estimatePenaltyForSchedule(schedule), 0),
+        [filteredLoanSchedules]
+    );
+    const prepaymentProjection = useMemo(() => {
+        if (!selectedLoan) {
+            return null;
+        }
+        const newOutstanding = Math.max(selectedLoan.outstanding_principal - prepaymentAmount, 0);
+        const installment = selectedLoan.term_count ? selectedLoan.principal_amount / selectedLoan.term_count : 0;
+        const termsReduced = installment > 0 ? Math.floor(prepaymentAmount / installment) : 0;
+        return {
+            newOutstanding,
+            termsReduced
+        };
+    }, [prepaymentAmount, selectedLoan]);
+
     const accountColumns: Column<MemberAccount>[] = [
         { key: "account", header: "Account", render: (row) => row.account_number },
         { key: "product", header: "Product", render: (row) => row.product_type },
-        { key: "status", header: "Status", render: (row) => row.status },
+        {
+            key: "status",
+            header: "Status",
+            render: (row) => (
+                <Chip
+                    size="small"
+                    label={row.status}
+                    color={row.status === "active" ? "success" : row.status === "dormant" ? "warning" : "default"}
+                    variant="outlined"
+                />
+            )
+        },
+        { key: "opened", header: "Opened", render: (row) => formatDate(row.created_at) },
         { key: "balance", header: "Balance", render: (row) => formatCurrency(row.available_balance) }
     ];
 
+    const toggleDisputeFlag = (transactionId: string) => {
+        setDisputedTransactionIds((current) =>
+            current.includes(transactionId) ? current.filter((id) => id !== transactionId) : [...current, transactionId]
+        );
+    };
+
     const statementColumns: Column<StatementRow>[] = [
         { key: "date", header: "Date", render: (row) => formatDate(row.transaction_date) },
-        { key: "type", header: "Type", render: (row) => row.transaction_type },
+        { key: "reference", header: "Reference", render: (row) => getAuditReference(row) },
+        { key: "type", header: "Type", render: (row) => formatTxType(row.transaction_type) },
+        {
+            key: "direction",
+            header: "Dr/Cr",
+            render: (row) => (
+                <Chip
+                    size="small"
+                    label={row.direction === "in" ? "Credit" : "Debit"}
+                    color={row.direction === "in" ? "success" : "error"}
+                    variant={row.direction === "in" ? "filled" : "outlined"}
+                />
+            )
+        },
         { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) },
-        { key: "balance", header: "Running Balance", render: (row) => formatCurrency(row.running_balance) }
+        { key: "balance", header: "Running Balance", render: (row) => formatCurrency(row.running_balance) },
+        {
+            key: "dispute",
+            header: "Dispute",
+            render: (row) => (
+                <Button
+                    size="small"
+                    variant={disputedTransactionIds.includes(row.transaction_id) ? "contained" : "outlined"}
+                    color={disputedTransactionIds.includes(row.transaction_id) ? "warning" : "primary"}
+                    onClick={() => toggleDisputeFlag(row.transaction_id)}
+                    startIcon={<FlagRoundedIcon fontSize="small" />}
+                >
+                    {disputedTransactionIds.includes(row.transaction_id) ? "Flagged" : "Flag"}
+                </Button>
+            )
+        }
     ];
 
     const loanColumns: Column<Loan>[] = [
         { key: "loan", header: "Loan", render: (row) => row.loan_number },
         { key: "status", header: "Status", render: (row) => row.status },
+        { key: "rate", header: "Rate", render: (row) => `${row.annual_interest_rate}%` },
         { key: "principal", header: "Outstanding", render: (row) => formatCurrency(row.outstanding_principal) },
         { key: "interest", header: "Accrued Interest", render: (row) => formatCurrency(row.accrued_interest) }
     ];
@@ -784,6 +1247,30 @@ export function MemberPortalPage() {
             outstandingLoan: totalOutstandingLoans,
             netPosition,
             statements
+        });
+    };
+
+    const handleDownloadFilteredStatement = (rows: StatementRow[], title: string) => {
+        if (!rows.length) {
+            pushToast({
+                type: "error",
+                title: "No records to export",
+                message: `No ${title.toLowerCase()} records available in the selected range.`
+            });
+            return;
+        }
+
+        downloadMemberStatementPdf({
+            memberName: profile?.full_name || "Member",
+            memberEmail: user?.email || null,
+            tenantName: selectedTenantName,
+            branchName: selectedBranchName,
+            generatedBy: profile?.full_name || user?.email || "Member Portal",
+            totalSavings,
+            shareCapital: totalShareCapital,
+            outstandingLoan: totalOutstandingLoans,
+            netPosition,
+            statements: rows
         });
     };
 
@@ -995,6 +1482,7 @@ export function MemberPortalPage() {
                         <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap">
                             <Chip label={`Savings ${formatCurrency(totalSavings)}`} sx={{ borderRadius: 1.5 }} />
                             <Chip label={`Shares ${formatCurrency(totalShareCapital)}`} sx={{ borderRadius: 1.5 }} />
+                            <Chip label={`Interest earned ${formatCurrency(interestEarned)}`} sx={{ borderRadius: 1.5 }} />
                         </Stack>
                     </Stack>
                 </CardContent>
@@ -1023,10 +1511,50 @@ export function MemberPortalPage() {
                     <MetricCard
                         icon={WalletRoundedIcon}
                         label="Visible Accounts"
-                        value={accounts.length}
-                        helper="Savings and share products linked to this membership."
+                        value={filteredAccounts.length}
+                        helper="Savings and share products in selected range."
                         tone="success"
                     />
+                </Grid>
+            </Grid>
+
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 1.5 }}>
+                                Product Rules Visibility
+                            </Typography>
+                            <Stack spacing={1.1}>
+                                <Typography variant="body2" color="text.secondary">Savings minimum balance: TSh 50,000 (tenant policy)</Typography>
+                                <Typography variant="body2" color="text.secondary">Withdrawal limit: branch policy with teller review threshold</Typography>
+                                <Typography variant="body2" color="text.secondary">Dormant accounts: no qualifying movement in policy period</Typography>
+                            </Stack>
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 1.5 }}>
+                                Account Health
+                            </Typography>
+                            <Stack spacing={1} direction="row" useFlexGap flexWrap="wrap">
+                                <Chip label={`${Math.max(filteredAccounts.length - accountDormancyCount, 0)} active`} color="success" variant="outlined" />
+                                <Chip label={`${accountDormancyCount} dormant`} color={accountDormancyCount ? "warning" : "default"} variant="outlined" />
+                                <Chip label={`${filteredInterestHistory.length} interest postings`} color="primary" variant="outlined" />
+                                <Chip label={`${filteredDividendMapping.length} dividend mappings`} color="secondary" variant="outlined" />
+                            </Stack>
+                            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mt: 2 }}>
+                                <Button variant="outlined" startIcon={<DownloadRoundedIcon />} onClick={handleDownloadStatement}>
+                                    Export Savings Statement
+                                </Button>
+                                <Button variant="outlined" startIcon={<PrintRoundedIcon />} onClick={() => window.print()}>
+                                    Printable View
+                                </Button>
+                            </Stack>
+                        </CardContent>
+                    </MotionCard>
                 </Grid>
             </Grid>
 
@@ -1058,9 +1586,52 @@ export function MemberPortalPage() {
                     <Typography variant="h6" sx={{ mb: 2 }}>
                         My Accounts
                     </Typography>
-                    <DataTable rows={accounts} columns={accountColumns} emptyMessage="No accounts linked yet." />
+                    <DataTable rows={paginatedAccounts} columns={accountColumns} emptyMessage="No accounts linked yet. Contact branch support to activate your products." />
+                    <TablePagination
+                        component="div"
+                        count={filteredAccounts.length}
+                        page={accountsPage}
+                        onPageChange={(_, value) => setAccountsPage(value)}
+                        rowsPerPage={accountsRowsPerPage}
+                        onRowsPerPageChange={(event) => {
+                            setAccountsRowsPerPage(Number(event.target.value));
+                            setAccountsPage(0);
+                        }}
+                        rowsPerPageOptions={[5, 10, 20]}
+                    />
                 </CardContent>
             </MotionCard>
+
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 2 }}>
+                                Interest Posting History
+                            </Typography>
+                            <DataTable
+                                rows={filteredInterestHistory.slice(0, 8)}
+                                columns={statementColumns}
+                                emptyMessage="No interest postings in the selected period."
+                            />
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 2 }}>
+                                Dividend Allocation Mapping
+                            </Typography>
+                            <DataTable
+                                rows={filteredDividendMapping.slice(0, 8)}
+                                columns={statementColumns}
+                                emptyMessage="No dividend allocations posted in the selected period."
+                            />
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+            </Grid>
         </Stack>
     );
 
@@ -1093,7 +1664,7 @@ export function MemberPortalPage() {
                                 </Typography>
                                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ pt: 0.5 }}>
                                     <Chip
-                                        label={activeLoanCount ? `${activeLoanCount} active loan(s)` : "No active loans"}
+                                        label={filteredActiveLoanCount ? `${filteredActiveLoanCount} active loan(s)` : "No active loans"}
                                         sx={{
                                             borderRadius: 1.5,
                                             bgcolor: alpha("#FFFFFF", 0.14),
@@ -1238,13 +1809,129 @@ export function MemberPortalPage() {
                 </Alert>
             )}
 
+            <MotionCard variant="outlined" sx={contentCardSx}>
+                <CardContent>
+                    <Stack direction={{ xs: "column", lg: "row" }} spacing={2} justifyContent="space-between">
+                        <Stack spacing={1} sx={{ minWidth: { lg: 320 } }}>
+                            <TextField
+                                select
+                                size="small"
+                                label="Loan Facility"
+                                value={selectedLoan?.id || ""}
+                                onChange={(event) => setLoanDetailId(event.target.value)}
+                            >
+                                {filteredLoans.length ? (
+                                    filteredLoans.map((loan) => (
+                                        <MenuItem key={loan.id} value={loan.id}>
+                                            {loan.loan_number} • {formatCurrency(loan.principal_amount)}
+                                        </MenuItem>
+                                    ))
+                                ) : (
+                                    <MenuItem value="" disabled>
+                                        No loans in selected range
+                                    </MenuItem>
+                                )}
+                            </TextField>
+                            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                <Chip label={`Rate ${selectedLoan?.annual_interest_rate || 0}%`} variant="outlined" />
+                                <Chip label={`Progress ${filteredLoanProgressPercent.toFixed(0)}%`} color="primary" variant="outlined" />
+                                <Chip label={`Penalty est. ${formatCurrency(selectedLoanPenaltyEstimate)}`} color={selectedLoanPenaltyEstimate > 0 ? "warning" : "default"} variant="outlined" />
+                            </Stack>
+                            <Box sx={{ pt: 0.5 }}>
+                                <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Repayment progress
+                                    </Typography>
+                                    <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                        {filteredLoanProgressPercent.toFixed(0)}%
+                                    </Typography>
+                                </Stack>
+                                <LinearProgress
+                                    variant="determinate"
+                                    value={Math.min(Math.max(filteredLoanProgressPercent, 0), 100)}
+                                    sx={{
+                                        height: 8,
+                                        borderRadius: 999,
+                                        bgcolor: alpha(brandColors.primary[500], 0.12),
+                                        "& .MuiLinearProgress-bar": {
+                                            borderRadius: 999,
+                                            bgcolor: brandColors.primary[700]
+                                        }
+                                    }}
+                                />
+                                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.65 }}>
+                                    {selectedLoanNextDue
+                                        ? `Next due ${formatDate(selectedLoanNextDue.due_date)} (${Math.max(getDaysUntil(selectedLoanNextDue.due_date) || 0, 0)} day(s))`
+                                        : "No pending installments in selected range."}
+                                </Typography>
+                            </Box>
+                        </Stack>
+                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                            <Button
+                                variant="outlined"
+                                startIcon={<DownloadRoundedIcon />}
+                                onClick={() => handleDownloadFilteredStatement(loanRepaymentHistory, "Loan statement")}
+                            >
+                                Download Loan Statement PDF
+                            </Button>
+                            <Button variant="outlined" startIcon={<PrintRoundedIcon />} onClick={() => window.print()}>
+                                Printable View
+                            </Button>
+                        </Stack>
+                    </Stack>
+                    <Grid container spacing={2} sx={{ mt: 1 }}>
+                        <Grid size={{ xs: 12, md: 4 }}>
+                            <MetricCard
+                                icon={EventRoundedIcon}
+                                label="Next Due"
+                                value={formatDate(selectedLoanNextDue?.due_date || null)}
+                                helper={`Amount due ${formatCurrency(selectedLoanNextDueAmount)} in ${Math.max(getDaysUntil(selectedLoanNextDue?.due_date || null) || 0, 0)} day(s).`}
+                                tone={selectedLoanNextDueAmount > 0 ? "warning" : "success"}
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, md: 4 }}>
+                            <MetricCard
+                                icon={CreditScoreRoundedIcon}
+                                label="Installment Split"
+                                value={formatCurrency(Math.max((selectedLoanNextDue?.principal_due || 0) - (selectedLoanNextDue?.principal_paid || 0), 0))}
+                                helper={`Interest ${formatCurrency(Math.max((selectedLoanNextDue?.interest_due || 0) - (selectedLoanNextDue?.interest_paid || 0), 0))} | Penalty ${formatCurrency(selectedLoanPenaltyEstimate)}`}
+                                tone="primary"
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, md: 4 }}>
+                            <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%" }}>
+                                <CardContent>
+                                    <Typography variant="subtitle2">Prepayment Simulation</Typography>
+                                    <Stack direction="row" spacing={1} sx={{ mt: 1.25 }} alignItems="center">
+                                        <TextField
+                                            size="small"
+                                            type="number"
+                                            label="Prepay amount"
+                                            value={prepaymentAmount}
+                                            onChange={(event) => setPrepaymentAmount(Number(event.target.value) || 0)}
+                                            fullWidth
+                                        />
+                                    </Stack>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                        Projected outstanding: {formatCurrency(prepaymentProjection?.newOutstanding || (selectedLoan?.outstanding_principal || 0))}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Estimated terms reduced: {prepaymentProjection?.termsReduced || 0}
+                                    </Typography>
+                                </CardContent>
+                            </MotionCard>
+                        </Grid>
+                    </Grid>
+                </CardContent>
+            </MotionCard>
+
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
                     <MetricCard
                         icon={CreditScoreRoundedIcon}
                         label="Active Loans"
-                        value={activeLoanCount}
-                        helper="Facilities currently active or in arrears."
+                        value={filteredActiveLoanCount}
+                        helper="Facilities active/in arrears in selected range."
                         tone="danger"
                     />
                 </Grid>
@@ -1252,8 +1939,8 @@ export function MemberPortalPage() {
                     <MetricCard
                         icon={TrendingUpRoundedIcon}
                         label="Outstanding Balance"
-                        value={formatCurrency(totalOutstandingLoans)}
-                        helper="Principal plus accrued interest currently visible."
+                        value={formatCurrency(filteredLoansOutstanding)}
+                        helper="Principal plus accrued interest in selected range."
                         tone="primary"
                     />
                 </Grid>
@@ -1261,8 +1948,8 @@ export function MemberPortalPage() {
                     <MetricCard
                         icon={TimelineRoundedIcon}
                         label="Next Due Reference"
-                        value={formatDate(nextPaymentDue)}
-                        helper="Latest visible disbursement reference in your loan activity."
+                        value={formatDate(selectedLoanNextDue?.due_date || null)}
+                        helper={selectedLoanNextDue ? "Upcoming installment in selected range." : "No due installment in selected range."}
                         tone="warning"
                     />
                 </Grid>
@@ -1278,7 +1965,7 @@ export function MemberPortalPage() {
                             labels: ["Outstanding", "Capital Buffer"],
                             datasets: [
                                 {
-                                    data: [Math.max(totalOutstandingLoans, 0), Math.max(totalVisibleCapital - totalOutstandingLoans, 0)],
+                                    data: [Math.max(filteredLoansOutstanding, 0), Math.max(totalVisibleCapital - filteredLoansOutstanding, 0)],
                                     backgroundColor: [brandColors.danger, brandColors.primary[700]],
                                     borderWidth: 0
                                 }
@@ -1298,11 +1985,77 @@ export function MemberPortalPage() {
                             <Typography variant="h6" sx={{ mb: 2 }}>
                                 My Loans
                             </Typography>
-                            <DataTable rows={loans} columns={loanColumns} emptyMessage="No loan records found." />
+                            <DataTable rows={filteredLoans} columns={loanColumns} emptyMessage="No loan records found for selected date range." />
                         </CardContent>
                     </MotionCard>
                 </Grid>
             </Grid>
+
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, lg: 8 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 2 }}>
+                                Amortization Schedule
+                            </Typography>
+                            <DataTable
+                                rows={paginatedLoanSchedules.map((schedule) => ({
+                                    ...schedule,
+                                    penalty_estimate: estimatePenaltyForSchedule(schedule)
+                                }))}
+                                columns={[
+                                    { key: "no", header: "Installment", render: (row) => String(row.installment_number) },
+                                    { key: "due", header: "Due Date", render: (row) => formatDate(row.due_date) },
+                                    { key: "principal", header: "Principal", render: (row) => formatCurrency(row.principal_due) },
+                                    { key: "interest", header: "Interest", render: (row) => formatCurrency(row.interest_due) },
+                                    { key: "penalty", header: "Penalty", render: (row: LoanSchedule & { penalty_estimate: number }) => formatCurrency(row.penalty_estimate) },
+                                    { key: "status", header: "Status", render: (row) => row.status }
+                                ]}
+                                emptyMessage="No amortization lines available for the selected loan and period."
+                            />
+                            <TablePagination
+                                component="div"
+                                count={filteredLoanSchedules.length}
+                                page={loanSchedulePage}
+                                onPageChange={(_, value) => setLoanSchedulePage(value)}
+                                rowsPerPage={loanScheduleRowsPerPage}
+                                onRowsPerPageChange={(event) => {
+                                    setLoanScheduleRowsPerPage(Number(event.target.value));
+                                    setLoanSchedulePage(0);
+                                }}
+                                rowsPerPageOptions={[5, 10, 20]}
+                            />
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+                <Grid size={{ xs: 12, lg: 4 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 2 }}>
+                                Loan Document Vault
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                Agreement copies and annex documents are linked by branch operations for audit-ready access.
+                            </Typography>
+                            <Button variant="outlined" fullWidth disabled>
+                                Agreement copy unavailable
+                            </Button>
+                            <Button variant="text" fullWidth sx={{ mt: 1 }}>
+                                Request document from branch
+                            </Button>
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+            </Grid>
+
+            <MotionCard variant="outlined" sx={contentCardSx}>
+                <CardContent>
+                    <Typography variant="h6" sx={{ mb: 2 }}>
+                        Repayment History (Partial payments included)
+                    </Typography>
+                    <DataTable rows={loanRepaymentHistory.slice(0, 20)} columns={statementColumns} emptyMessage="No repayments posted in the selected period." />
+                </CardContent>
+            </MotionCard>
         </Stack>
     );
 
@@ -1310,57 +2063,118 @@ export function MemberPortalPage() {
         <Stack spacing={3}>
             <MotionCard variant="outlined" sx={contentCardSx}>
                 <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
-                    <Typography variant="overline" color="text.secondary">
-                        Transactions
-                    </Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>
-                        Posted Member Activity
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                        Review recent transactions that affect your savings, contributions, dividend allocations, and running balances.
-                    </Typography>
+                    <Stack spacing={2}>
+                        <Box>
+                            <Typography variant="overline" color="text.secondary">
+                                Transactions
+                            </Typography>
+                            <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>
+                                Bank-Grade Statement View
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                Filter by date and type, verify running balances, and review transaction references for audit traceability.
+                            </Typography>
+                        </Box>
+                        <Stack direction={{ xs: "column", md: "row" }} spacing={1.25}>
+                            <TextField
+                                select
+                                size="small"
+                                label="Type"
+                                value={transactionTypeFilter}
+                                onChange={(event) => setTransactionTypeFilter(event.target.value)}
+                                sx={{ minWidth: 220 }}
+                            >
+                                <MenuItem value="all">All types</MenuItem>
+                                <MenuItem value="deposit">Deposit</MenuItem>
+                                <MenuItem value="withdrawal">Withdrawal</MenuItem>
+                                <MenuItem value="contribution">Contribution</MenuItem>
+                                <MenuItem value="dividend">Dividend</MenuItem>
+                                <MenuItem value="loan">Loan</MenuItem>
+                            </TextField>
+                            <TextField
+                                size="small"
+                                label="Reference"
+                                placeholder="Search by reference"
+                                value={transactionSearch}
+                                onChange={(event) => setTransactionSearch(event.target.value)}
+                                sx={{ minWidth: 240 }}
+                            />
+                            <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<DownloadRoundedIcon />}
+                                    onClick={() => handleDownloadFilteredStatement(filteredTransactions, "Transaction statement")}
+                                >
+                                    Export Statement PDF
+                                </Button>
+                                <Button variant="outlined" startIcon={<PrintRoundedIcon />} onClick={() => window.print()}>
+                                    Printable View
+                                </Button>
+                            </Stack>
+                        </Stack>
+                    </Stack>
                 </CardContent>
             </MotionCard>
 
             <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
                         icon={TimelineRoundedIcon}
-                        label="Posted Transactions"
-                        value={transactionCount}
-                        helper="Visible member statement entries."
+                        label="Filtered Transactions"
+                        value={filteredTransactions.length}
+                        helper="Rows currently visible after filters."
                         tone="primary"
                     />
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
                         icon={WalletRoundedIcon}
                         label="Latest Balance"
-                        value={formatCurrency(latestBalance)}
-                        helper="Running balance from the latest visible statement."
+                        value={formatCurrency(latestFilteredTransaction?.running_balance || 0)}
+                        helper="Most recent running balance in filtered statements."
                         tone="success"
                     />
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
-                        icon={TrendingUpRoundedIcon}
-                        label="Latest Activity"
-                        value={formatDate(statements[0]?.transaction_date)}
-                        helper="Most recent posted activity date visible to this login."
-                        tone="warning"
+                        icon={FlagRoundedIcon}
+                        label="Disputed Flags"
+                        value={disputedTransactionIds.length}
+                        helper="Marked for branch follow-up without altering ledger."
+                        tone={disputedTransactionIds.length ? "warning" : "primary"}
                     />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%" }}>
+                        <CardContent>
+                            <Typography variant="subtitle2">Running Balance Validation</Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+                                <Chip
+                                    label={runningBalanceMismatches ? "Check required" : "Validated"}
+                                    color={runningBalanceMismatches ? "warning" : "success"}
+                                    variant={runningBalanceMismatches ? "filled" : "outlined"}
+                                    size="small"
+                                />
+                                <Typography variant="body2" color="text.secondary">
+                                    {runningBalanceMismatches
+                                        ? `${runningBalanceMismatches} mismatch(es) detected`
+                                        : "No mismatches detected in current filter."}
+                                </Typography>
+                            </Stack>
+                        </CardContent>
+                    </MotionCard>
                 </Grid>
             </Grid>
 
             <ChartPanel
                 title="Transaction Balance Trend"
-                subtitle="Recent running balances based on posted member transactions."
+                subtitle="Running balance trend from the selected transaction window."
                 data={{
-                    labels: chartLabels,
+                    labels: transactionTrendLabels.length ? transactionTrendLabels : chartLabels,
                     datasets: [
                         {
                             label: "Running balance",
-                            data: chartValues,
+                            data: transactionTrendValues.length ? transactionTrendValues : chartValues,
                             borderColor: brandColors.accent[500],
                             backgroundColor: alpha(brandColors.accent[500], 0.14),
                             fill: true,
@@ -1378,9 +2192,25 @@ export function MemberPortalPage() {
             <MotionCard variant="outlined" sx={contentCardSx}>
                 <CardContent>
                     <Typography variant="h6" sx={{ mb: 2 }}>
-                        Recent Transactions
+                        Posted Transactions
                     </Typography>
-                    <DataTable rows={statements.slice(0, 20)} columns={statementColumns} emptyMessage="No transactions yet." />
+                    <DataTable
+                        rows={paginatedTransactions}
+                        columns={statementColumns}
+                        emptyMessage="No transactions match the selected filters. Adjust date range or type filter."
+                    />
+                    <TablePagination
+                        component="div"
+                        count={filteredTransactions.length}
+                        page={transactionsPage}
+                        onPageChange={(_, value) => setTransactionsPage(value)}
+                        rowsPerPage={transactionsRowsPerPage}
+                        onRowsPerPageChange={(event) => {
+                            setTransactionsRowsPerPage(Number(event.target.value));
+                            setTransactionsPage(0);
+                        }}
+                        rowsPerPageOptions={[10, 25, 50]}
+                    />
                 </CardContent>
             </MotionCard>
         </Stack>
@@ -1390,45 +2220,162 @@ export function MemberPortalPage() {
         <Stack spacing={3}>
             <MotionCard variant="outlined" sx={contentCardSx}>
                 <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
-                    <Typography variant="overline" color="text.secondary">
-                        Contributions
-                    </Typography>
-                    <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>
-                        Share Contributions & Dividend Credits
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                        Follow the contributions posted to your share account and the dividend allocations credited to your membership.
-                    </Typography>
+                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+                        <Box>
+                            <Typography variant="overline" color="text.secondary">
+                                Contributions
+                            </Typography>
+                            <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>
+                                Contribution Compliance & Dividend Transparency
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                See expected versus posted contributions, dividend allocations by year, and auditable references for each entry.
+                            </Typography>
+                        </Box>
+                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                            <Button
+                                variant="outlined"
+                                startIcon={<DownloadRoundedIcon />}
+                                onClick={() => handleDownloadFilteredStatement(filteredContributions, "Contribution statement")}
+                            >
+                                Download Contribution PDF
+                            </Button>
+                            <Button variant="outlined" startIcon={<PrintRoundedIcon />} onClick={() => window.print()}>
+                                Printable View
+                            </Button>
+                        </Stack>
+                    </Stack>
                 </CardContent>
             </MotionCard>
 
             <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
                         icon={SavingsRoundedIcon}
                         label="Share Capital"
                         value={formatCurrency(totalShareCapital)}
-                        helper="Current visible balance on your share account."
+                        helper="Current visible share capital balance."
                         tone="warning"
                     />
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
                         icon={TrendingUpRoundedIcon}
-                        label="Dividends Credited"
-                        value={formatCurrency(totalDividends)}
-                        helper="Total visible dividend allocations posted to you."
+                        label="Period Contributions"
+                        value={formatCurrency(contributionActual)}
+                        helper={`Expected ${formatCurrency(contributionExpected)} for selected period.`}
+                        tone={contributionComplianceRatio >= 100 ? "success" : "warning"}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <MetricCard
+                        icon={AccountBalanceWalletRoundedIcon}
+                        label="Dividend Credits"
+                        value={formatCurrency(filteredContributions.filter((row) => row.transaction_type === "dividend_allocation").reduce((sum, row) => sum + row.amount, 0))}
+                        helper={`Effective rate ${effectiveDividendRate.toFixed(2)}% on base capital.`}
                         tone="success"
                     />
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
-                    <MetricCard
-                        icon={AccountBalanceWalletRoundedIcon}
-                        label="Contribution Entries"
-                        value={contributionHistory.length}
-                        helper="Visible share contribution and dividend transactions."
-                        tone="primary"
-                    />
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%" }}>
+                        <CardContent>
+                            <Typography variant="subtitle2">Compliance Badge</Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.25 }}>
+                                <Chip
+                                    label={contributionComplianceStatus}
+                                    color={contributionComplianceRatio >= 100 ? "success" : "warning"}
+                                    variant={contributionComplianceRatio >= 100 ? "filled" : "outlined"}
+                                    size="small"
+                                />
+                                <Typography variant="body2" color="text.secondary">
+                                    {contributionComplianceRatio.toFixed(1)}% achieved
+                                </Typography>
+                            </Stack>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.9 }}>
+                                Schedule: {contributionScheduleStatus} {nextContributionDue ? `• next due ${formatDate(nextContributionDue)}` : ""}
+                            </Typography>
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+            </Grid>
+
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 1.5 }}>
+                                Running Total Summary (Period)
+                            </Typography>
+                            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                <Chip label={`${contributionEntriesCount} contributions`} variant="outlined" />
+                                <Chip label={`${dividendEntriesCount} dividend entries`} variant="outlined" />
+                                <Chip label={`Total posted ${formatCurrency(contributionRunningTotal)}`} color="primary" variant="outlined" />
+                            </Stack>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.25 }}>
+                                Expected contribution base: {formatCurrency(contributionExpected)} (baseline {formatCurrency(contributionBaselineMonthly)} per month).
+                            </Typography>
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 1.5 }}>
+                                Dividend Calculation Transparency
+                            </Typography>
+                            <Stack spacing={0.75}>
+                                <Typography variant="body2" color="text.secondary">
+                                    Base capital used: {formatCurrency(totalShareCapital)}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Dividend credits posted: {formatCurrency(totalDividends)}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Effective rate: {effectiveDividendRate.toFixed(2)}%
+                                </Typography>
+                            </Stack>
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+            </Grid>
+
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 2 }}>
+                                Dividend History by Year
+                            </Typography>
+                            <DataTable
+                                rows={dividendHistoryByYear}
+                                columns={[
+                                    { key: "year", header: "Year", render: (row) => row.year },
+                                    { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) }
+                                ]}
+                                emptyMessage="No dividend entries for selected period."
+                            />
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                    <MotionCard variant="outlined" sx={contentCardSx}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 2 }}>
+                                Contribution Schedule
+                            </Typography>
+                            <Stack spacing={1}>
+                                <Typography variant="body2" color="text.secondary">
+                                    Status: {contributionScheduleStatus}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Next expected contribution: {formatDate(nextContributionDue)}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Monthly baseline: {formatCurrency(contributionBaselineMonthly)}
+                                </Typography>
+                            </Stack>
+                        </CardContent>
+                    </MotionCard>
                 </Grid>
             </Grid>
 
@@ -1438,9 +2385,21 @@ export function MemberPortalPage() {
                         Share Contributions & Dividends
                     </Typography>
                     <DataTable
-                        rows={contributionHistory.slice(0, 20)}
+                        rows={paginatedContributions}
                         columns={statementColumns}
-                        emptyMessage="No share contributions or dividends posted yet."
+                        emptyMessage="No share contributions or dividends posted in this period."
+                    />
+                    <TablePagination
+                        component="div"
+                        count={filteredContributions.length}
+                        page={contributionsPage}
+                        onPageChange={(_, value) => setContributionsPage(value)}
+                        rowsPerPage={contributionsRowsPerPage}
+                        onRowsPerPageChange={(event) => {
+                            setContributionsRowsPerPage(Number(event.target.value));
+                            setContributionsPage(0);
+                        }}
+                        rowsPerPageOptions={[10, 25, 50]}
                     />
                 </CardContent>
             </MotionCard>

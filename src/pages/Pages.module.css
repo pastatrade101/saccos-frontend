@@ -229,6 +229,111 @@
   gap: 1rem;
 }
 
+.otpCodeInput {
+  text-align: center;
+  letter-spacing: 0.42em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1.08rem;
+}
+
+.otpDigitsRow {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.otpDigitBox {
+  height: 3rem;
+  min-width: 0;
+  border-radius: 0.7rem;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-input);
+  text-align: center;
+  font-size: 1.2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-subtle) 70%, transparent);
+}
+
+.otpDigitBox:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.otpModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(7, 10, 33, 0.52);
+  backdrop-filter: blur(3px);
+}
+
+.otpModalCard {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 0.95rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent-400) 45%, var(--border-subtle));
+  background: var(--surface-panel, #ffffff);
+  background-image: none;
+  background-color: var(--surface-panel, #ffffff);
+  box-shadow: 0 28px 70px rgba(10, 5, 115, 0.25);
+  padding: 1.35rem;
+  opacity: 1;
+  isolation: isolate;
+}
+
+.otpModalHeader {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.otpModalHeader h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.otpModalHeader p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.otpModalActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.otpModalLink {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.otpModalLink:hover {
+  color: var(--accent-strong);
+}
+
 .authForgotLink {
   align-self: flex-start;
   padding: 0;

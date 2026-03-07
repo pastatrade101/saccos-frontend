@@ -8,17 +8,29 @@ import {
     useState,
     type PropsWithChildren
 } from "react";
+import axios from "axios";
 import type { Session, User } from "@supabase/supabase-js";
 
 import { api, getApiErrorMessage } from "../lib/api";
-import { endpoints, type MeResponse, type MeSubscriptionResponse } from "../lib/endpoints";
+import {
+    endpoints,
+    type BackendSignInResponse,
+    type MeResponse,
+    type MeSubscriptionResponse,
+    type OtpChallengeResponse
+} from "../lib/endpoints";
 import { clearStaleSupabaseSession, supabase } from "../lib/supabase";
-import type { AuthMe } from "../types/api";
+import type { ApiErrorPayload, AuthMe } from "../types/api";
 
 interface LastApiError {
     status?: number;
     code: string;
     message: string;
+}
+
+interface AuthFlowError extends Error {
+    code?: string;
+    details?: unknown;
 }
 
 interface AuthContextValue {
@@ -36,7 +48,16 @@ interface AuthContextValue {
     subscriptionInactive: boolean;
     lastApiError: LastApiError | null;
     backendUnavailable: boolean;
-    signIn: (email: string, password: string) => Promise<void>;
+    signIn: (
+        email: string,
+        password: string,
+        options?: { challengeId?: string | null; otpCode?: string | null }
+    ) => Promise<void>;
+    requestOtp: (
+        email: string,
+        password: string,
+        challengeId?: string | null
+    ) => Promise<OtpChallengeResponse>;
     signOut: () => Promise<void>;
     refreshProfile: (tenantOverride?: string | null) => Promise<void>;
     setSelectedTenantId: (value: string | null, name?: string | null) => void;
@@ -51,6 +72,17 @@ const SELECTED_TENANT_NAME_KEY = "saccos:selectedTenantName";
 const SELECTED_BRANCH_NAME_KEY = "saccos:selectedBranchName";
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+function createAuthFlowError(
+    message: string,
+    code?: string,
+    details?: unknown
+): AuthFlowError {
+    const error = new Error(message) as AuthFlowError;
+    error.code = code;
+    error.details = details;
+    return error;
+}
 
 export function AuthProvider({ children }: PropsWithChildren) {
     const [session, setSession] = useState<Session | null>(null);
@@ -247,7 +279,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
         };
     }, []);
 
-    const signIn = useCallback(async (email: string, password: string) => {
+    const signIn = useCallback(async (
+        email: string,
+        password: string,
+        options?: { challengeId?: string | null; otpCode?: string | null }
+    ) => {
         clearStaleSupabaseSession();
         localStorage.removeItem(SELECTED_TENANT_KEY);
         localStorage.removeItem(SELECTED_BRANCH_KEY);
@@ -260,15 +296,84 @@ export function AuthProvider({ children }: PropsWithChildren) {
         clearAuthState();
         setBackendUnavailable(false);
 
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password
-        });
+        try {
+            const { data } = await api.post<BackendSignInResponse>(endpoints.auth.backendSignIn(), {
+                email,
+                password,
+                challenge_id: options?.challengeId || undefined,
+                otp_code: options?.otpCode || undefined
+            });
 
-        if (error) {
-            throw new Error(error.message);
+            const accessToken = data.session?.access_token;
+            const refreshToken = data.session?.refresh_token;
+
+            if (!accessToken || !refreshToken) {
+                throw createAuthFlowError(
+                    "Authentication session is incomplete.",
+                    "SESSION_MISSING"
+                );
+            }
+
+            const { error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken
+            });
+
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            if (axios.isAxiosError<ApiErrorPayload>(error)) {
+                const code = error.response?.data?.error?.code;
+                const details = error.response?.data?.error?.details;
+
+                throw createAuthFlowError(
+                    getApiErrorMessage(error, "Unable to sign in."),
+                    code,
+                    details
+                );
+            }
+
+            if (error instanceof Error) {
+                throw createAuthFlowError(error.message);
+            }
+
+            throw createAuthFlowError("Unable to sign in.");
         }
     }, [clearAuthState]);
+
+    const requestOtp = useCallback(async (
+        email: string,
+        password: string,
+        challengeId?: string | null
+    ) => {
+        try {
+            const { data } = await api.post<OtpChallengeResponse>(endpoints.auth.otpSend(), {
+                email,
+                password,
+                challenge_id: challengeId || undefined
+            });
+
+            return data;
+        } catch (error) {
+            if (axios.isAxiosError<ApiErrorPayload>(error)) {
+                const code = error.response?.data?.error?.code;
+                const details = error.response?.data?.error?.details;
+
+                throw createAuthFlowError(
+                    getApiErrorMessage(error, "Unable to send OTP."),
+                    code,
+                    details
+                );
+            }
+
+            if (error instanceof Error) {
+                throw createAuthFlowError(error.message);
+            }
+
+            throw createAuthFlowError("Unable to send OTP.");
+        }
+    }, []);
 
     const signOut = useCallback(async () => {
         await supabase.auth.signOut();
@@ -338,6 +443,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         lastApiError,
         backendUnavailable,
         signIn,
+        requestOtp,
         signOut,
         refreshProfile,
         setSelectedTenantId,
@@ -358,6 +464,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         selectedTenantName,
         selectedBranchName,
         session,
+        requestOtp,
         signIn,
         signOut,
         subscription,
