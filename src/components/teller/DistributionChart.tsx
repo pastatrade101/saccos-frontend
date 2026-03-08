@@ -15,6 +15,7 @@ interface DistributionChartProps {
 
 export function DistributionChart({ points }: DistributionChartProps) {
     const theme = useTheme();
+    const accentColor = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
     const hasActivity = points.some((point) => point.count > 0);
     const data: ChartData<"bar"> = {
         labels: points.map((point) => point.bucketLabel),
@@ -25,7 +26,7 @@ export function DistributionChart({ points }: DistributionChartProps) {
                 backgroundColor: points.map((_, index) =>
                     index === points.length - 1
                         ? alpha(theme.palette.warning.main, 0.86)
-                        : alpha(theme.palette.primary.main, 0.82)
+                        : alpha(accentColor, 0.82)
                 ),
                 borderRadius: 7,
                 borderSkipped: false,

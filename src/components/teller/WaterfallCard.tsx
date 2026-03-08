@@ -26,12 +26,13 @@ export function WaterfallCard({
     closingCash
 }: WaterfallCardProps) {
     const theme = useTheme();
+    const accentColor = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
     const netMovement = closingCash - openingCash;
     const hasActivity = openingCash !== 0 || deposits !== 0 || withdrawals !== 0 || closingCash !== 0;
     const openingFill = alpha(theme.palette.info.main, 0.75);
     const depositFill = alpha(theme.palette.success.main, 0.82);
     const withdrawalFill = alpha(theme.palette.error.main, 0.82);
-    const closingFill = alpha(theme.palette.primary.main, 0.86);
+    const closingFill = alpha(accentColor, 0.86);
 
     const data: ChartData<"bar"> = {
         labels: ["Opening Cash", "Deposits", "Withdrawals", "Closing Cash"],
@@ -109,8 +110,8 @@ export function WaterfallCard({
                                 width: 42,
                                 height: 42,
                                 borderRadius: 2,
-                                bgcolor: alpha(theme.palette.primary.main, 0.1),
-                                color: "primary.main"
+                                bgcolor: alpha(accentColor, 0.16),
+                                color: accentColor
                             }}
                         >
                             <AccountBalanceWalletRoundedIcon fontSize="small" />

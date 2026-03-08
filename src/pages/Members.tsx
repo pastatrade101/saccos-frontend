@@ -198,6 +198,8 @@ export function MembersPage() {
     const [branches, setBranches] = useState<Branch[]>([]);
     const [selectedMember, setSelectedMember] = useState<MemberWithAccount | null>(null);
     const [loading, setLoading] = useState(true);
+    const [accountsLoading, setAccountsLoading] = useState(false);
+    const [accountsLoaded, setAccountsLoaded] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [updatingMember, setUpdatingMember] = useState(false);
     const [provisioningLogin, setProvisioningLogin] = useState(false);
@@ -281,9 +283,74 @@ export function MembersPage() {
     const onboardingInviteMode = form.watch("send_invite");
     const standaloneInviteMode = memberLoginForm.watch("send_invite");
 
+    const loadMemberAccounts = async (options?: { silent?: boolean; force?: boolean }) => {
+        if (!selectedTenantId) {
+            return;
+        }
+
+        if (accountsLoading) {
+            return;
+        }
+
+        if (accountsLoaded && !options?.force) {
+            return;
+        }
+
+        setAccountsLoading(true);
+
+        try {
+            const { data, error } = await supabase
+                .from("member_accounts")
+                .select("*")
+                .eq("tenant_id", selectedTenantId)
+                .is("deleted_at", null);
+
+            if (error) {
+                throw error;
+            }
+
+            const accountsByMember = new Map<string, MemberAccount>();
+            (data || []).forEach((account) => {
+                if (!accountsByMember.has(account.member_id)) {
+                    accountsByMember.set(account.member_id, account as MemberAccount);
+                }
+            });
+
+            setMembers((current) => current.map((member) => ({
+                ...member,
+                account: accountsByMember.get(member.id) || null
+            })));
+            setSelectedMember((current) => {
+                if (!current) {
+                    return null;
+                }
+
+                return {
+                    ...current,
+                    account: accountsByMember.get(current.id) || null
+                };
+            });
+            setAccountsLoaded(true);
+        } catch (error) {
+            if (!options?.silent) {
+                pushToast({
+                    type: "error",
+                    title: "Unable to load member accounts",
+                    message: getApiErrorMessage(error)
+                });
+            }
+        } finally {
+            setAccountsLoading(false);
+        }
+    };
+
     const loadMembers = async () => {
         if (!selectedTenantId) {
             setMembers([]);
+            setBranches([]);
+            setSelectedMember(null);
+            setAccountsLoaded(false);
+            setAccountsLoading(false);
             setLoading(false);
             return;
         }
@@ -291,28 +358,22 @@ export function MembersPage() {
         setLoading(true);
 
         try {
-            const [{ data: memberResponse }, { data: branchResponse }, accountResponse] = await Promise.all([
+            const [{ data: memberResponse }, { data: branchResponse }] = await Promise.all([
                 api.get<MembersResponse>(endpoints.members.list()),
-                api.get<BranchesListResponse>(endpoints.branches.list(), { params: { tenant_id: selectedTenantId } }),
-                supabase
-                    .from("member_accounts")
-                    .select("*")
-                    .eq("tenant_id", selectedTenantId)
-                    .is("deleted_at", null)
+                api.get<BranchesListResponse>(endpoints.branches.list(), { params: { tenant_id: selectedTenantId } })
             ]);
 
-            const accountsByMember = new Map<string, MemberAccount>();
-
-            (accountResponse.data || []).forEach((account) => {
-                if (!accountsByMember.has(account.member_id)) {
-                    accountsByMember.set(account.member_id, account as MemberAccount);
+            const currentAccounts = new Map<string, MemberAccount>();
+            members.forEach((member) => {
+                if (member.account?.id) {
+                    currentAccounts.set(member.id, member.account);
                 }
             });
 
             const nextBranches = (branchResponse.data || []).filter((branch) => branch.tenant_id === selectedTenantId);
             const nextMembers = memberResponse.data.map((member) => ({
                 ...member,
-                account: accountsByMember.get(member.id) || null
+                account: currentAccounts.get(member.id) || null
             }));
 
             setBranches(nextBranches);
@@ -324,6 +385,7 @@ export function MembersPage() {
 
                 return nextMembers.find((member) => member.id === current.id) || null;
             });
+            void loadMemberAccounts({ silent: true, force: true });
         } catch (error) {
             pushToast({
                 type: "error",
@@ -336,6 +398,8 @@ export function MembersPage() {
     };
 
     useEffect(() => {
+        setAccountsLoaded(false);
+        setAccountsLoading(false);
         void loadMembers();
     }, [selectedTenantId]);
 
@@ -388,6 +452,9 @@ export function MembersPage() {
             }
 
             if (operationalFilter === "ready") {
+                if (!accountsLoaded) {
+                    return member.status === "active" && Boolean(member.user_id);
+                }
                 return member.status === "active" && Boolean(member.account?.id);
             }
 
@@ -396,10 +463,16 @@ export function MembersPage() {
             }
 
             if (operationalFilter === "needs_account") {
+                if (!accountsLoaded) {
+                    return false;
+                }
                 return !member.account?.id;
             }
 
             if (operationalFilter === "needs_review") {
+                if (!accountsLoaded) {
+                    return member.status !== "active" || !member.user_id;
+                }
                 return member.status !== "active" || !member.user_id || !member.account?.id;
             }
 
@@ -767,22 +840,28 @@ export function MembersPage() {
         total: members.length,
         active: members.filter((member) => member.status === "active").length,
         linkedLogins: members.filter((member) => Boolean(member.user_id)).length,
-        totalSavings: members.reduce((sum, member) => sum + Number(member.account?.available_balance || 0), 0)
-    }), [members]);
+        totalSavings: accountsLoaded
+            ? members.reduce((sum, member) => sum + Number(member.account?.available_balance || 0), 0)
+            : 0
+    }), [accountsLoaded, members]);
     const tellerReadyCount = useMemo(
-        () => members.filter((member) => member.status === "active" && Boolean(member.account?.id)).length,
-        [members]
+        () => accountsLoaded
+            ? members.filter((member) => member.status === "active" && Boolean(member.account?.id)).length
+            : members.filter((member) => member.status === "active").length,
+        [accountsLoaded, members]
     );
     const tellerNeedsFollowUpCount = useMemo(
-        () => members.filter((member) => member.status !== "active" || !member.account?.id).length,
-        [members]
+        () => accountsLoaded
+            ? members.filter((member) => member.status !== "active" || !member.account?.id).length
+            : members.filter((member) => member.status !== "active").length,
+        [accountsLoaded, members]
     );
     const branchManagerActionCounts = useMemo(() => ({
-        needsReview: members.filter((member) => member.status !== "active" || !member.user_id || !member.account?.id).length,
+        needsReview: members.filter((member) => member.status !== "active" || !member.user_id || (accountsLoaded ? !member.account?.id : false)).length,
         needsLogin: members.filter((member) => !member.user_id).length,
-        needsAccount: members.filter((member) => !member.account?.id).length,
-        ready: members.filter((member) => member.status === "active" && Boolean(member.user_id) && Boolean(member.account?.id)).length
-    }), [members]);
+        needsAccount: accountsLoaded ? members.filter((member) => !member.account?.id).length : 0,
+        ready: members.filter((member) => member.status === "active" && Boolean(member.user_id) && (accountsLoaded ? Boolean(member.account?.id) : false)).length
+    }), [accountsLoaded, members]);
     const hasActiveDirectoryFilters = Boolean(
         deferredSearch.trim() || statusFilter !== "all" || operationalFilter !== "all" || branchFilter !== "all"
     );
@@ -859,7 +938,13 @@ export function MembersPage() {
         {
             key: "account",
             header: "Savings Account",
-            render: (row) => row.account?.account_number || "Provisioning..."
+            render: (row) => {
+                if (row.account?.account_number) {
+                    return row.account.account_number;
+                }
+
+                return accountsLoading ? "Syncing..." : "Provisioning...";
+            }
         },
         {
             key: "status",
@@ -970,6 +1055,7 @@ export function MembersPage() {
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
                             <Chip label={selectedTenantName || "Tenant workspace"} variant="outlined" />
                             <Chip label={`Role: ${profile ? formatRole(profile.role) : "Setup"}`} variant="outlined" />
+                            {accountsLoading ? <Chip label="Syncing account readiness..." size="small" variant="outlined" /> : null}
                             {isTeller ? <Chip label="Cash Service Mode" color="success" /> : null}
                         </Stack>
 
@@ -988,16 +1074,16 @@ export function MembersPage() {
                                     onClick={() => setOperationalFilter((current) => current === "needs_login" ? "all" : "needs_login")}
                                 />
                                 <Chip
-                                    label={`Missing account: ${branchManagerActionCounts.needsAccount}`}
-                                    color={operationalFilter === "needs_account" ? "warning" : "default"}
-                                    variant={operationalFilter === "needs_account" ? "filled" : "outlined"}
-                                    onClick={() => setOperationalFilter((current) => current === "needs_account" ? "all" : "needs_account")}
+                                    label={accountsLoaded ? `Missing account: ${branchManagerActionCounts.needsAccount}` : "Missing account: syncing..."}
+                                    color={accountsLoaded && operationalFilter === "needs_account" ? "warning" : "default"}
+                                    variant={accountsLoaded && operationalFilter === "needs_account" ? "filled" : "outlined"}
+                                    onClick={accountsLoaded ? () => setOperationalFilter((current) => current === "needs_account" ? "all" : "needs_account") : undefined}
                                 />
                                 <Chip
-                                    label={`Ready: ${branchManagerActionCounts.ready}`}
-                                    color={operationalFilter === "ready" ? "success" : "default"}
-                                    variant={operationalFilter === "ready" ? "filled" : "outlined"}
-                                    onClick={() => setOperationalFilter((current) => current === "ready" ? "all" : "ready")}
+                                    label={accountsLoaded ? `Ready: ${branchManagerActionCounts.ready}` : "Ready: syncing..."}
+                                    color={accountsLoaded && operationalFilter === "ready" ? "success" : "default"}
+                                    variant={accountsLoaded && operationalFilter === "ready" ? "filled" : "outlined"}
+                                    onClick={accountsLoaded ? () => setOperationalFilter((current) => current === "ready" ? "all" : "ready") : undefined}
                                 />
                             </Stack>
                         ) : null}
@@ -1033,8 +1119,10 @@ export function MembersPage() {
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
                         title={isTeller ? "Visible Savings Float" : "Savings Balance"}
-                        value={formatCurrency(memberCounts.totalSavings)}
-                        helper={isTeller ? "Current visible balances across teller-served accounts." : "Visible savings across primary accounts."}
+                        value={accountsLoaded ? formatCurrency(memberCounts.totalSavings) : "Syncing..."}
+                        helper={accountsLoaded
+                            ? (isTeller ? "Current visible balances across teller-served accounts." : "Visible savings across primary accounts.")
+                            : "Account balances are loading in the background."}
                         icon={<AccountBalanceWalletRoundedIcon fontSize="small" />}
                     />
                 </Grid>

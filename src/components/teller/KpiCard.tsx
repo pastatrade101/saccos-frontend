@@ -25,6 +25,8 @@ interface KpiCardProps {
 }
 
 function getToneColors(tone: Tone, theme: Theme) {
+    const neutralAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
+
     if (tone === "positive") {
         return {
             main: theme.palette.success.main,
@@ -40,8 +42,8 @@ function getToneColors(tone: Tone, theme: Theme) {
     }
 
     return {
-        main: theme.palette.text.secondary,
-        soft: alpha(theme.palette.text.primary, 0.08)
+        main: neutralAccent,
+        soft: alpha(neutralAccent, 0.14)
     };
 }
 
@@ -103,7 +105,7 @@ export function KpiCard({
             sx={{
                 height: "100%",
                 borderColor: alpha(colors.main, 0.24),
-                background: `linear-gradient(180deg, ${alpha(colors.main, 0.06)}, ${theme.palette.background.paper})`
+                background: `linear-gradient(180deg, ${alpha(colors.main, theme.palette.mode === "dark" ? 0.14 : 0.06)}, ${theme.palette.background.paper})`
             }}
         >
             <CardContent sx={{ pb: 2 }}>

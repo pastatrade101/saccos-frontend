@@ -18,6 +18,7 @@ interface AlertsPanelProps {
 
 export function AlertsPanel({ alerts, hourlyActivity }: AlertsPanelProps) {
     const theme = useTheme();
+    const accentColor = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
     const peakHour = hourlyActivity.reduce<TellerHourlyPoint | null>((currentPeak, entry) => {
         if (!currentPeak || entry.txCount > currentPeak.txCount) {
             return entry;
@@ -35,7 +36,7 @@ export function AlertsPanel({ alerts, hourlyActivity }: AlertsPanelProps) {
                 backgroundColor: hourlyActivity.map((entry) =>
                     peakHour && entry.hour === peakHour.hour
                         ? alpha(theme.palette.warning.main, 0.88)
-                        : alpha(theme.palette.primary.main, 0.78)
+                        : alpha(accentColor, 0.78)
                 ),
                 borderRadius: 6,
                 borderSkipped: false,

@@ -2,14 +2,12 @@ import { MotionCard, MotionModal } from "../ui/motion";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 import CallMadeRoundedIcon from "@mui/icons-material/CallMadeRounded";
 import CallReceivedRoundedIcon from "@mui/icons-material/CallReceivedRounded";
-import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
 import WalletRoundedIcon from "@mui/icons-material/WalletRounded";
 import {
     Alert,
     Box,
     Button,
-    Card,
     CardContent,
     Chip,
     Dialog,
@@ -70,21 +68,33 @@ function MetricCard({
     title,
     value,
     helper,
-    icon
+    icon,
+    tone = "neutral"
 }: {
     title: string;
     value: string;
     helper: string;
     icon: React.ReactNode;
+    tone?: "neutral" | "positive" | "warning" | "negative";
 }) {
+    const theme = useTheme();
+    const neutralAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
+    const toneStyles = tone === "positive"
+        ? { main: theme.palette.success.main, soft: alpha(theme.palette.success.main, 0.14), border: alpha(theme.palette.success.main, 0.24) }
+        : tone === "warning"
+            ? { main: theme.palette.warning.main, soft: alpha(theme.palette.warning.main, 0.14), border: alpha(theme.palette.warning.main, 0.24) }
+            : tone === "negative"
+                ? { main: theme.palette.error.main, soft: alpha(theme.palette.error.main, 0.14), border: alpha(theme.palette.error.main, 0.24) }
+                : { main: neutralAccent, soft: alpha(neutralAccent, 0.12), border: alpha(neutralAccent, 0.24) };
+
     return (
         <MotionCard
             variant="outlined"
             sx={{
                 height: "100%",
                 borderRadius: 2,
-                borderColor: alpha("#0f172a", 0.08),
-                boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)"
+                borderColor: toneStyles.border,
+                background: `linear-gradient(180deg, ${toneStyles.soft}, ${theme.palette.background.paper})`
             }}
         >
             <CardContent>
@@ -107,8 +117,8 @@ function MetricCard({
                             borderRadius: 2,
                             display: "grid",
                             placeItems: "center",
-                            bgcolor: "action.hover",
-                            color: "text.primary"
+                            bgcolor: toneStyles.soft,
+                            color: toneStyles.main
                         }}
                     >
                         {icon}
@@ -242,7 +252,11 @@ export function CashPage() {
 
     useEffect(() => {
         void loadCashData();
-    }, [selectedTenantId]);
+    }, [selectedTenantId, selectedBranchId]);
+
+    useEffect(() => {
+        openSessionForm.setValue("branch_id", selectedBranchId || "");
+    }, [selectedBranchId]);
 
     const accountOptions = useMemo(
         () =>
@@ -267,24 +281,51 @@ export function CashPage() {
         [accountOptions]
     );
 
-    const todayDepositTotal = useMemo(
+    const todaySummary = dailySummary[0] || null;
+    const latestBusinessDate = useMemo(() => {
+        if (!transactions.length) {
+            return null;
+        }
+
+        return [...new Set(transactions.map((entry) => entry.transaction_date))]
+            .filter(Boolean)
+            .sort((left, right) => left.localeCompare(right))
+            .slice(-1)[0] || null;
+    }, [transactions]);
+    const deskBusinessDate = todaySummary?.business_date || latestBusinessDate;
+    const deskTransactions = useMemo(
         () =>
-            transactions
-                .filter((entry) => entry.transaction_type === "deposit")
-                .reduce((sum, entry) => sum + entry.amount, 0),
-        [transactions]
+            deskBusinessDate
+                ? transactions.filter((entry) => entry.transaction_date === deskBusinessDate)
+                : transactions,
+        [deskBusinessDate, transactions]
+    );
+    const todayDepositTotal = useMemo(
+        () => deskTransactions
+            .filter((entry) => entry.transaction_type === "deposit")
+            .reduce((sum, entry) => sum + entry.amount, 0),
+        [deskTransactions]
     );
     const todayWithdrawalTotal = useMemo(
-        () =>
-            transactions
-                .filter((entry) => entry.transaction_type === "withdrawal")
-                .reduce((sum, entry) => sum + entry.amount, 0),
-        [transactions]
+        () => deskTransactions
+            .filter((entry) => entry.transaction_type === "withdrawal")
+            .reduce((sum, entry) => sum + entry.amount, 0),
+        [deskTransactions]
     );
-    const visibleMembersWithActivity = useMemo(() => new Set(transactions.map((item) => item.member_id)).size, [transactions]);
-    const todaySummary = dailySummary[0] || null;
+    const visibleMembersWithActivity = useMemo(() => new Set(deskTransactions.map((item) => item.member_id)).size, [deskTransactions]);
+    const deskDepositTotal = todaySummary?.deposits_total ?? todayDepositTotal;
+    const deskWithdrawalTotal = todaySummary?.withdrawals_total ?? todayWithdrawalTotal;
+    const deskNetMovement = todaySummary?.net_movement ?? (deskDepositTotal - deskWithdrawalTotal);
+    const deskExpectedCash = todaySummary?.expected_cash_total ?? currentSession?.expected_cash ?? 0;
+    const highValueThreshold = Math.max(receiptPolicy?.required_threshold || 0, 250000);
+    const highValueTransactions = useMemo(
+        () => deskTransactions.filter((entry) => entry.amount >= highValueThreshold).length,
+        [deskTransactions, highValueThreshold]
+    );
     const receiptThresholdText = receiptPolicy ? formatCurrency(receiptPolicy.required_threshold) : "TSh 0";
     const tellerSessionRequired = Boolean(receiptPolicy) && !currentSession;
+    const cashDeskAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
+    const cashDeskAccentStrong = theme.palette.mode === "dark" ? "#C89B52" : theme.palette.primary.dark;
     const receiptNeededForPendingAction = Boolean(
         pendingAction
         && receiptPolicy?.receipt_required
@@ -481,21 +522,91 @@ export function CashPage() {
                 variant="outlined"
                 sx={{
                     borderRadius: 2,
-                    overflow: "hidden",
-                    background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)}, ${alpha(theme.palette.success.main, 0.06)} 58%, ${alpha(theme.palette.background.paper, 0.96)})`
+                    color: "text.primary",
+                    background: theme.palette.mode === "dark"
+                        ? `linear-gradient(135deg, ${alpha("#1B2535", 0.92)}, ${alpha("#D9B273", 0.16)})`
+                        : `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)}, ${alpha(theme.palette.background.paper, 0.97)})`
                 }}
             >
                 <CardContent>
-                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-                        <Box>
-                            <Typography variant="h5">Cash Desk</Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 780 }}>
-                                Handle counter deposits, withdrawals, and share capital contributions from a cleaner teller workspace with confirmation before posting.
-                            </Typography>
-                        </Box>
-                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-                            <Chip label={selectedTenantName || "Tenant workspace"} variant="outlined" />
-                            <Chip label="Teller Cash Operations" color="success" />
+                    <Stack spacing={2}>
+                        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+                            <Box>
+                                <Typography variant="overline" color="text.secondary">Teller desk command center</Typography>
+                                <Typography variant="h5" sx={{ mt: 0.5 }}>Cash Desk</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 780 }}>
+                                    Run day-to-day teller operations faster with clear session status, posting controls, and transaction shortcuts.
+                                </Typography>
+                            </Box>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+                                <Chip label={selectedTenantName || "Tenant workspace"} variant="outlined" />
+                                <Chip
+                                    label={currentSession ? "Session open" : "Session not opened"}
+                                    color={currentSession ? "success" : "warning"}
+                                    variant="outlined"
+                                />
+                                <Chip
+                                    label={deskBusinessDate ? `Business date ${formatDate(deskBusinessDate)}` : "Business date pending"}
+                                    variant="outlined"
+                                />
+                            </Stack>
+                        </Stack>
+                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} flexWrap="wrap" useFlexGap>
+                            <Button
+                                variant="contained"
+                                startIcon={<CallReceivedRoundedIcon />}
+                                onClick={() => {
+                                    setReceiptFile(null);
+                                    setActionDialog("deposit");
+                                }}
+                                disabled={subscriptionInactive || tellerSessionRequired}
+                                sx={theme.palette.mode === "dark" ? { bgcolor: cashDeskAccent, color: "#1a1a1a", "&:hover": { bgcolor: cashDeskAccentStrong } } : undefined}
+                            >
+                                Start Deposit
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                color="error"
+                                startIcon={<CallMadeRoundedIcon />}
+                                onClick={() => {
+                                    setReceiptFile(null);
+                                    setActionDialog("withdraw");
+                                }}
+                                disabled={subscriptionInactive || tellerSessionRequired}
+                                sx={theme.palette.mode === "dark" ? { borderColor: alpha("#FF8A80", 0.44), color: "#FFAB91", "&:hover": { borderColor: alpha("#FF8A80", 0.7), bgcolor: alpha("#FF8A80", 0.08) } } : undefined}
+                            >
+                                Start Withdrawal
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                startIcon={<SavingsRoundedIcon />}
+                                onClick={() => {
+                                    setReceiptFile(null);
+                                    setActionDialog("share_contribution");
+                                }}
+                                disabled={subscriptionInactive || tellerSessionRequired}
+                                sx={theme.palette.mode === "dark" ? { borderColor: alpha(cashDeskAccent, 0.44), color: cashDeskAccent, "&:hover": { borderColor: alpha(cashDeskAccent, 0.78), bgcolor: alpha(cashDeskAccent, 0.1) } } : undefined}
+                            >
+                                Start Contribution
+                            </Button>
+                            {!currentSession ? (
+                                <Button
+                                    variant="outlined"
+                                    onClick={() => setOpenSessionDialog(true)}
+                                    disabled={subscriptionInactive}
+                                    sx={theme.palette.mode === "dark" ? { borderColor: alpha(cashDeskAccent, 0.44), color: cashDeskAccent, "&:hover": { borderColor: alpha(cashDeskAccent, 0.78), bgcolor: alpha(cashDeskAccent, 0.1) } } : undefined}
+                                >
+                                    Open Session
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="outlined"
+                                    color="warning"
+                                    onClick={() => setCloseSessionDialog(true)}
+                                >
+                                    Close Session
+                                </Button>
+                            )}
                         </Stack>
                     </Stack>
                 </CardContent>
@@ -504,61 +615,75 @@ export function CashPage() {
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
-                        title="Tracked Accounts"
-                        value={String(accounts.length)}
-                        helper="Savings and share accounts visible to this workspace."
+                        title="Desk Throughput"
+                        value={String(deskTransactions.length)}
+                        helper={`${visibleMembersWithActivity} member(s) served in this business day.`}
                         icon={<WalletRoundedIcon fontSize="small" />}
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MetricCard
-                        title="Members with Activity"
-                        value={String(visibleMembersWithActivity)}
-                        helper="Members with recent posted cash movements."
-                        icon={<AccountBalanceWalletRoundedIcon fontSize="small" />}
+                        tone={deskTransactions.length >= 20 ? "warning" : "neutral"}
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
                         title="Deposit Intake"
-                        value={formatCurrency(todayDepositTotal)}
-                        helper="Visible posted deposits in the current desk view."
+                        value={formatCurrency(deskDepositTotal)}
+                        helper="Total deposit inflow posted for the active desk day."
                         icon={<CallReceivedRoundedIcon fontSize="small" />}
+                        tone="positive"
                     />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                     <MetricCard
                         title="Withdrawal Outflow"
-                        value={formatCurrency(todayWithdrawalTotal)}
-                        helper="Visible posted withdrawals in the current desk view."
+                        value={formatCurrency(deskWithdrawalTotal)}
+                        helper="Total withdrawal amount posted for the active desk day."
                         icon={<CallMadeRoundedIcon fontSize="small" />}
+                        tone="negative"
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <MetricCard
+                        title="Net Movement"
+                        value={`${deskNetMovement >= 0 ? "+" : "-"} ${formatCurrency(Math.abs(deskNetMovement))}`}
+                        helper={deskNetMovement >= 0 ? "Net inflow position on teller desk." : "Net outflow position on teller desk."}
+                        icon={<AccountBalanceWalletRoundedIcon fontSize="small" />}
+                        tone={deskNetMovement >= 0 ? "positive" : "warning"}
                     />
                 </Grid>
             </Grid>
 
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, xl: 7 }}>
-                    <MotionCard variant="outlined">
+                    <MotionCard
+                        variant="outlined"
+                        sx={{
+                            borderRadius: 2,
+                            background: theme.palette.mode === "dark"
+                                ? `linear-gradient(180deg, ${alpha("#D9B273", 0.08)}, ${alpha(theme.palette.background.paper, 0.92)})`
+                                : undefined
+                        }}
+                    >
                         <CardContent>
                             <Stack spacing={2}>
                                 <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2}>
                                     <Box>
                                         <Typography variant="h6">Teller Session</Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                            Open a session before counter posting. Closing cash is compared to the expected cash position from posted transactions.
+                                            Open a session before posting. At close, counted cash is matched against expected desk cash from posted transactions.
                                         </Typography>
                                     </Box>
                                     <Stack direction="row" spacing={1} alignItems="center">
-                                        {currentSession ? <Chip color="success" label={`Open · ${formatCurrency(currentSession.opening_cash)}`} /> : <Chip label="No open session" />}
-                                        {!currentSession ? (
-                                            <Button variant="contained" onClick={() => setOpenSessionDialog(true)} disabled={subscriptionInactive}>
-                                                Open session
-                                            </Button>
+                                        {currentSession ? (
+                                            <Chip color="success" label={`Open · ${formatCurrency(currentSession.opening_cash)}`} />
                                         ) : (
-                                            <Button variant="outlined" color="warning" onClick={() => setCloseSessionDialog(true)}>
-                                                Close session
-                                            </Button>
+                                            <Chip label="No open session" color="warning" variant="outlined" />
                                         )}
+                                        {currentSession ? (
+                                            <Chip
+                                                label={`Expected ${formatCurrency(deskExpectedCash)}`}
+                                                variant="outlined"
+                                                sx={theme.palette.mode === "dark" ? { borderColor: alpha(cashDeskAccent, 0.42), color: cashDeskAccent } : undefined}
+                                            />
+                                        ) : null}
                                     </Stack>
                                 </Stack>
                                 {currentSession ? (
@@ -578,7 +703,7 @@ export function CashPage() {
                                         <Grid size={{ xs: 12, sm: 4 }}>
                                             <Box sx={{ p: 1.5, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                                                 <Typography variant="caption" color="text.secondary">Expected cash</Typography>
-                                                <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>{formatCurrency(todaySummary?.expected_cash_total ?? currentSession.expected_cash)}</Typography>
+                                                <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>{formatCurrency(deskExpectedCash)}</Typography>
                                             </Box>
                                         </Grid>
                                     </Grid>
@@ -592,14 +717,34 @@ export function CashPage() {
                     </MotionCard>
                 </Grid>
                 <Grid size={{ xs: 12, xl: 5 }}>
-                    <MotionCard variant="outlined">
+                    <MotionCard
+                        variant="outlined"
+                        sx={{
+                            borderRadius: 2,
+                            background: theme.palette.mode === "dark"
+                                ? `linear-gradient(180deg, ${alpha("#D9B273", 0.07)}, ${alpha(theme.palette.background.paper, 0.92)})`
+                                : undefined
+                        }}
+                    >
                         <CardContent>
                             <Stack spacing={2}>
-                                <Typography variant="h6">Receipt Control</Typography>
+                                <Typography variant="h6">Receipt & Control Signals</Typography>
                                 <Typography variant="body2" color="text.secondary">
-                                    Current policy: {receiptPolicy?.receipt_required ? `receipt required from ${receiptThresholdText}` : "receipts optional"}.
+                                    Policy status: {receiptPolicy?.receipt_required ? `receipt required from ${receiptThresholdText}` : "receipts optional"}.
                                 </Typography>
                                 <Grid container spacing={1.5}>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <Box sx={{ p: 1.5, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
+                                            <Typography variant="caption" color="text.secondary">High-value checks</Typography>
+                                            <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>{highValueTransactions}</Typography>
+                                        </Box>
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <Box sx={{ p: 1.5, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
+                                            <Typography variant="caption" color="text.secondary">High-value threshold</Typography>
+                                            <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>{formatCurrency(highValueThreshold)}</Typography>
+                                        </Box>
+                                    </Grid>
                                     <Grid size={{ xs: 12, sm: 6 }}>
                                         <Box sx={{ p: 1.5, border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                                             <Typography variant="caption" color="text.secondary">Max receipts</Typography>
@@ -639,15 +784,15 @@ export function CashPage() {
                         sx={{
                             height: "100%",
                             borderRadius: 2,
-                            background: `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.98)}, ${alpha(theme.palette.primary.main, 0.035)})`
+                            background: `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.98)}, ${alpha(theme.palette.success.main, 0.04)})`
                         }}
                     >
                         <CardContent>
                             <Stack spacing={2.5}>
                                 <Box>
-                                    <Typography variant="h6">Cash Operations</Typography>
+                                    <Typography variant="h6">Quick Transaction Actions</Typography>
                                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                                        Start the cash action you need, complete the details in the modal, then confirm the posting before it hits the ledger.
+                                        Start the required cash action, capture details in the modal, then confirm posting before it is committed to the ledger.
                                     </Typography>
                                 </Box>
 
@@ -671,6 +816,7 @@ export function CashPage() {
                                                         }}
                                                         disabled={subscriptionInactive || tellerSessionRequired}
                                                         fullWidth
+                                                        sx={theme.palette.mode === "dark" ? { bgcolor: cashDeskAccent, color: "#1a1a1a", "&:hover": { bgcolor: cashDeskAccentStrong } } : undefined}
                                                     >
                                                         Start Deposit
                                                     </Button>
@@ -724,6 +870,7 @@ export function CashPage() {
                                                         }}
                                                         disabled={subscriptionInactive || tellerSessionRequired}
                                                         fullWidth
+                                                        sx={theme.palette.mode === "dark" ? { borderColor: alpha(cashDeskAccent, 0.44), color: cashDeskAccent, "&:hover": { borderColor: alpha(cashDeskAccent, 0.78), bgcolor: alpha(cashDeskAccent, 0.1) } } : undefined}
                                                     >
                                                         Start Contribution
                                                     </Button>
@@ -743,24 +890,24 @@ export function CashPage() {
                         sx={{
                             height: "100%",
                             borderRadius: 2,
-                            background: `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.98)}, ${alpha(theme.palette.success.main, 0.035)})`
+                            background: `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.98)}, ${alpha(theme.palette.warning.main, 0.04)})`
                         }}
                     >
                         <CardContent>
                             <Stack spacing={2}>
                                 <Box>
-                                    <Typography variant="h6">Desk Guidance</Typography>
+                                    <Typography variant="h6">Desk Priority Board</Typography>
                                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                                        Keep member cash activity disciplined. Always choose the right savings or share account, confirm the reference, and post only after reviewing the summary.
+                                        Keep close-readiness high by resolving session, receipt, and high-value transaction checks before end-of-day sign-off.
                                     </Typography>
                                 </Box>
 
                                 <Grid container spacing={1.5}>
                                     {[
-                                        ["Deposit rule", "Savings account only, then confirm before posting"],
-                                        ["Withdrawal rule", "Member balance must remain sufficient"],
-                                        ["Share capital", "Use member share account, not savings account"],
-                                        ["Posting control", "Every action is reviewed in a confirmation step"]
+                                        ["Session status", currentSession ? "Open and ready for posting" : "Open session before posting"],
+                                        ["Receipt threshold", receiptPolicy?.receipt_required ? `Required from ${receiptThresholdText}` : "Receipt optional"],
+                                        ["High-value checks", `${highValueTransactions} transaction(s) above ${formatCurrency(highValueThreshold)}`],
+                                        ["Expected cash", formatCurrency(deskExpectedCash)]
                                     ].map(([label, value]) => (
                                         <Grid key={label} size={{ xs: 12, sm: 6 }}>
                                             <Box
@@ -1041,7 +1188,7 @@ export function CashPage() {
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
                         <Alert severity="info" variant="outlined">
-                            Expected cash currently tracks as {formatCurrency(todaySummary?.expected_cash_total ?? currentSession?.expected_cash ?? 0)}.
+                            Expected cash currently tracks as {formatCurrency(deskExpectedCash)}.
                         </Alert>
                         <TextField
                             label="Closing cash counted"
