@@ -31,6 +31,33 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+function readTokenHashFromUrl(searchParams: URLSearchParams) {
+    const directToken = searchParams.get("token_hash");
+    if (directToken) {
+        return directToken;
+    }
+
+    const noUnderscoreToken = searchParams.get("tokenhash");
+    if (noUnderscoreToken) {
+        return noUnderscoreToken;
+    }
+
+    const shortToken = searchParams.get("th");
+    if (shortToken) {
+        return shortToken;
+    }
+
+    // Be tolerant to malformed query keys from copied SMS URLs (e.g. token§hash).
+    for (const [key, value] of searchParams.entries()) {
+        const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+        if ((normalizedKey === "token_hash" || normalizedKey === "tokenhash" || normalizedKey === "th") && value) {
+            return value;
+        }
+    }
+
+    return null;
+}
+
 export function ResetPasswordPage() {
     const navigate = useNavigate();
     const { pushToast } = useToast();
@@ -48,7 +75,7 @@ export function ResetPasswordPage() {
     useEffect(() => {
         let mounted = true;
         const params = new URLSearchParams(window.location.search);
-        const tokenHash = params.get("token_hash");
+        const tokenHash = readTokenHashFromUrl(params);
         const flowType = params.get("type");
 
         const initRecoverySession = async () => {

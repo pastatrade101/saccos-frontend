@@ -310,6 +310,8 @@ export function SignInPage() {
                     ? `Password setup link sent via SMS to ${data.destination_hint}.`
                     : "If this account exists and has a phone, a setup link has been sent via SMS."
             });
+            setShowFirstTimeSetup(false);
+            setSetupEmail("");
         } catch (error) {
             pushToast({
                 type: "error",
@@ -559,45 +561,64 @@ export function SignInPage() {
                         </button>
                     </form>
 
-                    <button
-                        className={pageStyles.authForgotLink}
-                        type="button"
-                        onClick={() => {
-                            setShowFirstTimeSetup((current) => !current);
-                            setSetupEmail(form.getValues("email") || "");
-                        }}
-                    >
-                        {showFirstTimeSetup ? "Close first-time setup" : "First-time user without password?"}
-                    </button>
+                    <div className={pageStyles.authAssistRow}>
+                        <span className={pageStyles.authAssistLabel}>Need first-time access?</span>
+                        <button
+                            className={pageStyles.authForgotLink}
+                            type="button"
+                            onClick={() => {
+                                setSetupEmail(form.getValues("email") || "");
+                                setShowFirstTimeSetup(true);
+                            }}
+                        >
+                            First-time user without password?
+                        </button>
+                    </div>
 
                     {showFirstTimeSetup ? (
-                        <div className={pageStyles.firstLoginCard}>
-                            <div className={pageStyles.firstLoginHeader}>
-                                <strong>First-time account setup</strong>
-                                <span>
-                                    Send a one-time setup link to your registered email, then create your password.
-                                </span>
-                            </div>
-                            <FormField label="Work email">
-                                <input
-                                    type="email"
-                                    placeholder="name@saccos.local"
-                                    value={setupEmail}
-                                    onChange={(event) => setSetupEmail(event.target.value)}
-                                />
-                            </FormField>
-                            <div className={pageStyles.firstLoginActions}>
-                                <button
-                                    className="secondary-button"
-                                    type="button"
-                                    disabled={sendingSetupLink}
-                                    onClick={() => void handleSendSetupLink()}
-                                >
-                                    {sendingSetupLink ? "Sending link..." : "Send setup link"}
-                                </button>
+                        <div className={pageStyles.setupModalBackdrop} onClick={() => setShowFirstTimeSetup(false)}>
+                            <div
+                                className={pageStyles.setupModalCard}
+                                role="dialog"
+                                aria-modal="true"
+                                aria-label="First-time account setup"
+                                onClick={(event) => event.stopPropagation()}
+                            >
+                                <div className={pageStyles.setupModalHeader}>
+                                    <h3>First-time account setup</h3>
+                                    <p>
+                                        Enter your work email. If your member account exists with a registered phone,
+                                        we will send a one-time setup link by SMS.
+                                    </p>
+                                </div>
+                                <FormField label="Work email">
+                                    <input
+                                        type="email"
+                                        placeholder="name@saccos.local"
+                                        value={setupEmail}
+                                        onChange={(event) => setSetupEmail(event.target.value)}
+                                    />
+                                </FormField>
                                 <span className={pageStyles.firstLoginHint}>
-                                    For phone OTP onboarding, the phone must already be registered by your admin.
+                                    The destination phone must already be registered on your profile.
                                 </span>
+                                <div className={pageStyles.setupModalActions}>
+                                    <button
+                                        className={pageStyles.otpModalLink}
+                                        type="button"
+                                        onClick={() => setShowFirstTimeSetup(false)}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        className="secondary-button"
+                                        type="button"
+                                        disabled={sendingSetupLink}
+                                        onClick={() => void handleSendSetupLink()}
+                                    >
+                                        {sendingSetupLink ? "Sending link..." : "Send setup link"}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     ) : null}
