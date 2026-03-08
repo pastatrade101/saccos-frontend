@@ -69,7 +69,8 @@ api.interceptors.response.use(
         const isAuthBootstrapRequest =
             requestUrl.includes("/auth/signin") ||
             requestUrl.includes("/auth/otp/send") ||
-            requestUrl.includes("/auth/otp/verify");
+            requestUrl.includes("/auth/otp/verify") ||
+            requestUrl.includes("/auth/password-setup/link/send");
 
         if (status === 401 && !isAuthBootstrapRequest) {
             await supabase.auth.signOut();

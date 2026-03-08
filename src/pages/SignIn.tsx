@@ -15,6 +15,8 @@ import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import { useAuth } from "../auth/AuthProvider";
 import { FormField } from "../components/FormField";
 import { useToast } from "../components/Toast";
+import { api, getApiErrorMessage } from "../lib/api";
+import { endpoints, type PasswordSetupLinkSendResponse } from "../lib/endpoints";
 import { useUI } from "../ui/UIProvider";
 import pageStyles from "./Pages.module.css";
 
@@ -57,6 +59,9 @@ export function SignInPage() {
     const [otpPhoneRequired, setOtpPhoneRequired] = useState(false);
     const [otpPhoneInput, setOtpPhoneInput] = useState("");
     const [lastAutoSubmittedOtp, setLastAutoSubmittedOtp] = useState<string | null>(null);
+    const [showFirstTimeSetup, setShowFirstTimeSetup] = useState(false);
+    const [setupEmail, setSetupEmail] = useState("");
+    const [sendingSetupLink, setSendingSetupLink] = useState(false);
     const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
     const otpCode = otpDigits.join("");
 
@@ -273,6 +278,47 @@ export function SignInPage() {
 
         const focusIndex = Math.min(value.length, OTP_LENGTH - 1);
         otpInputRefs.current[focusIndex]?.focus();
+    };
+
+    const handleSendSetupLink = async () => {
+        const candidateEmail = setupEmail.trim().toLowerCase();
+        const parsed = z.string().email().safeParse(candidateEmail);
+
+        if (!parsed.success) {
+            pushToast({
+                type: "error",
+                title: "Valid email required",
+                message: "Enter a valid work email to continue first-time setup."
+            });
+            return;
+        }
+
+        setSendingSetupLink(true);
+
+        try {
+            const { data } = await api.post<PasswordSetupLinkSendResponse>(
+                endpoints.auth.passwordSetupLinkSend(),
+                {
+                    email: candidateEmail
+                }
+            );
+
+            pushToast({
+                type: "success",
+                title: "Setup link sent",
+                message: data.destination_hint
+                    ? `Password setup link sent via SMS to ${data.destination_hint}.`
+                    : "If this account exists and has a phone, a setup link has been sent via SMS."
+            });
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Unable to send setup link",
+                message: getApiErrorMessage(error, "Try again in a moment.")
+            });
+        } finally {
+            setSendingSetupLink(false);
+        }
     };
 
     const onSubmit = form.handleSubmit(async (values) => {
@@ -512,6 +558,49 @@ export function SignInPage() {
                             {submitting ? "Signing in..." : "Sign In"}
                         </button>
                     </form>
+
+                    <button
+                        className={pageStyles.authForgotLink}
+                        type="button"
+                        onClick={() => {
+                            setShowFirstTimeSetup((current) => !current);
+                            setSetupEmail(form.getValues("email") || "");
+                        }}
+                    >
+                        {showFirstTimeSetup ? "Close first-time setup" : "First-time user without password?"}
+                    </button>
+
+                    {showFirstTimeSetup ? (
+                        <div className={pageStyles.firstLoginCard}>
+                            <div className={pageStyles.firstLoginHeader}>
+                                <strong>First-time account setup</strong>
+                                <span>
+                                    Send a one-time setup link to your registered email, then create your password.
+                                </span>
+                            </div>
+                            <FormField label="Work email">
+                                <input
+                                    type="email"
+                                    placeholder="name@saccos.local"
+                                    value={setupEmail}
+                                    onChange={(event) => setSetupEmail(event.target.value)}
+                                />
+                            </FormField>
+                            <div className={pageStyles.firstLoginActions}>
+                                <button
+                                    className="secondary-button"
+                                    type="button"
+                                    disabled={sendingSetupLink}
+                                    onClick={() => void handleSendSetupLink()}
+                                >
+                                    {sendingSetupLink ? "Sending link..." : "Send setup link"}
+                                </button>
+                                <span className={pageStyles.firstLoginHint}>
+                                    For phone OTP onboarding, the phone must already be registered by your admin.
+                                </span>
+                            </div>
+                        </div>
+                    ) : null}
 
                     {otpModalOpen ? (
                         <div className={pageStyles.otpModalBackdrop}>

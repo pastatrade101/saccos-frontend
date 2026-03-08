@@ -47,13 +47,37 @@ export function ResetPasswordPage() {
 
     useEffect(() => {
         let mounted = true;
+        const params = new URLSearchParams(window.location.search);
+        const tokenHash = params.get("token_hash");
+        const flowType = params.get("type");
 
-        void supabase.auth.getSession().then(({ data }) => {
+        const initRecoverySession = async () => {
+            if (tokenHash && flowType === "recovery") {
+                const { data, error } = await supabase.auth.verifyOtp({
+                    type: "recovery",
+                    token_hash: tokenHash
+                });
+
+                if (error) {
+                    throw error;
+                }
+
+                if (!mounted) {
+                    return;
+                }
+
+                setHasRecoverySession(Boolean(data.session));
+                return;
+            }
+
+            const { data } = await supabase.auth.getSession();
             if (!mounted) {
                 return;
             }
             setHasRecoverySession(Boolean(data.session));
-        }).catch(() => {
+        };
+
+        void initRecoverySession().catch(() => {
             if (!mounted) {
                 return;
             }

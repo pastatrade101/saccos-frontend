@@ -362,6 +362,43 @@
   cursor: not-allowed;
 }
 
+.firstLoginCard {
+  margin-top: 0.1rem;
+  padding: 0.9rem;
+  border-radius: 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 72%, var(--accent-300));
+  background: color-mix(in srgb, var(--surface-soft) 82%, var(--accent-100));
+  display: grid;
+  gap: 0.7rem;
+}
+
+.firstLoginHeader {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.firstLoginHeader strong {
+  font-size: 0.92rem;
+  color: var(--text-primary);
+}
+
+.firstLoginHeader span {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.firstLoginActions {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.firstLoginHint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 .authPanelFooter {
   display: grid;
   gap: 0.9rem;

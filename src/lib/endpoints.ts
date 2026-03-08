@@ -46,7 +46,8 @@ const routeMap = {
     auth: {
         backendSignIn: "/auth/signin",
         otpSend: "/auth/otp/send",
-        otpVerify: "/auth/otp/verify"
+        otpVerify: "/auth/otp/verify",
+        passwordSetupLinkSend: "/auth/password-setup/link/send"
     },
     tenants: {
         create: "/tenants",
@@ -103,6 +104,7 @@ const routeMap = {
         list: "/members",
         accounts: "/members/accounts",
         create: "/members",
+        bulkDelete: "/members/bulk-delete",
         update: (memberId: string) => `/members/${memberId}`,
         delete: (memberId: string) => `/members/${memberId}`,
         createLogin: (memberId: string) => `/members/${memberId}/create-login`,
@@ -180,7 +182,8 @@ export const endpoints = {
     auth: {
         backendSignIn: () => routeMap.auth.backendSignIn,
         otpSend: () => routeMap.auth.otpSend,
-        otpVerify: () => routeMap.auth.otpVerify
+        otpVerify: () => routeMap.auth.otpVerify,
+        passwordSetupLinkSend: () => routeMap.auth.passwordSetupLinkSend
     },
     tenants: {
         create: () => routeMap.tenants.create,
@@ -237,6 +240,7 @@ export const endpoints = {
         list: () => routeMap.members.list,
         accounts: () => routeMap.members.accounts,
         create: () => routeMap.members.create,
+        bulkDelete: () => routeMap.members.bulkDelete,
         update: (memberId: string) => routeMap.members.update(memberId),
         delete: (memberId: string) => routeMap.members.delete(memberId),
         createLogin: (memberId: string) => routeMap.members.createLogin(memberId),
@@ -321,6 +325,11 @@ export interface OtpChallengeResponse {
     destination_hint: string;
     resend_count: number;
     resend_remaining: number;
+}
+
+export interface PasswordSetupLinkSendResponse {
+    success: boolean;
+    destination_hint?: string;
 }
 
 export interface BackendSignInRequest {
@@ -513,6 +522,18 @@ export interface UpdateMemberRequest {
     status?: "active" | "suspended" | "exited";
 }
 export type UpdateMemberResponse = ApiEnvelope<Member>;
+
+export interface BulkDeleteMembersRequest {
+    member_ids: string[];
+}
+
+export type BulkDeleteMembersResponse = ApiEnvelope<{
+    requested: number;
+    deleted_count: number;
+    failed_count: number;
+    deleted_members: Array<{ id: string; full_name: string }>;
+    failed_members: Array<{ id: string; code: string; message: string }>;
+}>;
 
 export interface CreateMemberApplicationRequest {
     branch_id: string;

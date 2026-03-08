@@ -17,6 +17,7 @@ import {
     Button,
     Card,
     CardContent,
+    Checkbox,
     Chip,
     Divider,
     Dialog,
@@ -45,6 +46,8 @@ import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
 import {
     type BranchesListResponse,
+    type BulkDeleteMembersRequest,
+    type BulkDeleteMembersResponse,
     endpoints,
     type CreateMemberLoginRequest,
     type CreateMemberLoginResponse,
@@ -200,9 +203,12 @@ export function MembersPage() {
     const [provisioningLogin, setProvisioningLogin] = useState(false);
     const [resettingMemberPassword, setResettingMemberPassword] = useState(false);
     const [deletingMember, setDeletingMember] = useState(false);
+    const [deletingBulkMembers, setDeletingBulkMembers] = useState(false);
     const [showDeleteMemberDialog, setShowDeleteMemberDialog] = useState(false);
+    const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
     const [showMemberWorkspaceModal, setShowMemberWorkspaceModal] = useState(false);
     const [showOnboardForm, setShowOnboardForm] = useState(false);
+    const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [lastMemberCredentials, setLastMemberCredentials] = useState<MemberCredentialsHandoff | null>(null);
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>("all");
@@ -406,10 +412,23 @@ export function MembersPage() {
         () => filteredMembers.slice((page - 1) * pageSize, page * pageSize),
         [filteredMembers, page]
     );
+    const selectedMemberIdSet = useMemo(() => new Set(selectedMemberIds), [selectedMemberIds]);
+    const selectedMembers = useMemo(
+        () => members.filter((member) => selectedMemberIdSet.has(member.id)),
+        [members, selectedMemberIdSet]
+    );
+    const paginatedMemberIds = useMemo(() => paginatedMembers.map((member) => member.id), [paginatedMembers]);
+    const allPaginatedMembersSelected = paginatedMemberIds.length > 0 && paginatedMemberIds.every((memberId) => selectedMemberIdSet.has(memberId));
+    const somePaginatedMembersSelected = !allPaginatedMembersSelected && paginatedMemberIds.some((memberId) => selectedMemberIdSet.has(memberId));
 
     useEffect(() => {
         setPage(1);
     }, [branchFilter, deferredSearch, operationalFilter, statusFilter]);
+
+    useEffect(() => {
+        const memberIds = new Set(members.map((member) => member.id));
+        setSelectedMemberIds((current) => current.filter((memberId) => memberIds.has(memberId)));
+    }, [members]);
 
     const onSubmit = form.handleSubmit(async (values) => {
         setSubmitting(true);
@@ -672,6 +691,78 @@ export function MembersPage() {
         }
     };
 
+    const toggleMemberSelection = (memberId: string, checked: boolean) => {
+        setSelectedMemberIds((current) => {
+            if (checked) {
+                if (current.includes(memberId)) {
+                    return current;
+                }
+
+                return [...current, memberId];
+            }
+
+            return current.filter((id) => id !== memberId);
+        });
+    };
+
+    const togglePaginatedSelection = (checked: boolean) => {
+        setSelectedMemberIds((current) => {
+            if (checked) {
+                const merged = new Set(current);
+                paginatedMemberIds.forEach((memberId) => merged.add(memberId));
+                return Array.from(merged);
+            }
+
+            const paginatedSet = new Set(paginatedMemberIds);
+            return current.filter((memberId) => !paginatedSet.has(memberId));
+        });
+    };
+
+    const deleteSelectedMembers = async () => {
+        if (!selectedMemberIds.length) {
+            return;
+        }
+
+        setDeletingBulkMembers(true);
+
+        try {
+            const payload: BulkDeleteMembersRequest = {
+                member_ids: selectedMemberIds
+            };
+            const { data } = await api.post<BulkDeleteMembersResponse>(
+                endpoints.members.bulkDelete(),
+                payload
+            );
+            const deletedIds = new Set(data.data.deleted_members.map((member) => member.id));
+            const failedMessage = data.data.failed_count
+                ? ` ${data.data.failed_count} failed.${data.data.failed_members[0] ? ` First issue: ${data.data.failed_members[0].message}` : ""}`
+                : "";
+
+            pushToast({
+                type: "success",
+                title: "Bulk delete completed",
+                message: `${data.data.deleted_count} of ${data.data.requested} selected member${data.data.requested === 1 ? "" : "s"} archived.${failedMessage}`
+            });
+
+            if (selectedMember && deletedIds.has(selectedMember.id)) {
+                setSelectedMember(null);
+                setShowMemberWorkspaceModal(false);
+            }
+
+            setShowBulkDeleteDialog(false);
+            setSelectedMemberIds([]);
+            await loadMembers();
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Bulk delete failed",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setDeletingBulkMembers(false);
+        }
+    };
+
     const memberCounts = useMemo(() => ({
         total: members.length,
         active: members.filter((member) => member.status === "active").length,
@@ -707,6 +798,28 @@ export function MembersPage() {
     };
 
     const columns: Column<MemberWithAccount>[] = [
+        ...(canDeleteMembers ? [{
+            key: "select",
+            header: (
+                <Checkbox
+                    size="small"
+                    color="primary"
+                    checked={allPaginatedMembersSelected}
+                    indeterminate={somePaginatedMembersSelected}
+                    onChange={(event) => togglePaginatedSelection(event.target.checked)}
+                    inputProps={{ "aria-label": "Select all members on current page" }}
+                />
+            ),
+            render: (row: MemberWithAccount) => (
+                <Checkbox
+                    size="small"
+                    color="primary"
+                    checked={selectedMemberIdSet.has(row.id)}
+                    onChange={(event) => toggleMemberSelection(row.id, event.target.checked)}
+                    inputProps={{ "aria-label": `Select ${row.full_name}` }}
+                />
+            )
+        }] : []),
         {
             key: "member",
             header: "Member",
@@ -1584,6 +1697,34 @@ export function MembersPage() {
                         </Box>
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                             <Chip label={`${filteredMembers.length} result${filteredMembers.length === 1 ? "" : "s"}`} />
+                            {canDeleteMembers ? (
+                                <Chip
+                                    label={`${selectedMemberIds.length} selected`}
+                                    color={selectedMemberIds.length ? "warning" : "default"}
+                                    variant={selectedMemberIds.length ? "filled" : "outlined"}
+                                />
+                            ) : null}
+                            {canDeleteMembers ? (
+                                <Button
+                                    size="small"
+                                    color="inherit"
+                                    onClick={() => togglePaginatedSelection(!allPaginatedMembersSelected)}
+                                    disabled={!paginatedMemberIds.length}
+                                >
+                                    {allPaginatedMembersSelected ? "Clear page" : "Select page"}
+                                </Button>
+                            ) : null}
+                            {canDeleteMembers && selectedMemberIds.length ? (
+                                <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="error"
+                                    startIcon={<DeleteOutlineRoundedIcon />}
+                                    onClick={() => setShowBulkDeleteDialog(true)}
+                                >
+                                    Delete selected
+                                </Button>
+                            ) : null}
                             {hasActiveDirectoryFilters ? (
                                 <Button
                                     size="small"
@@ -1867,6 +2008,46 @@ export function MembersPage() {
                     </Button>
                 </DialogActions>
             </MotionModal>
+
+            <Dialog
+                open={showBulkDeleteDialog}
+                onClose={deletingBulkMembers ? undefined : () => setShowBulkDeleteDialog(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>Delete selected members?</DialogTitle>
+                <DialogContent dividers>
+                    <Stack spacing={1.5}>
+                        <Typography variant="body2" color="text.secondary">
+                            This will archive {selectedMemberIds.length} selected member{selectedMemberIds.length === 1 ? "" : "s"} and deactivate linked access where allowed.
+                            Members with active or in-arrears loans cannot be deleted.
+                        </Typography>
+                        {selectedMembers.length ? (
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                {selectedMembers.slice(0, 6).map((member) => (
+                                    <Chip key={member.id} label={member.full_name} size="small" />
+                                ))}
+                                {selectedMembers.length > 6 ? (
+                                    <Chip label={`+${selectedMembers.length - 6} more`} size="small" variant="outlined" />
+                                ) : null}
+                            </Stack>
+                        ) : null}
+                    </Stack>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, py: 2 }}>
+                    <Button onClick={() => setShowBulkDeleteDialog(false)} disabled={deletingBulkMembers} color="inherit">
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={() => void deleteSelectedMembers()}
+                        variant="contained"
+                        color="error"
+                        disabled={deletingBulkMembers || !selectedMemberIds.length}
+                    >
+                        {deletingBulkMembers ? "Deleting..." : `Delete ${selectedMemberIds.length}`}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <Dialog
                 open={showDeleteMemberDialog}
