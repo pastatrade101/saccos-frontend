@@ -54,7 +54,11 @@ import { detectRoleConflicts, roleCoverageLabels } from "../utils/roleRules";
 const schema = z.object({
     email: z.string().email("Valid email is required."),
     full_name: z.string().min(3, "Full name is required."),
-    phone: z.string().min(7, "Phone is required."),
+    phone: z
+        .string()
+        .trim()
+        .min(1, "Phone is required.")
+        .regex(/^(?:\+?255|0)?[67]\d{8}$/, "Use a valid Tanzania phone (06/07 local or +2556/+2557)."),
     role: z.enum(["super_admin", "branch_manager", "loan_officer", "teller", "auditor"]),
     branch_id: z.string().uuid("Select a branch.").optional().or(z.literal("")),
     send_invite: z.boolean().default(true),
@@ -291,7 +295,9 @@ export function StaffUsersPage() {
                 type: "success",
                 title: "Staff user created",
                 message: values.send_invite
-                    ? "Invite sent and profile provisioned."
+                    ? (data.data.destination_hint
+                        ? `Setup link sent via SMS to ${data.data.destination_hint}.`
+                        : "Setup link sent via SMS and profile provisioned.")
                     : values.password
                         ? "Login created with the supplied password."
                         : "Login created with a generated temporary password."
@@ -701,7 +707,7 @@ export function StaffUsersPage() {
                     <Stack spacing={3} sx={{ pt: 1 }}>
                         <Alert severity={provisioningMode ? "info" : "warning"} variant="outlined">
                             {provisioningMode
-                                ? "Invite mode sends the user an onboarding link and provisions the profile immediately."
+                                ? "SMS setup mode sends a first-time setup link to the staff phone and provisions the profile immediately."
                                 : "Password mode creates an active login instantly. Use only for controlled handover."}
                         </Alert>
 
@@ -714,7 +720,7 @@ export function StaffUsersPage() {
                                         fullWidth
                                         {...form.register("email")}
                                         error={Boolean(form.formState.errors.email)}
-                                        helperText={form.formState.errors.email?.message || "Used for login and invite delivery."}
+                                        helperText={form.formState.errors.email?.message || "Used for login identity and recovery setup."}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 6 }}>
@@ -730,11 +736,11 @@ export function StaffUsersPage() {
                                 <Grid size={{ xs: 12, md: 4 }}>
                                     <TextField
                                         label="Phone"
-                                        placeholder="+255754000002"
+                                        placeholder="0658001939 or +255658001939"
                                         fullWidth
                                         {...form.register("phone")}
                                         error={Boolean(form.formState.errors.phone)}
-                                        helperText={form.formState.errors.phone?.message || "Operational contact number."}
+                                        helperText={form.formState.errors.phone?.message || "Setup SMS link is sent to this phone."}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 4 }}>
@@ -794,7 +800,7 @@ export function StaffUsersPage() {
                                         }}
                                         helperText="Choose whether the user sets access via invite or receives a managed password."
                                     >
-                                        <MenuItem value="invite">Send Invite</MenuItem>
+                                        <MenuItem value="invite">Send SMS Setup Link</MenuItem>
                                         <MenuItem value="password">Create with Temporary Password</MenuItem>
                                     </TextField>
                                 </Grid>
@@ -822,7 +828,7 @@ export function StaffUsersPage() {
                     <Stack direction="row" spacing={1} alignItems="center">
                         <Chip
                             icon={provisioningMode ? <MarkEmailReadRoundedIcon /> : <PasswordRoundedIcon />}
-                            label={provisioningMode ? "Invite Flow" : "Password Flow"}
+                            label={provisioningMode ? "SMS Setup Flow" : "Password Flow"}
                             color={provisioningMode ? "info" : "warning"}
                             variant="outlined"
                         />
