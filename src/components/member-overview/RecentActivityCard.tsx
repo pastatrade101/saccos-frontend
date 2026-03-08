@@ -3,7 +3,7 @@ import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
 import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
 import TimelineRoundedIcon from "@mui/icons-material/TimelineRounded";
 import { Box, CardContent, Stack, Typography } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 
 import { brandColors } from "../../theme/colors";
 import type { StatementRow } from "../../types/api";
@@ -17,6 +17,10 @@ interface RecentActivityCardProps {
 }
 
 export function RecentActivityCard({ lastTransactionDate, lastContribution, lastLoanPayment }: RecentActivityCardProps) {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : brandColors.info;
+
     return (
         <MotionCard
             variant="outlined"
@@ -39,8 +43,8 @@ export function RecentActivityCard({ lastTransactionDate, lastContribution, last
                                 borderRadius: 1.25,
                                 display: "grid",
                                 placeItems: "center",
-                                bgcolor: alpha(brandColors.info, 0.14),
-                                color: brandColors.info
+                                bgcolor: alpha(accent, 0.14),
+                                color: accent
                             }}
                         >
                                 <TimelineRoundedIcon fontSize="small" />
@@ -64,7 +68,7 @@ export function RecentActivityCard({ lastTransactionDate, lastContribution, last
                             }}
                         >
                             <Stack direction="row" spacing={0.75} alignItems="center">
-                                <CalendarMonthRoundedIcon fontSize="small" color="info" />
+                                <CalendarMonthRoundedIcon fontSize="small" sx={{ color: accent }} />
                                 <Typography variant="body2" color="text.secondary">
                                     Last Transaction Date
                                 </Typography>
@@ -87,7 +91,7 @@ export function RecentActivityCard({ lastTransactionDate, lastContribution, last
                             }}
                         >
                             <Stack direction="row" spacing={0.75} alignItems="center">
-                                <SavingsRoundedIcon fontSize="small" color="primary" />
+                                <SavingsRoundedIcon fontSize="small" sx={{ color: accent }} />
                                 <Typography variant="body2" color="text.secondary">
                                     Last Contribution
                                 </Typography>

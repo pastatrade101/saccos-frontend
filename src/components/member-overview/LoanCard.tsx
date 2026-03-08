@@ -2,7 +2,7 @@ import CreditScoreRoundedIcon from "@mui/icons-material/CreditScoreRounded";
 import EventRoundedIcon from "@mui/icons-material/EventRounded";
 import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
 import { Box, CardContent, LinearProgress, Stack, Typography } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 
 import { brandColors } from "../../theme/colors";
 import { formatCurrency, formatDate } from "../../utils/format";
@@ -16,6 +16,9 @@ interface LoanCardProps {
 }
 
 export function LoanCard({ outstandingAmount, nextInstallmentDueDate, monthlyInstallment, loanProgressPercent }: LoanCardProps) {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : brandColors.primary[700];
     const progress = Math.min(Math.max(loanProgressPercent, 0), 100);
 
     return (
@@ -105,7 +108,7 @@ export function LoanCard({ outstandingAmount, nextInstallmentDueDate, monthlyIns
                             }}
                         >
                             <Stack direction="row" spacing={0.75} alignItems="center">
-                                <PaymentsRoundedIcon fontSize="small" sx={{ color: alpha(brandColors.info, 0.92) }} />
+                                <PaymentsRoundedIcon fontSize="small" sx={{ color: alpha(accent, 0.92) }} />
                                 <Typography variant="body2" color="text.secondary">
                                     Monthly Installment
                                 </Typography>
@@ -141,10 +144,10 @@ export function LoanCard({ outstandingAmount, nextInstallmentDueDate, monthlyIns
                                 sx={{
                                     height: 8,
                                     borderRadius: 999,
-                                    bgcolor: alpha(brandColors.primary[500], 0.16),
+                                    bgcolor: alpha(accent, 0.16),
                                     "& .MuiLinearProgress-bar": {
                                         borderRadius: 999,
-                                        bgcolor: brandColors.primary[700]
+                                        bgcolor: accent
                                     }
                                 }}
                             />

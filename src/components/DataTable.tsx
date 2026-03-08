@@ -1,4 +1,5 @@
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
+import { alpha, useTheme } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import { brandColors } from "../theme/colors";
 import { MotionCard } from "../ui/motion";
@@ -17,6 +18,10 @@ interface DataTableProps<T> {
 }
 
 export function DataTable<T>({ rows, columns, emptyMessage = "No records available." }: DataTableProps<T>) {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : theme.palette.primary.main;
+
     if (!rows.length) {
         if (typeof emptyMessage === "string" && /^loading\b/i.test(emptyMessage.trim())) {
             return (
@@ -48,8 +53,8 @@ export function DataTable<T>({ rows, columns, emptyMessage = "No records availab
                                         textTransform: "uppercase",
                                         letterSpacing: "0.08em",
                                         fontSize: 11,
-                                        color: "primary.main",
-                                        bgcolor: brandColors.primary[100],
+                                        color: accent,
+                                        bgcolor: isDarkMode ? alpha(accent, 0.12) : brandColors.primary[100],
                                         borderBottomColor: "divider"
                                     }}
                                 >
@@ -65,7 +70,7 @@ export function DataTable<T>({ rows, columns, emptyMessage = "No records availab
                                 hover
                                 sx={{
                                     "&:hover td": {
-                                        bgcolor: "rgba(31, 168, 230, 0.04)"
+                                        bgcolor: isDarkMode ? alpha(accent, 0.08) : "rgba(31, 168, 230, 0.04)"
                                     }
                                 }}
                             >

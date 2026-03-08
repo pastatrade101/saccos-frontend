@@ -2,7 +2,7 @@ import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
 import WalletRoundedIcon from "@mui/icons-material/WalletRounded";
 import { Box, CardContent, Stack, Typography } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 
 import { brandColors } from "../../theme/colors";
 import { formatCurrency } from "../../utils/format";
@@ -15,6 +15,10 @@ interface SavingsCardProps {
 }
 
 export function SavingsCard({ totalSavings, availableBalance, lockedAmount }: SavingsCardProps) {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : brandColors.primary[700];
+
     return (
         <MotionCard
             variant="outlined"
@@ -37,8 +41,8 @@ export function SavingsCard({ totalSavings, availableBalance, lockedAmount }: Sa
                                 borderRadius: 1.25,
                                 display: "grid",
                                 placeItems: "center",
-                                bgcolor: alpha(brandColors.primary[500], 0.12),
-                                color: brandColors.primary[700]
+                                bgcolor: alpha(accent, 0.14),
+                                color: accent
                             }}
                         >
                             <SavingsRoundedIcon fontSize="small" />

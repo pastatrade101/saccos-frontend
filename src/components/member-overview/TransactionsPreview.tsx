@@ -13,6 +13,8 @@ interface TransactionsPreviewProps {
 
 export function TransactionsPreview({ rows, onViewFullStatement }: TransactionsPreviewProps) {
     const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : brandColors.primary[700];
 
     return (
         <MotionCard variant="outlined" sx={{ borderRadius: 2, borderColor: "divider" }}>
@@ -21,7 +23,24 @@ export function TransactionsPreview({ rows, onViewFullStatement }: TransactionsP
                     <Typography variant="h6" sx={{ fontWeight: 700 }}>
                         Recent Transactions
                     </Typography>
-                    <Button variant="outlined" onClick={onViewFullStatement} sx={{ borderRadius: 1.5, fontWeight: 700 }}>
+                    <Button
+                        variant="outlined"
+                        onClick={onViewFullStatement}
+                        sx={{
+                            borderRadius: 1.5,
+                            fontWeight: 700,
+                            ...(isDarkMode
+                                ? {
+                                    borderColor: alpha(accent, 0.4),
+                                    color: accent,
+                                    "&:hover": {
+                                        borderColor: alpha(accent, 0.72),
+                                        bgcolor: alpha(accent, 0.08)
+                                    }
+                                }
+                                : {})
+                        }}
+                    >
                         View Full Statement
                     </Button>
                 </Stack>
@@ -57,8 +76,8 @@ export function TransactionsPreview({ rows, onViewFullStatement }: TransactionsP
                                                 label={row.transaction_type.replace(/_/g, " ")}
                                                 sx={{
                                                     borderRadius: 1.25,
-                                                    bgcolor: alpha(brandColors.primary[500], 0.1),
-                                                    color: brandColors.primary[700],
+                                                    bgcolor: alpha(accent, 0.12),
+                                                    color: accent,
                                                     textTransform: "capitalize"
                                                 }}
                                             />

@@ -22,7 +22,7 @@ import {
     TextField,
     Typography
 } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -91,6 +91,10 @@ function SummaryCard({
 }
 
 export function MemberImportPage() {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const memberAccent = isDarkMode ? "#D9B273" : "#1FA8E6";
+    const memberAccentStrong = isDarkMode ? "#C89B52" : "#0A0573";
     const { pushToast } = useToast();
     const { selectedTenantId, selectedBranchId } = useAuth();
     const [branches, setBranches] = useState<Branch[]>([]);
@@ -425,11 +429,30 @@ export function MemberImportPage() {
     const totalFailedPages = Math.max(1, Math.ceil(failedRowsTotal / failedRowsLimit));
 
     return (
-        <Stack spacing={3}>
+        <Stack
+            spacing={3}
+            sx={
+                isDarkMode
+                    ? {
+                        "& .MuiButton-containedPrimary": {
+                            bgcolor: memberAccent,
+                            color: "#1a1a1a",
+                            "&:hover": { bgcolor: memberAccentStrong }
+                        },
+                        "& .MuiButton-outlinedPrimary": {
+                            borderColor: alpha(memberAccent, 0.42),
+                            color: memberAccent
+                        }
+                    }
+                    : undefined
+            }
+        >
             <MotionCard
                 sx={{
                     borderRadius: 2,
-                    background: "linear-gradient(135deg, rgba(10,5,115,0.98), rgba(31,168,230,0.92))",
+                    background: isDarkMode
+                        ? `linear-gradient(135deg, ${alpha(memberAccentStrong, 0.92)}, ${alpha(memberAccent, 0.78)})`
+                        : "linear-gradient(135deg, rgba(10,5,115,0.98), rgba(31,168,230,0.92))",
                     color: "#fff"
                 }}
             >
@@ -506,8 +529,8 @@ export function MemberImportPage() {
                                         variant="outlined"
                                         sx={{
                                             borderRadius: 2,
-                                            bgcolor: alpha("#1FA8E6", 0.04),
-                                            borderColor: alpha("#1FA8E6", 0.2)
+                                            bgcolor: alpha(memberAccent, isDarkMode ? 0.12 : 0.04),
+                                            borderColor: alpha(memberAccent, isDarkMode ? 0.28 : 0.2)
                                         }}
                                     >
                                         <CardContent sx={{ p: 2 }}>
@@ -525,9 +548,12 @@ export function MemberImportPage() {
                                                     </Box>
                                                     <Chip
                                                         label={`${elapsedSeconds}s`}
-                                                        color="primary"
                                                         variant="outlined"
-                                                        sx={{ borderRadius: 1.5 }}
+                                                        sx={{
+                                                            borderRadius: 1.5,
+                                                            borderColor: alpha(memberAccent, 0.38),
+                                                            color: memberAccent
+                                                        }}
                                                     />
                                                 </Stack>
                                                 {importStage === "uploading" ? (
@@ -760,7 +786,12 @@ export function MemberImportPage() {
                                     page={failedRowsPage}
                                     count={totalFailedPages}
                                     onChange={(_, page) => setFailedRowsPage(page)}
-                                    color="primary"
+                                    sx={{
+                                        "& .MuiPaginationItem-root.Mui-selected": {
+                                            bgcolor: alpha(memberAccentStrong, 0.18),
+                                            color: memberAccentStrong
+                                        }
+                                    }}
                                 />
                             </Stack>
                         ) : null}

@@ -63,7 +63,11 @@ import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
 const schema = z.object({
     full_name: z.string().min(3, "Full name is required."),
-    phone: z.string().min(7, "Phone is required."),
+    phone: z
+        .string()
+        .trim()
+        .min(1, "Phone is required.")
+        .regex(/^(?:\+?255|0)\d{9}$/, "Enter a valid phone (e.g. 0712345678 or +255712345678)."),
     email: z.string().email("Enter a valid email.").optional().or(z.literal("")),
     national_id: z.string().min(5, "National ID is required."),
     branch_id: z.string().uuid("Select a branch."),
@@ -124,6 +128,9 @@ interface MemberCredentialsHandoff {
     temporary_password: string;
 }
 
+type MemberStatusFilter = "all" | "active" | "suspended" | "exited";
+type MemberOperationalFilter = "all" | "ready" | "needs_login" | "needs_account" | "needs_review";
+
 function MetricCard({
     title,
     value,
@@ -178,6 +185,9 @@ function MetricCard({
 
 export function MembersPage() {
     const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const memberAccent = isDarkMode ? "#D9B273" : theme.palette.primary.main;
+    const memberAccentStrong = isDarkMode ? "#C89B52" : theme.palette.primary.main;
     const navigate = useNavigate();
     const { pushToast } = useToast();
     const { profile, selectedTenantId, selectedTenantName, selectedBranchId } = useAuth();
@@ -195,6 +205,9 @@ export function MembersPage() {
     const [showOnboardForm, setShowOnboardForm] = useState(false);
     const [lastMemberCredentials, setLastMemberCredentials] = useState<MemberCredentialsHandoff | null>(null);
     const [search, setSearch] = useState("");
+    const [statusFilter, setStatusFilter] = useState<MemberStatusFilter>("all");
+    const [operationalFilter, setOperationalFilter] = useState<MemberOperationalFilter>("all");
+    const [branchFilter, setBranchFilter] = useState<string>("all");
     const [page, setPage] = useState(1);
     const deferredSearch = useDeferredValue(search);
     const pageSize = 8;
@@ -222,6 +235,8 @@ export function MembersPage() {
 
     const form = useForm<MemberFormValues>({
         resolver: zodResolver(schema),
+        mode: "onChange",
+        reValidateMode: "onChange",
         defaultValues: {
             full_name: "",
             phone: "",
@@ -341,19 +356,50 @@ export function MembersPage() {
         });
     }, [branches, selectedBranchId, selectedMember, updateForm]);
 
+    useEffect(() => {
+        if (selectedBranchId && branchFilter === "all") {
+            setBranchFilter(selectedBranchId);
+        }
+    }, [branchFilter, selectedBranchId]);
+
     const filteredMembers = useMemo(() => {
         const normalized = deferredSearch.trim().toLowerCase();
-
-        if (!normalized) {
-            return members;
-        }
-
-        return members.filter((member) =>
-            [member.full_name, member.phone, member.national_id]
+        return members.filter((member) => {
+            const matchesSearch = !normalized || [member.full_name, member.phone, member.national_id]
                 .filter(Boolean)
-                .some((value) => String(value).toLowerCase().includes(normalized))
-        );
-    }, [deferredSearch, members]);
+                .some((value) => String(value).toLowerCase().includes(normalized));
+
+            if (!matchesSearch) {
+                return false;
+            }
+
+            if (statusFilter !== "all" && member.status !== statusFilter) {
+                return false;
+            }
+
+            if (branchFilter !== "all" && member.branch_id !== branchFilter) {
+                return false;
+            }
+
+            if (operationalFilter === "ready") {
+                return member.status === "active" && Boolean(member.account?.id);
+            }
+
+            if (operationalFilter === "needs_login") {
+                return !member.user_id;
+            }
+
+            if (operationalFilter === "needs_account") {
+                return !member.account?.id;
+            }
+
+            if (operationalFilter === "needs_review") {
+                return member.status !== "active" || !member.user_id || !member.account?.id;
+            }
+
+            return true;
+        });
+    }, [branchFilter, deferredSearch, members, operationalFilter, statusFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filteredMembers.length / pageSize));
     const paginatedMembers = useMemo(
@@ -363,7 +409,7 @@ export function MembersPage() {
 
     useEffect(() => {
         setPage(1);
-    }, [deferredSearch]);
+    }, [branchFilter, deferredSearch, operationalFilter, statusFilter]);
 
     const onSubmit = form.handleSubmit(async (values) => {
         setSubmitting(true);
@@ -640,6 +686,18 @@ export function MembersPage() {
         () => members.filter((member) => member.status !== "active" || !member.account?.id).length,
         [members]
     );
+    const branchManagerActionCounts = useMemo(() => ({
+        needsReview: members.filter((member) => member.status !== "active" || !member.user_id || !member.account?.id).length,
+        needsLogin: members.filter((member) => !member.user_id).length,
+        needsAccount: members.filter((member) => !member.account?.id).length,
+        ready: members.filter((member) => member.status === "active" && Boolean(member.user_id) && Boolean(member.account?.id)).length
+    }), [members]);
+    const hasActiveDirectoryFilters = Boolean(
+        deferredSearch.trim() || statusFilter !== "all" || operationalFilter !== "all" || branchFilter !== "all"
+    );
+    const directoryEmptyMessage = members.length && !filteredMembers.length
+        ? "No members match the current filters."
+        : "No members yet.";
 
     const handleSelectMember = (member: MemberWithAccount) => {
         setSelectedMember(member);
@@ -659,8 +717,8 @@ export function MembersPage() {
                             width: 34,
                             height: 34,
                             fontSize: 13,
-                            bgcolor: alpha(theme.palette.primary.main, 0.12),
-                            color: "primary.main"
+                            bgcolor: alpha(memberAccent, 0.14),
+                            color: memberAccent
                         }}
                     >
                         {row.full_name.slice(0, 1).toUpperCase()}
@@ -711,8 +769,12 @@ export function MembersPage() {
             key: "action",
             header: "Action",
             render: (row) => (
-                <Button variant="outlined" size="small" onClick={() => handleSelectMember(row)}>
-                    Open
+                <Button
+                    variant={selectedMember?.id === row.id ? "contained" : "outlined"}
+                    size="small"
+                    onClick={() => handleSelectMember(row)}
+                >
+                    {selectedMember?.id === row.id ? "Opened" : "Open"}
                 </Button>
             )
         }
@@ -722,59 +784,110 @@ export function MembersPage() {
         branches.find((branch) => branch.id === selectedMember?.branch_id)?.name || selectedMember?.branch_id || "N/A";
 
     return (
-        <Stack spacing={3}>
+        <Stack
+            spacing={3}
+            sx={
+                isDarkMode
+                    ? {
+                        "& .MuiButton-containedPrimary": {
+                            bgcolor: memberAccent,
+                            color: "#1a1a1a",
+                            "&:hover": { bgcolor: memberAccentStrong }
+                        },
+                        "& .MuiButton-outlinedPrimary": {
+                            borderColor: alpha(memberAccent, 0.42),
+                            color: memberAccent
+                        }
+                    }
+                    : undefined
+            }
+        >
             <MotionCard
                 variant="outlined"
                 sx={{
                     borderRadius: 2,
                     overflow: "hidden",
                     background: isTeller
-                        ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.12)}, ${alpha(theme.palette.success.main, 0.06)} 58%, ${alpha(theme.palette.background.paper, 0.96)})`
-                        : `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)}, ${alpha(theme.palette.background.paper, 0.92)})`
+                        ? `linear-gradient(135deg, ${alpha(memberAccent, isDarkMode ? 0.16 : 0.12)}, ${alpha(theme.palette.success.main, 0.06)} 58%, ${alpha(theme.palette.background.paper, 0.96)})`
+                        : `linear-gradient(135deg, ${alpha(memberAccent, isDarkMode ? 0.12 : 0.08)}, ${alpha(theme.palette.background.paper, 0.92)})`
                 }}
             >
                 <CardContent>
-                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-                        <Box>
-                            <Typography variant="h5">{isTeller ? "Member Service Desk" : "Member Registry"}</Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 760 }}>
-                                {isTeller
-                                    ? "Search members quickly, confirm savings-account readiness, and move straight into teller operations with the correct account context."
-                                    : "Onboard members, monitor savings readiness, and manage member access without leaving the tenant workspace."}
-                            </Typography>
-                        </Box>
+                    <Stack spacing={2.25}>
+                        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+                            <Box>
+                                <Typography variant="h5">{isTeller ? "Member Service Desk" : "Member Registry"}</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 760 }}>
+                                    {isTeller
+                                        ? "Search members quickly, confirm savings-account readiness, and move straight into teller operations with the correct account context."
+                                        : "Onboard members, monitor savings readiness, and manage member access without leaving the tenant workspace."}
+                                </Typography>
+                            </Box>
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+                                {profile?.role === "branch_manager" ? (
+                                    <Button
+                                        variant={showOnboardForm ? "outlined" : "contained"}
+                                        startIcon={<PersonAddAlt1RoundedIcon />}
+                                        onClick={() => setShowOnboardForm((current) => !current)}
+                                    >
+                                        {showOnboardForm ? "Close Onboarding" : "Onboard Member"}
+                                    </Button>
+                                ) : null}
+                                {profile?.role === "branch_manager" ? (
+                                    <Button
+                                        variant="outlined"
+                                        startIcon={<UploadFileRoundedIcon />}
+                                        onClick={() => navigate("/members/import")}
+                                    >
+                                        Import CSV
+                                    </Button>
+                                ) : null}
+                                {profile?.role === "branch_manager" ? (
+                                    <Button
+                                        variant="outlined"
+                                        startIcon={<BadgeRoundedIcon />}
+                                        onClick={() => navigate("/staff-users")}
+                                    >
+                                        Team Access
+                                    </Button>
+                                ) : null}
+                            </Stack>
+                        </Stack>
+
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-                            {profile?.role === "branch_manager" ? (
-                                <Button
-                                    variant="outlined"
-                                    startIcon={<BadgeRoundedIcon />}
-                                    onClick={() => navigate("/staff-users")}
-                                >
-                                    Open Team Access
-                                </Button>
-                            ) : null}
-                            {profile?.role === "branch_manager" ? (
-                                <Button
-                                    variant="outlined"
-                                    startIcon={<UploadFileRoundedIcon />}
-                                    onClick={() => navigate("/members/import")}
-                                >
-                                    Import CSV
-                                </Button>
-                            ) : null}
-                            {canCreateMembers ? (
-                                <Button
-                                    variant={showOnboardForm ? "outlined" : "contained"}
-                                    startIcon={<PersonAddAlt1RoundedIcon />}
-                                    onClick={() => setShowOnboardForm((current) => !current)}
-                                >
-                                    {showOnboardForm ? "Close Onboarding" : "Onboard Member"}
-                                </Button>
-                            ) : null}
                             <Chip label={selectedTenantName || "Tenant workspace"} variant="outlined" />
                             <Chip label={`Role: ${profile ? formatRole(profile.role) : "Setup"}`} variant="outlined" />
                             {isTeller ? <Chip label="Cash Service Mode" color="success" /> : null}
                         </Stack>
+
+                        {profile?.role === "branch_manager" ? (
+                            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                <Chip
+                                    label={`Needs review: ${branchManagerActionCounts.needsReview}`}
+                                    color={operationalFilter === "needs_review" ? "warning" : "default"}
+                                    variant={operationalFilter === "needs_review" ? "filled" : "outlined"}
+                                    onClick={() => setOperationalFilter((current) => current === "needs_review" ? "all" : "needs_review")}
+                                />
+                                <Chip
+                                    label={`Missing login: ${branchManagerActionCounts.needsLogin}`}
+                                    color={operationalFilter === "needs_login" ? "warning" : "default"}
+                                    variant={operationalFilter === "needs_login" ? "filled" : "outlined"}
+                                    onClick={() => setOperationalFilter((current) => current === "needs_login" ? "all" : "needs_login")}
+                                />
+                                <Chip
+                                    label={`Missing account: ${branchManagerActionCounts.needsAccount}`}
+                                    color={operationalFilter === "needs_account" ? "warning" : "default"}
+                                    variant={operationalFilter === "needs_account" ? "filled" : "outlined"}
+                                    onClick={() => setOperationalFilter((current) => current === "needs_account" ? "all" : "needs_account")}
+                                />
+                                <Chip
+                                    label={`Ready: ${branchManagerActionCounts.ready}`}
+                                    color={operationalFilter === "ready" ? "success" : "default"}
+                                    variant={operationalFilter === "ready" ? "filled" : "outlined"}
+                                    onClick={() => setOperationalFilter((current) => current === "ready" ? "all" : "ready")}
+                                />
+                            </Stack>
+                        ) : null}
                     </Stack>
                 </CardContent>
             </MotionCard>
@@ -937,23 +1050,94 @@ export function MembersPage() {
                         (
                             <MotionCard variant="outlined">
                                 <CardContent>
-                                    <Stack
-                                        direction={{ xs: "column", sm: "row" }}
-                                        justifyContent="space-between"
-                                        spacing={2}
-                                        alignItems={{ xs: "flex-start", sm: "center" }}
-                                    >
+                                    <Stack spacing={2.25}>
                                         <Box>
-                                            <Typography variant="h6">Member Onboarding</Typography>
+                                            <Typography variant="h6">Branch Manager Workflow</Typography>
                                             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                                                Use the `Onboard Member` button above to open the onboarding modal. For staff and role provisioning, use Team Access.
+                                                Use this sequence to keep member operations predictable: onboard profile, resolve setup gaps, then open member workspace for profile and access actions.
                                             </Typography>
                                         </Box>
-                                        {profile?.role === "branch_manager" ? (
-                                            <Button variant="outlined" onClick={() => navigate("/staff-users")}>
-                                                Onboard Operating Roles
-                                            </Button>
-                                        ) : null}
+
+                                        <Grid container spacing={1.5}>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <Box
+                                                    sx={{
+                                                        p: 1.5,
+                                                        border: `1px solid ${theme.palette.divider}`,
+                                                        borderRadius: 2,
+                                                        bgcolor: alpha(theme.palette.background.default, 0.5),
+                                                        height: "100%"
+                                                    }}
+                                                >
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        1. Onboard
+                                                    </Typography>
+                                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>
+                                                        Create a new member profile with savings and share accounts.
+                                                    </Typography>
+                                                    <Button
+                                                        size="small"
+                                                        variant="contained"
+                                                        sx={{ mt: 1.5 }}
+                                                        onClick={() => setShowOnboardForm(true)}
+                                                    >
+                                                        Open Onboarding
+                                                    </Button>
+                                                </Box>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <Box
+                                                    sx={{
+                                                        p: 1.5,
+                                                        border: `1px solid ${theme.palette.divider}`,
+                                                        borderRadius: 2,
+                                                        bgcolor: alpha(theme.palette.background.default, 0.5),
+                                                        height: "100%"
+                                                    }}
+                                                >
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        2. Resolve Issues
+                                                    </Typography>
+                                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>
+                                                        Focus on members missing login or account setup.
+                                                    </Typography>
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        sx={{ mt: 1.5 }}
+                                                        onClick={() => setOperationalFilter("needs_review")}
+                                                    >
+                                                        Show Pending Queue
+                                                    </Button>
+                                                </Box>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <Box
+                                                    sx={{
+                                                        p: 1.5,
+                                                        border: `1px solid ${theme.palette.divider}`,
+                                                        borderRadius: 2,
+                                                        bgcolor: alpha(theme.palette.background.default, 0.5),
+                                                        height: "100%"
+                                                    }}
+                                                >
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        3. Team Operations
+                                                    </Typography>
+                                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>
+                                                        Manage staff access and bulk imports without leaving this module.
+                                                    </Typography>
+                                                    <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                                                        <Button size="small" variant="outlined" onClick={() => navigate("/staff-users")}>
+                                                            Staff Access
+                                                        </Button>
+                                                        <Button size="small" variant="outlined" onClick={() => navigate("/members/import")}>
+                                                            Import
+                                                        </Button>
+                                                    </Stack>
+                                                </Box>
+                                            </Grid>
+                                        </Grid>
                                     </Stack>
                                 </CardContent>
                             </MotionCard>
@@ -1000,7 +1184,7 @@ export function MembersPage() {
                             overflowY: useModalMemberWorkspace ? "auto" : undefined,
                             borderRadius: 2,
                             background: isTeller
-                                ? `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.98)}, ${alpha(theme.palette.primary.main, 0.035)})`
+                                ? `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.98)}, ${alpha(memberAccent, 0.06)})`
                                 : undefined
                         }}
                     >
@@ -1029,8 +1213,8 @@ export function MembersPage() {
                                                 sx={{
                                                     width: 48,
                                                     height: 48,
-                                                    bgcolor: alpha(theme.palette.primary.main, 0.12),
-                                                    color: "primary.main",
+                                                    bgcolor: alpha(memberAccent, 0.14),
+                                                    color: memberAccent,
                                                     borderRadius: isTeller ? 2.25 : undefined
                                                 }}
                                             >
@@ -1388,23 +1572,48 @@ export function MembersPage() {
                         justifyContent="space-between"
                         alignItems={{ xs: "flex-start", md: "center" }}
                         spacing={1.5}
-                        sx={{ mb: 2 }}
+                        sx={{ mb: 1.5 }}
                     >
                         <Box>
                             <Typography variant="h6">{isTeller ? "Service Queue" : "Member Directory"}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                                 {isTeller
                                     ? "Search by name, phone, or national ID, then open the service snapshot for cash handling."
-                                    : "Search by name, phone, or national ID, then open the member workspace for actions."}
+                                    : "Search and filter by setup readiness, then open the member workspace for profile and access actions."}
                             </Typography>
                         </Box>
+                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                            <Chip label={`${filteredMembers.length} result${filteredMembers.length === 1 ? "" : "s"}`} />
+                            {hasActiveDirectoryFilters ? (
+                                <Button
+                                    size="small"
+                                    color="inherit"
+                                    onClick={() => {
+                                        setSearch("");
+                                        setStatusFilter("all");
+                                        setOperationalFilter("all");
+                                        setBranchFilter("all");
+                                    }}
+                                >
+                                    Clear filters
+                                </Button>
+                            ) : null}
+                        </Stack>
+                    </Stack>
+
+                    <Stack
+                        direction={{ xs: "column", md: "row" }}
+                        spacing={1.25}
+                        alignItems={{ xs: "stretch", md: "center" }}
+                        sx={{ mb: 2 }}
+                    >
                         <TextField
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
                             placeholder="Search members..."
                             size="small"
                             sx={{
-                                width: { xs: "100%", md: 320 },
+                                width: { xs: "100%", md: 300 },
                                 "& .MuiOutlinedInput-root": {
                                     bgcolor: alpha(theme.palette.background.default, 0.55),
                                     borderRadius: 2
@@ -1418,20 +1627,67 @@ export function MembersPage() {
                                 )
                             }}
                         />
+                        <TextField
+                            select
+                            label="Status"
+                            size="small"
+                            value={statusFilter}
+                            onChange={(event) => setStatusFilter(event.target.value as MemberStatusFilter)}
+                            sx={{ minWidth: { xs: "100%", md: 170 } }}
+                        >
+                            <MenuItem value="all">All status</MenuItem>
+                            <MenuItem value="active">Active</MenuItem>
+                            <MenuItem value="suspended">Suspended</MenuItem>
+                            <MenuItem value="exited">Exited</MenuItem>
+                        </TextField>
+                        <TextField
+                            select
+                            label={isTeller ? "Service View" : "Operational View"}
+                            size="small"
+                            value={operationalFilter}
+                            onChange={(event) => setOperationalFilter(event.target.value as MemberOperationalFilter)}
+                            sx={{ minWidth: { xs: "100%", md: 220 } }}
+                        >
+                            <MenuItem value="all">All members</MenuItem>
+                            <MenuItem value="ready">Ready for service</MenuItem>
+                            <MenuItem value="needs_review">Needs review</MenuItem>
+                            <MenuItem value="needs_login">Missing login</MenuItem>
+                            <MenuItem value="needs_account">Missing account</MenuItem>
+                        </TextField>
+                        <TextField
+                            select
+                            label="Branch"
+                            size="small"
+                            value={branchFilter}
+                            onChange={(event) => setBranchFilter(event.target.value)}
+                            sx={{ minWidth: { xs: "100%", md: 220 } }}
+                        >
+                            <MenuItem value="all">All branches</MenuItem>
+                            {branches.map((branch) => (
+                                <MenuItem key={branch.id} value={branch.id}>
+                                    {branch.name}
+                                </MenuItem>
+                            ))}
+                        </TextField>
                     </Stack>
 
                     {loading ? (
                         <AppLoader fullscreen={false} minHeight={280} message="Loading members..." />
                     ) : (
                         <Stack spacing={2}>
-                            <DataTable rows={paginatedMembers} columns={columns} emptyMessage="No members yet." />
+                            <DataTable rows={paginatedMembers} columns={columns} emptyMessage={directoryEmptyMessage} />
                             {filteredMembers.length > pageSize ? (
                                 <Stack direction="row" justifyContent="flex-end">
                                     <Pagination
                                         count={totalPages}
                                         page={page}
                                         onChange={(_, value) => setPage(value)}
-                                        color="primary"
+                                        sx={{
+                                            "& .MuiPaginationItem-root.Mui-selected": {
+                                                bgcolor: alpha(memberAccentStrong, 0.18),
+                                                color: memberAccentStrong
+                                            }
+                                        }}
                                     />
                                 </Stack>
                             ) : null}
@@ -1480,7 +1736,7 @@ export function MembersPage() {
                                         fullWidth
                                         {...form.register("phone")}
                                         error={Boolean(form.formState.errors.phone)}
-                                        helperText={form.formState.errors.phone?.message}
+                                        helperText={form.formState.errors.phone?.message || "Use 0712345678 or +255712345678."}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 6 }}>
@@ -1490,7 +1746,7 @@ export function MembersPage() {
                                         fullWidth
                                         {...form.register("email")}
                                         error={Boolean(form.formState.errors.email)}
-                                        helperText={form.formState.errors.email?.message || "Optional unless you create login access now."}
+                                        helperText={form.formState.errors.email?.message || "Optional unless you create login access now. Must be a valid email format."}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 6 }}>

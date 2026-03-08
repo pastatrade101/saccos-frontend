@@ -5,7 +5,7 @@ import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
 import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
 import { Box, Button, CardContent, Chip, Stack, Typography } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 
 import { brandColors } from "../../theme/colors";
 import { formatCurrency } from "../../utils/format";
@@ -20,7 +20,7 @@ interface FinancialSummaryProps {
     onDownloadStatement: () => void;
 }
 
-function getStandingStyles(tone: FinancialStanding["tone"]) {
+function getStandingStyles(tone: FinancialStanding["tone"], accent: string) {
     if (tone === "danger") {
         return {
             color: brandColors.danger,
@@ -46,9 +46,9 @@ function getStandingStyles(tone: FinancialStanding["tone"]) {
     }
 
     return {
-        color: brandColors.info,
-        bg: alpha(brandColors.info, 0.1),
-        border: alpha(brandColors.info, 0.24)
+        color: accent,
+        bg: alpha(accent, 0.1),
+        border: alpha(accent, 0.24)
     };
 }
 
@@ -59,7 +59,11 @@ export function FinancialSummary({
     onMakeContribution,
     onDownloadStatement
 }: FinancialSummaryProps) {
-    const standingStyles = getStandingStyles(standing.tone);
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : brandColors.info;
+    const accentStrong = isDarkMode ? "#C89B52" : brandColors.primary[900];
+    const standingStyles = getStandingStyles(standing.tone, accent);
     const summaryCards = [
         {
             label: "Total Savings",
@@ -89,17 +93,17 @@ export function FinancialSummary({
             label: "Available to Withdraw",
             value: formatCurrency(summary.availableToWithdraw),
             icon: PaidRoundedIcon,
-            iconColor: brandColors.info,
-            iconBg: alpha(brandColors.info, 0.12),
+            iconColor: accent,
+            iconBg: alpha(accent, 0.12),
             valueColor: "text.primary"
         },
         {
             label: "Net Position",
             value: formatCurrency(summary.netPosition),
             icon: TrendingUpRoundedIcon,
-            iconColor: summary.netPosition < 0 ? brandColors.danger : brandColors.primary[700],
-            iconBg: summary.netPosition < 0 ? alpha(brandColors.danger, 0.12) : alpha(brandColors.primary[500], 0.12),
-            valueColor: summary.netPosition < 0 ? brandColors.danger : brandColors.primary[900]
+            iconColor: summary.netPosition < 0 ? brandColors.danger : accent,
+            iconBg: summary.netPosition < 0 ? alpha(brandColors.danger, 0.12) : alpha(accent, 0.12),
+            valueColor: summary.netPosition < 0 ? brandColors.danger : accentStrong
         }
     ];
 
@@ -149,7 +153,14 @@ export function FinancialSummary({
                                     variant="contained"
                                     onClick={onApplyLoan}
                                     startIcon={<PaidRoundedIcon />}
-                                    sx={{ borderRadius: 1.5, fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
+                                    sx={{
+                                        borderRadius: 1.5,
+                                        fontWeight: 700,
+                                        width: { xs: "100%", sm: "auto" },
+                                        ...(isDarkMode
+                                            ? { bgcolor: accent, color: "#1a1a1a", "&:hover": { bgcolor: "#E6C88A" } }
+                                            : {})
+                                    }}
                                 >
                                     Apply for Loan
                                 </Button>
@@ -157,7 +168,18 @@ export function FinancialSummary({
                                     variant="outlined"
                                     onClick={onMakeContribution}
                                     startIcon={<SavingsRoundedIcon />}
-                                    sx={{ borderRadius: 1.5, fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
+                                    sx={{
+                                        borderRadius: 1.5,
+                                        fontWeight: 700,
+                                        width: { xs: "100%", sm: "auto" },
+                                        ...(isDarkMode
+                                            ? {
+                                                borderColor: alpha(accent, 0.4),
+                                                color: accent,
+                                                "&:hover": { borderColor: alpha(accent, 0.72), bgcolor: alpha(accent, 0.08) }
+                                            }
+                                            : {})
+                                    }}
                                 >
                                     Make Contribution
                                 </Button>
@@ -165,7 +187,18 @@ export function FinancialSummary({
                                     variant="outlined"
                                     onClick={onDownloadStatement}
                                     startIcon={<DownloadRoundedIcon />}
-                                    sx={{ borderRadius: 1.5, fontWeight: 700, width: { xs: "100%", sm: "auto" } }}
+                                    sx={{
+                                        borderRadius: 1.5,
+                                        fontWeight: 700,
+                                        width: { xs: "100%", sm: "auto" },
+                                        ...(isDarkMode
+                                            ? {
+                                                borderColor: alpha(accent, 0.4),
+                                                color: accent,
+                                                "&:hover": { borderColor: alpha(accent, 0.72), bgcolor: alpha(accent, 0.08) }
+                                            }
+                                            : {})
+                                    }}
                                 >
                                     Download Statement
                                 </Button>

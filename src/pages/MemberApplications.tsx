@@ -20,6 +20,7 @@ import {
     TextField,
     Typography
 } from "@mui/material";
+import { alpha, useTheme } from "@mui/material/styles";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -50,6 +51,10 @@ function statusColor(status: MemberApplication["status"]) {
 }
 
 export function MemberApplicationsPage() {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const memberAccent = isDarkMode ? "#D9B273" : "#1FA8E6";
+    const memberAccentStrong = isDarkMode ? "#C89B52" : "#0A0573";
     const navigate = useNavigate();
     const { pushToast } = useToast();
     const { profile, selectedTenantId, selectedBranchId } = useAuth();
@@ -242,8 +247,32 @@ export function MemberApplicationsPage() {
     };
 
     return (
-        <Stack spacing={3}>
-            <MotionCard sx={{ color: "#fff", background: "linear-gradient(135deg, #0A0573 0%, #1FA8E6 100%)" }}>
+        <Stack
+            spacing={3}
+            sx={
+                isDarkMode
+                    ? {
+                        "& .MuiButton-containedPrimary": {
+                            bgcolor: memberAccent,
+                            color: "#1a1a1a",
+                            "&:hover": { bgcolor: memberAccentStrong }
+                        },
+                        "& .MuiButton-outlinedPrimary": {
+                            borderColor: alpha(memberAccent, 0.42),
+                            color: memberAccent
+                        }
+                    }
+                    : undefined
+            }
+        >
+            <MotionCard
+                sx={{
+                    color: "#fff",
+                    background: isDarkMode
+                        ? `linear-gradient(135deg, ${alpha(memberAccentStrong, 0.9)} 0%, ${alpha(memberAccent, 0.76)} 100%)`
+                        : "linear-gradient(135deg, #0A0573 0%, #1FA8E6 100%)"
+                }}
+            >
                 <CardContent>
                     <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
                         <Stack spacing={1}>
@@ -263,7 +292,7 @@ export function MemberApplicationsPage() {
                                     onClick={() => setDialogMode("create")}
                                     sx={{
                                         bgcolor: "#FFFFFF",
-                                        color: "#0A0573",
+                                        color: memberAccentStrong,
                                         fontWeight: 700,
                                         "&:hover": {
                                             bgcolor: "rgba(255,255,255,0.92)"

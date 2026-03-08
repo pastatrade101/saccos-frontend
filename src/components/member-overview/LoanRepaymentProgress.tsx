@@ -1,5 +1,5 @@
 import { CardContent, LinearProgress, Stack, Typography } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 
 import { brandColors } from "../../theme/colors";
 import { MotionCard } from "../../ui/motion";
@@ -10,6 +10,9 @@ interface LoanRepaymentProgressProps {
 }
 
 export function LoanRepaymentProgress({ progressPercent, label = "Loan Repayment Progress" }: LoanRepaymentProgressProps) {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : brandColors.accent[500];
     const progress = Math.max(0, Math.min(progressPercent, 100));
 
     return (
@@ -33,10 +36,10 @@ export function LoanRepaymentProgress({ progressPercent, label = "Loan Repayment
                         sx={{
                             height: 10,
                             borderRadius: 999,
-                            bgcolor: alpha(brandColors.primary[500], 0.12),
+                            bgcolor: alpha(accent, 0.14),
                             "& .MuiLinearProgress-bar": {
                                 borderRadius: 999,
-                                bgcolor: brandColors.accent[500]
+                                bgcolor: accent
                             }
                         }}
                     />

@@ -1,4 +1,4 @@
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 
 import { ChartPanel } from "../ChartPanel";
 import { brandColors } from "../../theme/colors";
@@ -9,6 +9,10 @@ interface SavingsTrendChartProps {
 }
 
 export function SavingsTrendChart({ labels, values }: SavingsTrendChartProps) {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : brandColors.primary[700];
+
     return (
         <ChartPanel
             title="Savings Trend (Last 6 Months)"
@@ -19,8 +23,8 @@ export function SavingsTrendChart({ labels, values }: SavingsTrendChartProps) {
                     {
                         label: "Savings balance",
                         data: values,
-                        borderColor: brandColors.primary[700],
-                        backgroundColor: alpha(brandColors.primary[500], 0.12),
+                        borderColor: accent,
+                        backgroundColor: alpha(accent, 0.12),
                         fill: true,
                         tension: 0.3
                     }

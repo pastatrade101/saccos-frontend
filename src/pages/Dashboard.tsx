@@ -297,6 +297,7 @@ function BranchManagerTopCard({
     footer?: ReactNode;
 }) {
     const theme = useTheme();
+    const neutralAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
     const toneMap = {
         positive: {
             main: theme.palette.success.main,
@@ -307,8 +308,8 @@ function BranchManagerTopCard({
             soft: alpha(theme.palette.error.main, 0.12)
         },
         neutral: {
-            main: theme.palette.primary.main,
-            soft: alpha(theme.palette.primary.main, 0.08)
+            main: neutralAccent,
+            soft: alpha(neutralAccent, 0.12)
         }
     }[tone];
 
@@ -1067,6 +1068,8 @@ export function DashboardPage() {
             }
         }
     };
+    const dashboardAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
+    const dashboardAccentStrong = theme.palette.mode === "dark" ? "#C89B52" : theme.palette.primary.dark;
 
     const role = profile?.role;
     const showPlatformDashboard = isInternalOps;
@@ -1317,18 +1320,140 @@ export function DashboardPage() {
                 </MotionSection>
             ) : role === "branch_manager" ? (
                 <MotionSection inView>
-                <Grid container spacing={2}>
-                    {branchRiskStrip.map((item) => (
-                        <Grid key={item.id} size={{ xs: 12, sm: 6, xl: 3 }}>
-                            <RiskStripCard
-                                label={item.label}
-                                value={item.value}
-                                helper={item.helper}
-                                tone={item.tone}
+                <Stack spacing={2}>
+                    <MotionCard
+                        variant="outlined"
+                        inView
+                        sx={{
+                            borderRadius: 2,
+                            color: "text.primary",
+                            background: theme.palette.mode === "dark"
+                                ? `linear-gradient(135deg, ${alpha("#1B2535", 0.92)}, ${alpha("#D9B273", 0.14)})`
+                                : `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)}, ${alpha(theme.palette.background.paper, 0.95)})`
+                        }}
+                    >
+                        <CardContent sx={{ p: { xs: 2.25, md: 2.75 } }}>
+                            <Stack spacing={2}>
+                                <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={1.5}>
+                                    <Box>
+                                        <Typography variant="overline" color="text.secondary">
+                                            Branch command center
+                                        </Typography>
+                                        <Typography variant="h5" sx={{ mt: 0.5 }}>
+                                            Daily branch control, approvals, and risk visibility
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 760 }}>
+                                            Monitor branch portfolio quality, supervise approval queues, and act quickly on cash, loan, and member workflow exceptions.
+                                        </Typography>
+                                    </Box>
+                                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="flex-start">
+                                        <Chip
+                                            label={`PAR ${par30Percent.toFixed(1)}%`}
+                                            color={par30Percent >= 15 ? "error" : par30Percent >= 8 ? "warning" : "success"}
+                                            variant="outlined"
+                                        />
+                                        <Chip
+                                            label={hasCashImbalance ? "Cash check required" : "Cash status healthy"}
+                                            color={hasCashImbalance ? "error" : "success"}
+                                            variant="outlined"
+                                        />
+                                    </Stack>
+                                </Stack>
+                                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} useFlexGap flexWrap="wrap">
+                                    <Button
+                                        variant="contained"
+                                        onClick={() => navigate("/loans")}
+                                        startIcon={<RequestQuoteRoundedIcon />}
+                                        sx={theme.palette.mode === "dark" ? { bgcolor: dashboardAccent, color: "#1a1a1a", "&:hover": { bgcolor: dashboardAccentStrong } } : undefined}
+                                    >
+                                        Review Loan Queue
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        onClick={() => navigate("/member-applications")}
+                                        startIcon={<BadgeRoundedIcon />}
+                                        sx={theme.palette.mode === "dark" ? { borderColor: alpha(dashboardAccent, 0.44), color: dashboardAccent, "&:hover": { borderColor: alpha(dashboardAccent, 0.78), bgcolor: alpha(dashboardAccent, 0.1) } } : undefined}
+                                    >
+                                        Member Approvals
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        onClick={() => navigate("/follow-ups")}
+                                        startIcon={<AssignmentTurnedInRoundedIcon />}
+                                        sx={theme.palette.mode === "dark" ? { borderColor: alpha(dashboardAccent, 0.44), color: dashboardAccent, "&:hover": { borderColor: alpha(dashboardAccent, 0.78), bgcolor: alpha(dashboardAccent, 0.1) } } : undefined}
+                                    >
+                                        Follow-up Tasks
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        onClick={() => navigate("/cash-control")}
+                                        startIcon={<ReceiptLongRoundedIcon />}
+                                        sx={theme.palette.mode === "dark" ? { borderColor: alpha(dashboardAccent, 0.44), color: dashboardAccent, "&:hover": { borderColor: alpha(dashboardAccent, 0.78), bgcolor: alpha(dashboardAccent, 0.1) } } : undefined}
+                                    >
+                                        Cash Controls
+                                    </Button>
+                                </Stack>
+                            </Stack>
+                        </CardContent>
+                    </MotionCard>
+
+                    <Grid container spacing={2}>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <BranchManagerTopCard
+                                label="Branch Savings"
+                                value={formatCurrency(metrics.branchSavings)}
+                                helper="Visible savings balances across active branch members."
+                                status="Live balance"
+                                tone="positive"
+                                icon={<AccountBalanceWalletRoundedIcon fontSize="small" />}
+                                featured
                             />
                         </Grid>
-                    ))}
-                </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <BranchManagerTopCard
+                                label="Loan Portfolio"
+                                value={formatCurrency(metrics.branchOutstanding)}
+                                helper="Outstanding principal and accrued interest under branch supervision."
+                                status={`${metrics.branchOverdueLoans} overdue loan(s)`}
+                                tone={metrics.branchOverdueLoans > 0 ? "negative" : "neutral"}
+                                icon={<RequestQuoteRoundedIcon fontSize="small" />}
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <BranchManagerTopCard
+                                label="Member Operations"
+                                value={String(metrics.branchActiveMembers)}
+                                helper="Active branch members currently available for operations."
+                                status={`${pendingMemberApprovals} pending member approval(s)`}
+                                tone={pendingMemberApprovals > 0 ? "neutral" : "positive"}
+                                icon={<BadgeRoundedIcon fontSize="small" />}
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <BranchManagerTopCard
+                                label="Branch Sign-off Tasks"
+                                value={String(signOffTasks)}
+                                helper="Combined approvals and control exceptions needing branch manager sign-off."
+                                status={signOffTasks > 0 ? "Action required" : "No blockers"}
+                                tone={signOffTasks > 0 ? "negative" : "positive"}
+                                icon={<RuleRoundedIcon fontSize="small" />}
+                            />
+                        </Grid>
+                    </Grid>
+
+                    <Grid container spacing={2}>
+                        {branchRiskStrip.map((item) => (
+                            <Grid key={item.id} size={{ xs: 12, sm: 6, xl: 3 }}>
+                                <RiskStripCard
+                                    label={item.label}
+                                    value={item.value}
+                                    helper={item.helper}
+                                    tone={item.tone}
+                                />
+                            </Grid>
+                        ))}
+                    </Grid>
+                </Stack>
                 </MotionSection>
             ) : (
                 <MotionSection inView>

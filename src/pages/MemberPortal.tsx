@@ -274,6 +274,8 @@ const contentCardSx = {
     borderColor: "divider",
     boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)"
 } as const;
+const DARK_MEMBER_ACCENT = "#D9B273";
+const DARK_MEMBER_ACCENT_DEEP = "#C89B52";
 
 type PortalSectionId = (typeof portalSections)[number]["id"];
 
@@ -286,7 +288,7 @@ interface MetricCardProps {
     delta?: string;
 }
 
-function getToneStyles(tone: MetricCardProps["tone"]) {
+function getToneStyles(tone: MetricCardProps["tone"], mode: "light" | "dark") {
     if (tone === "success") {
         return {
             color: brandColors.success,
@@ -308,14 +310,20 @@ function getToneStyles(tone: MetricCardProps["tone"]) {
         };
     }
 
+    const primaryTone = mode === "dark" ? DARK_MEMBER_ACCENT : brandColors.primary[700];
+    const primaryToneBg = mode === "dark"
+        ? alpha(DARK_MEMBER_ACCENT, 0.2)
+        : alpha(brandColors.primary[500], 0.1);
+
     return {
-        color: brandColors.primary[700],
-        bg: alpha(brandColors.primary[500], 0.1)
+        color: primaryTone,
+        bg: primaryToneBg
     };
 }
 
 function MetricCard({ icon: Icon, label, value, helper, tone, delta }: MetricCardProps) {
-    const toneStyles = getToneStyles(tone);
+    const theme = useTheme();
+    const toneStyles = getToneStyles(tone, theme.palette.mode);
 
     return (
         <MotionCard variant="outlined" sx={contentCardSx}>
@@ -359,7 +367,8 @@ function MetricCard({ icon: Icon, label, value, helper, tone, delta }: MetricCar
 }
 
 function AccountSummaryCard({ icon: Icon, label, value, helper, tone, delta }: MetricCardProps) {
-    const toneStyles = getToneStyles(tone);
+    const theme = useTheme();
+    const toneStyles = getToneStyles(tone, theme.palette.mode);
 
     return (
         <MotionCard
@@ -488,6 +497,12 @@ export function MemberPortalPage() {
             shapeExtraLarge: "4px"
         };
     }, [theme]);
+    const isDarkMode = theme.palette.mode === "dark";
+    const memberAccent = isDarkMode ? DARK_MEMBER_ACCENT : brandColors.primary[700];
+    const memberAccentStrong = isDarkMode ? DARK_MEMBER_ACCENT_DEEP : brandColors.primary[900];
+    const memberAccentAlt = isDarkMode ? "#E6C88A" : brandColors.accent[700];
+    const memberAccentSoftBg = alpha(memberAccent, isDarkMode ? 0.18 : 0.12);
+    const portalLogoSrc = "/SACCOSS-LOGO.png";
 
     const handleProfileMenuOpen = (event: MouseEvent<HTMLElement>) => {
         setProfileMenuAnchor(event.currentTarget);
@@ -866,6 +881,8 @@ export function MemberPortalPage() {
         () => filteredContributions.filter((row) => row.transaction_type === "share_contribution").reduce((sum, row) => sum + row.amount, 0),
         [filteredContributions]
     );
+    const contributionEntriesCount = filteredContributions.filter((row) => row.transaction_type === "share_contribution").length;
+    const dividendEntriesCount = filteredContributions.filter((row) => row.transaction_type === "dividend_allocation").length;
     const contributionBaselineMonthly = useMemo(() => {
         const recent = contributionHistory
             .filter((row) => row.transaction_type === "share_contribution")
@@ -879,11 +896,22 @@ export function MemberPortalPage() {
         return Math.max(Math.round(recent.reduce((sum, value) => sum + value, 0) / recent.length), 50000);
     }, [contributionHistory]);
     const contributionExpected = useMemo(() => {
-        const from = new Date(contributionsRange.from);
-        const to = new Date(contributionsRange.to);
-        const months = Math.max((to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1, 1);
+        const fromDate = contributionsRange.from ? new Date(contributionsRange.from) : null;
+        const toDate = contributionsRange.to ? new Date(contributionsRange.to) : null;
+        const fromValid = fromDate && !Number.isNaN(fromDate.getTime());
+        const toValid = toDate && !Number.isNaN(toDate.getTime());
+
+        const months = fromValid && toValid
+            ? Math.max(
+                (toDate.getFullYear() - fromDate.getFullYear()) * 12
+                + (toDate.getMonth() - fromDate.getMonth())
+                + 1,
+                1
+            )
+            : Math.max(Math.ceil(contributionEntriesCount / 2), 1);
+
         return months * contributionBaselineMonthly;
-    }, [contributionBaselineMonthly, contributionsRange]);
+    }, [contributionBaselineMonthly, contributionsRange, contributionEntriesCount]);
     const contributionComplianceRatio = contributionExpected ? (contributionActual / contributionExpected) * 100 : 0;
     const contributionComplianceStatus = contributionComplianceRatio >= 100 ? "On track" : "Behind schedule";
     const dividendHistoryByYear = useMemo(() => {
@@ -934,8 +962,6 @@ export function MemberPortalPage() {
         () => filteredContributions.reduce((sum, row) => sum + row.amount, 0),
         [filteredContributions]
     );
-    const contributionEntriesCount = filteredContributions.filter((row) => row.transaction_type === "share_contribution").length;
-    const dividendEntriesCount = filteredContributions.filter((row) => row.transaction_type === "dividend_allocation").length;
     const paginatedContributions = useMemo(
         () =>
             filteredContributions.slice(
@@ -944,6 +970,42 @@ export function MemberPortalPage() {
             ),
         [contributionsPage, contributionsRowsPerPage, filteredContributions]
     );
+    const contributionMonthlyTrend = useMemo(() => {
+        const grouped = new Map<string, { label: string; contribution: number; dividend: number; sortOrder: number }>();
+
+        filteredContributions.forEach((row) => {
+            const sourceDate = row.created_at || row.transaction_date;
+            const date = new Date(sourceDate);
+            if (Number.isNaN(date.getTime())) {
+                return;
+            }
+
+            const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+            const existing = grouped.get(key) || {
+                label: new Intl.DateTimeFormat("en-TZ", { month: "short", year: "2-digit" }).format(date),
+                contribution: 0,
+                dividend: 0,
+                sortOrder: new Date(date.getFullYear(), date.getMonth(), 1).getTime()
+            };
+
+            if (row.transaction_type === "share_contribution") {
+                existing.contribution += row.amount;
+            }
+
+            if (row.transaction_type === "dividend_allocation") {
+                existing.dividend += row.amount;
+            }
+
+            grouped.set(key, existing);
+        });
+
+        return Array.from(grouped.values())
+            .sort((left, right) => left.sortOrder - right.sortOrder)
+            .slice(-8);
+    }, [filteredContributions]);
+    const contributionTrendLabels = contributionMonthlyTrend.map((point) => point.label);
+    const contributionTrendContributions = contributionMonthlyTrend.map((point) => point.contribution);
+    const contributionTrendDividends = contributionMonthlyTrend.map((point) => point.dividend);
 
     const filteredAccounts = useMemo(
         () => accounts.filter((account) => isWithinDateRange(account.created_at, accountsRange)),
@@ -1137,9 +1199,18 @@ export function MemberPortalPage() {
                 <Button
                     size="small"
                     variant={disputedTransactionIds.includes(row.transaction_id) ? "contained" : "outlined"}
-                    color={disputedTransactionIds.includes(row.transaction_id) ? "warning" : "primary"}
+                    color={disputedTransactionIds.includes(row.transaction_id) ? "warning" : "inherit"}
                     onClick={() => toggleDisputeFlag(row.transaction_id)}
                     startIcon={<FlagRoundedIcon fontSize="small" />}
+                    sx={
+                        disputedTransactionIds.includes(row.transaction_id)
+                            ? undefined
+                            : {
+                                borderColor: alpha(memberAccent, 0.34),
+                                color: memberAccent,
+                                "&:hover": { borderColor: alpha(memberAccent, 0.56), bgcolor: alpha(memberAccent, 0.08) }
+                            }
+                    }
                 >
                     {disputedTransactionIds.includes(row.transaction_id) ? "Flagged" : "Flag"}
                 </Button>
@@ -1191,8 +1262,8 @@ export function MemberPortalPage() {
         if (status === "appraised") {
             return {
                 icon: TaskAltRoundedIcon,
-                color: brandColors.info,
-                bg: alpha(brandColors.info, 0.12),
+                color: memberAccent,
+                bg: alpha(memberAccent, 0.14),
                 label: "Appraised"
             };
         }
@@ -1209,8 +1280,8 @@ export function MemberPortalPage() {
         if (status === "disbursed") {
             return {
                 icon: CreditScoreRoundedIcon,
-                color: brandColors.primary[700],
-                bg: alpha(brandColors.primary[500], 0.12),
+                color: memberAccent,
+                bg: alpha(memberAccent, 0.14),
                 label: "Disbursed"
             };
         }
@@ -1386,9 +1457,9 @@ export function MemberPortalPage() {
                 overflow: "hidden",
                 border: "1px solid rgba(255,255,255,0.06)",
                 background: theme.palette.mode === "dark"
-                    ? `linear-gradient(135deg, ${darkThemeColors.elevated}, ${brandColors.primary[900]})`
+                    ? `linear-gradient(135deg, ${darkThemeColors.elevated}, ${alpha(memberAccentStrong, 0.54)})`
                     : "linear-gradient(135deg, #0F172A 0%, #0A0573 58%, #1A0FA3 100%)",
-                boxShadow: "0 18px 40px rgba(10, 5, 115, 0.24)"
+                boxShadow: `0 18px 40px ${alpha(memberAccentStrong, 0.22)}`
             }}
         >
             <CardContent sx={{ p: { xs: 3, md: 4 } }}>
@@ -1438,12 +1509,12 @@ export function MemberPortalPage() {
                                 borderRadius: 1.5,
                                 px: 3,
                                 py: 1.25,
-                                bgcolor: brandColors.accent[500],
+                                bgcolor: memberAccent,
                                 color: "#fff",
                                 boxShadow: "none",
                                 fontWeight: 700,
                                 minHeight: 46,
-                                "&:hover": { bgcolor: brandColors.accent[700], boxShadow: "none" }
+                                "&:hover": { bgcolor: memberAccentAlt, boxShadow: "none" }
                             }}
                         >
                             View Accounts
@@ -1566,8 +1637,8 @@ export function MemberPortalPage() {
                                             borderRadius: 1.25,
                                             display: "grid",
                                             placeItems: "center",
-                                            bgcolor: alpha(brandColors.primary[500], 0.12),
-                                            color: brandColors.primary[700]
+                                            bgcolor: memberAccentSoftBg,
+                                            color: memberAccent
                                         }}
                                     >
                                         <ShieldRoundedIcon fontSize="small" />
@@ -1592,11 +1663,11 @@ export function MemberPortalPage() {
                                                 display: "flex",
                                                 alignItems: "center",
                                                 gap: 1,
-                                                borderColor: alpha(brandColors.primary[500], 0.18),
-                                                bgcolor: alpha(brandColors.primary[500], 0.04)
+                                                borderColor: alpha(memberAccent, 0.24),
+                                                bgcolor: alpha(memberAccent, 0.08)
                                             }}
                                         >
-                                            <TaskAltRoundedIcon sx={{ fontSize: 16, color: brandColors.primary[700] }} />
+                                            <TaskAltRoundedIcon sx={{ fontSize: 16, color: memberAccent }} />
                                             <Typography variant="body2" color="text.secondary">
                                                 {rule}
                                             </Typography>
@@ -1654,7 +1725,7 @@ export function MemberPortalPage() {
                                         </Typography>
                                     </Paper>
                                     <Paper variant="outlined" sx={{ p: 1.15, borderRadius: 1.4, textAlign: "center" }}>
-                                        <Typography variant="h6" sx={{ fontWeight: 800, color: brandColors.primary[700] }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 800, color: memberAccent }}>
                                             {filteredInterestHistory.length}
                                         </Typography>
                                         <Typography variant="caption" color="text.secondary">
@@ -1662,7 +1733,7 @@ export function MemberPortalPage() {
                                         </Typography>
                                     </Paper>
                                     <Paper variant="outlined" sx={{ p: 1.15, borderRadius: 1.4, textAlign: "center" }}>
-                                        <Typography variant="h6" sx={{ fontWeight: 800, color: brandColors.accent[700] }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 800, color: memberAccentAlt }}>
                                             {filteredDividendMapping.length}
                                         </Typography>
                                         <Typography variant="caption" color="text.secondary">
@@ -1694,8 +1765,8 @@ export function MemberPortalPage() {
                         {
                             label: "Running balance",
                             data: chartValues,
-                            borderColor: brandColors.primary[500],
-                            backgroundColor: alpha(brandColors.primary[500], 0.14),
+                            borderColor: memberAccent,
+                            backgroundColor: alpha(memberAccent, 0.14),
                             fill: true,
                             tension: 0.35
                         }
@@ -1769,11 +1840,11 @@ export function MemberPortalPage() {
                 sx={{
                     ...contentCardSx,
                     background: theme.palette.mode === "dark"
-                        ? `linear-gradient(135deg, ${alpha(brandColors.primary[900], 0.72)}, ${alpha(brandColors.accent[700], 0.2)})`
+                        ? `linear-gradient(135deg, ${alpha(memberAccentStrong, 0.44)}, ${alpha(memberAccentAlt, 0.24)})`
                         : `linear-gradient(135deg, ${alpha(brandColors.primary[900], 0.96)}, ${alpha(brandColors.accent[500], 0.86)})`,
                     color: "#fff",
                     borderColor: "transparent",
-                    boxShadow: "0 18px 38px rgba(10, 5, 115, 0.18)"
+                    boxShadow: `0 18px 38px ${alpha(memberAccentStrong, 0.22)}`
                 }}
             >
                 <CardContent sx={{ p: { xs: 2.5, md: 3.25 } }}>
@@ -1845,7 +1916,7 @@ export function MemberPortalPage() {
                                         sx={{
                                             alignSelf: "flex-start",
                                             bgcolor: "#fff",
-                                            color: brandColors.primary[900],
+                                            color: memberAccentStrong,
                                             fontWeight: 700,
                                             "&:hover": {
                                                 bgcolor: alpha("#FFFFFF", 0.92)
@@ -1961,7 +2032,11 @@ export function MemberPortalPage() {
                             </TextField>
                             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                                 <Chip label={`Rate ${selectedLoan?.annual_interest_rate || 0}%`} variant="outlined" />
-                                <Chip label={`Progress ${filteredLoanProgressPercent.toFixed(0)}%`} color="primary" variant="outlined" />
+                                <Chip
+                                    label={`Progress ${filteredLoanProgressPercent.toFixed(0)}%`}
+                                    variant="outlined"
+                                    sx={{ borderColor: alpha(memberAccent, 0.38), color: memberAccent, fontWeight: 700 }}
+                                />
                                 <Chip label={`Penalty est. ${formatCurrency(selectedLoanPenaltyEstimate)}`} color={selectedLoanPenaltyEstimate > 0 ? "warning" : "default"} variant="outlined" />
                             </Stack>
                             <Box sx={{ pt: 0.5 }}>
@@ -1979,10 +2054,10 @@ export function MemberPortalPage() {
                                     sx={{
                                         height: 8,
                                         borderRadius: 999,
-                                        bgcolor: alpha(brandColors.primary[500], 0.12),
+                                        bgcolor: alpha(memberAccent, 0.14),
                                         "& .MuiLinearProgress-bar": {
                                             borderRadius: 999,
-                                            bgcolor: brandColors.primary[700]
+                                            bgcolor: memberAccent
                                         }
                                     }}
                                 />
@@ -2093,7 +2168,7 @@ export function MemberPortalPage() {
                             datasets: [
                                 {
                                     data: [Math.max(filteredLoansOutstanding, 0), Math.max(totalVisibleCapital - filteredLoansOutstanding, 0)],
-                                    backgroundColor: [brandColors.danger, brandColors.primary[700]],
+                                    backgroundColor: [brandColors.danger, memberAccent],
                                     borderWidth: 0
                                 }
                             ]
@@ -2200,8 +2275,8 @@ export function MemberPortalPage() {
                                         borderRadius: 1.25,
                                         display: "grid",
                                         placeItems: "center",
-                                        bgcolor: alpha(brandColors.accent[500], 0.14),
-                                        color: brandColors.accent[700]
+                                        bgcolor: alpha(memberAccent, 0.14),
+                                        color: memberAccent
                                     }}
                                 >
                                     <TimelineRoundedIcon fontSize="small" />
@@ -2215,8 +2290,8 @@ export function MemberPortalPage() {
                                 label={`${filteredTransactions.length} visible`}
                                 sx={{
                                     borderRadius: 1.25,
-                                    bgcolor: alpha(brandColors.accent[500], 0.12),
-                                    color: brandColors.accent[700],
+                                    bgcolor: alpha(memberAccent, 0.12),
+                                    color: memberAccent,
                                     fontWeight: 700
                                 }}
                             />
@@ -2341,8 +2416,8 @@ export function MemberPortalPage() {
                         {
                             label: "Running balance",
                             data: transactionTrendValues.length ? transactionTrendValues : chartValues,
-                            borderColor: brandColors.accent[500],
-                            backgroundColor: alpha(brandColors.accent[500], 0.14),
+                            borderColor: memberAccent,
+                            backgroundColor: alpha(memberAccent, 0.14),
                             fill: true,
                             tension: 0.35
                         }
@@ -2382,195 +2457,400 @@ export function MemberPortalPage() {
         </Stack>
     );
 
-    const renderContributionsView = () => (
-        <Stack spacing={3}>
-            <MotionCard variant="outlined" sx={contentCardSx}>
-                <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
-                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-                        <Box>
-                            <Typography variant="overline" color="text.secondary">
-                                Contributions
-                            </Typography>
-                            <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>
-                                Contribution Compliance & Dividend Transparency
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                See expected versus posted contributions, dividend allocations by year, and auditable references for each entry.
-                            </Typography>
-                        </Box>
-                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                            <Button
-                                variant="outlined"
-                                startIcon={<DownloadRoundedIcon />}
-                                onClick={() => handleDownloadFilteredStatement(filteredContributions, "Contribution statement")}
-                            >
-                                Download Contribution PDF
-                            </Button>
-                            <Button variant="outlined" startIcon={<PrintRoundedIcon />} onClick={() => window.print()}>
-                                Printable View
-                            </Button>
-                        </Stack>
-                    </Stack>
-                </CardContent>
-            </MotionCard>
+    const renderContributionsView = () => {
+        const complianceCapped = Math.min(Math.max(contributionComplianceRatio, 0), 100);
+        const scheduleToneColor = contributionScheduleStatus === "Overdue"
+            ? brandColors.danger
+            : contributionScheduleStatus === "Due soon"
+                ? "#9A6700"
+                : contributionScheduleStatus === "Scheduled"
+                    ? brandColors.success
+                    : memberAccent;
 
-            <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MetricCard
-                        icon={SavingsRoundedIcon}
-                        label="Share Capital"
-                        value={formatCurrency(totalShareCapital)}
-                        helper="Current visible share capital balance."
-                        tone="warning"
-                    />
+        return (
+            <Stack spacing={3}>
+                <MotionCard
+                    variant="outlined"
+                    sx={{
+                        ...contentCardSx,
+                        background: theme.palette.mode === "dark"
+                            ? `linear-gradient(135deg, ${alpha(memberAccentStrong, 0.42)}, ${alpha(memberAccentAlt, 0.2)})`
+                            : `linear-gradient(135deg, ${alpha(brandColors.primary[900], 0.96)}, ${alpha(brandColors.warning, 0.86)})`,
+                        color: "#fff",
+                        borderColor: "transparent",
+                        boxShadow: "0 18px 38px rgba(10, 5, 115, 0.16)"
+                    }}
+                >
+                    <CardContent sx={{ p: { xs: 2.5, md: 3.25 } }}>
+                        <Grid container spacing={2.5} alignItems="center">
+                            <Grid size={{ xs: 12, lg: 8 }}>
+                                <Stack spacing={1.2}>
+                                    <Typography variant="overline" sx={{ color: alpha("#FFFFFF", 0.74), letterSpacing: 1.4 }}>
+                                        Member contributions workspace
+                                    </Typography>
+                                    <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08, maxWidth: 760 }}>
+                                        Track contribution discipline and dividend credit transparency in one audited view.
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ color: alpha("#FFFFFF", 0.84), maxWidth: 780 }}>
+                                        Monitor expected vs posted contribution performance, schedule health, annual dividends, and
+                                        detailed journal-linked references for every entry.
+                                    </Typography>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ pt: 0.5 }}>
+                                        <Chip
+                                            size="small"
+                                            label={`${filteredContributions.length} visible entries`}
+                                            sx={{ bgcolor: alpha("#FFFFFF", 0.16), color: "#fff", fontWeight: 700 }}
+                                        />
+                                        <Chip
+                                            size="small"
+                                            label={`${contributionEntriesCount} contributions`}
+                                            sx={{ bgcolor: alpha("#FFFFFF", 0.16), color: "#fff", fontWeight: 700 }}
+                                        />
+                                        <Chip
+                                            size="small"
+                                            label={`${dividendEntriesCount} dividends`}
+                                            sx={{ bgcolor: alpha("#FFFFFF", 0.16), color: "#fff", fontWeight: 700 }}
+                                        />
+                                    </Stack>
+                                </Stack>
+                            </Grid>
+                            <Grid size={{ xs: 12, lg: 4 }}>
+                                <Stack spacing={1.2}>
+                                    <Button
+                                        variant="contained"
+                                        startIcon={<DownloadRoundedIcon />}
+                                        onClick={() => handleDownloadFilteredStatement(filteredContributions, "Contribution statement")}
+                                        sx={{
+                                            bgcolor: "#fff",
+                                            color: memberAccentStrong,
+                                            fontWeight: 700,
+                                            "&:hover": { bgcolor: alpha("#fff", 0.92) }
+                                        }}
+                                    >
+                                        Download Contribution PDF
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        startIcon={<PrintRoundedIcon />}
+                                        onClick={() => window.print()}
+                                        sx={{ borderColor: alpha("#fff", 0.44), color: "#fff" }}
+                                    >
+                                        Printable View
+                                    </Button>
+                                </Stack>
+                            </Grid>
+                        </Grid>
+                    </CardContent>
+                </MotionCard>
+
+                <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                        <AccountSummaryCard
+                            icon={SavingsRoundedIcon}
+                            label="Share Capital"
+                            value={formatCurrency(totalShareCapital)}
+                            helper="Current visible share capital balance."
+                            tone="warning"
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                        <AccountSummaryCard
+                            icon={TrendingUpRoundedIcon}
+                            label="Period Contributions"
+                            value={formatCurrency(contributionActual)}
+                            helper={`Expected ${formatCurrency(contributionExpected)} for selected period.`}
+                            tone={contributionComplianceRatio >= 100 ? "success" : "warning"}
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                        <AccountSummaryCard
+                            icon={AccountBalanceWalletRoundedIcon}
+                            label="Dividend Credits"
+                            value={formatCurrency(filteredContributions.filter((row) => row.transaction_type === "dividend_allocation").reduce((sum, row) => sum + row.amount, 0))}
+                            helper={`Effective rate ${effectiveDividendRate.toFixed(2)}% on capital base.`}
+                            tone="success"
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                        <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%" }}>
+                            <CardContent sx={{ p: 2.25, height: "100%", display: "flex" }}>
+                                <Stack spacing={1.15} sx={{ width: 1 }}>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Box
+                                            sx={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 1.25,
+                                                display: "grid",
+                                                placeItems: "center",
+                                                bgcolor: alpha(scheduleToneColor, 0.14),
+                                                color: scheduleToneColor
+                                            }}
+                                        >
+                                            <TaskAltRoundedIcon fontSize="small" />
+                                        </Box>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                            Compliance & Schedule
+                                        </Typography>
+                                    </Stack>
+                                    <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
+                                        <Chip
+                                            size="small"
+                                            label={contributionComplianceStatus}
+                                            sx={{
+                                                borderRadius: 1.2,
+                                                bgcolor: alpha(contributionComplianceRatio >= 100 ? brandColors.success : "#9A6700", 0.14),
+                                                color: contributionComplianceRatio >= 100 ? brandColors.success : "#9A6700",
+                                                fontWeight: 700
+                                            }}
+                                        />
+                                        <Typography variant="body2" color="text.secondary">
+                                            {contributionComplianceRatio.toFixed(1)}% target coverage
+                                        </Typography>
+                                    </Stack>
+                                    <LinearProgress
+                                        variant="determinate"
+                                        value={contributionExpected > 0 ? complianceCapped : 0}
+                                        sx={{
+                                            height: 8,
+                                            borderRadius: 999,
+                                            bgcolor: alpha(memberAccent, 0.14),
+                                            "& .MuiLinearProgress-bar": {
+                                                bgcolor: contributionComplianceRatio >= 100 ? brandColors.success : brandColors.warning
+                                            }
+                                        }}
+                                    />
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                                        Schedule: <Box component="span" sx={{ color: scheduleToneColor, fontWeight: 700 }}>{contributionScheduleStatus}</Box>
+                                        {nextContributionDue ? ` • next due ${formatDate(nextContributionDue)}` : ""}
+                                    </Typography>
+                                </Stack>
+                            </CardContent>
+                        </MotionCard>
+                    </Grid>
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MetricCard
-                        icon={TrendingUpRoundedIcon}
-                        label="Period Contributions"
-                        value={formatCurrency(contributionActual)}
-                        helper={`Expected ${formatCurrency(contributionExpected)} for selected period.`}
-                        tone={contributionComplianceRatio >= 100 ? "success" : "warning"}
-                    />
+
+                <ChartPanel
+                    title="Contribution vs Dividend Trend"
+                    subtitle="Monthly posted share contributions against credited dividends in this filtered window."
+                    data={{
+                        labels: contributionTrendLabels.length ? contributionTrendLabels : chartLabels,
+                        datasets: [
+                            {
+                                label: "Contributions",
+                                data: contributionTrendLabels.length ? contributionTrendContributions : new Array(chartLabels.length).fill(0),
+                                borderColor: memberAccent,
+                                backgroundColor: alpha(memberAccent, 0.14),
+                                fill: true,
+                                tension: 0.35
+                            },
+                            {
+                                label: "Dividends",
+                                data: contributionTrendLabels.length ? contributionTrendDividends : new Array(chartLabels.length).fill(0),
+                                borderColor: memberAccentAlt,
+                                backgroundColor: alpha(memberAccentAlt, 0.12),
+                                fill: true,
+                                tension: 0.35
+                            }
+                        ]
+                    }}
+                    options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: "bottom" } }
+                    }}
+                />
+
+                <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, md: 6 }}>
+                        <MotionCard variant="outlined" sx={contentCardSx}>
+                            <CardContent sx={{ p: 2.25 }}>
+                                <Stack spacing={1.4}>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Box
+                                            sx={{
+                                                width: 30,
+                                                height: 30,
+                                                borderRadius: 1.25,
+                                                display: "grid",
+                                                placeItems: "center",
+                                                bgcolor: memberAccentSoftBg,
+                                                color: memberAccent
+                                            }}
+                                        >
+                                            <TimelineRoundedIcon fontSize="small" />
+                                        </Box>
+                                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                            Running Total Summary
+                                        </Typography>
+                                    </Stack>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                        <Chip label={`${contributionEntriesCount} contributions`} variant="outlined" />
+                                        <Chip label={`${dividendEntriesCount} dividend entries`} variant="outlined" />
+                                        <Chip
+                                            label={`Total posted ${formatCurrency(contributionRunningTotal)}`}
+                                            variant="outlined"
+                                            sx={{
+                                                borderColor: alpha(memberAccent, 0.32),
+                                                color: memberAccent
+                                            }}
+                                        />
+                                    </Stack>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Expected contribution base: {formatCurrency(contributionExpected)} (baseline {formatCurrency(contributionBaselineMonthly)} per month).
+                                    </Typography>
+                                </Stack>
+                            </CardContent>
+                        </MotionCard>
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 6 }}>
+                        <MotionCard variant="outlined" sx={contentCardSx}>
+                            <CardContent sx={{ p: 2.25 }}>
+                                <Stack spacing={1.4}>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Box
+                                            sx={{
+                                                width: 30,
+                                                height: 30,
+                                                borderRadius: 1.25,
+                                                display: "grid",
+                                                placeItems: "center",
+                                                bgcolor: alpha(brandColors.success, 0.12),
+                                                color: brandColors.success
+                                            }}
+                                        >
+                                            <StarRoundedIcon fontSize="small" />
+                                        </Box>
+                                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                            Dividend Calculation Transparency
+                                        </Typography>
+                                    </Stack>
+                                    <Stack spacing={1}>
+                                        <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 1.4 }}>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Base capital used
+                                            </Typography>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                                {formatCurrency(totalShareCapital)}
+                                            </Typography>
+                                        </Paper>
+                                        <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 1.4 }}>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Dividend credits posted
+                                            </Typography>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                                {formatCurrency(totalDividends)}
+                                            </Typography>
+                                        </Paper>
+                                        <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 1.4 }}>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Effective dividend rate
+                                            </Typography>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                                {effectiveDividendRate.toFixed(2)}%
+                                            </Typography>
+                                        </Paper>
+                                    </Stack>
+                                </Stack>
+                            </CardContent>
+                        </MotionCard>
+                    </Grid>
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MetricCard
-                        icon={AccountBalanceWalletRoundedIcon}
-                        label="Dividend Credits"
-                        value={formatCurrency(filteredContributions.filter((row) => row.transaction_type === "dividend_allocation").reduce((sum, row) => sum + row.amount, 0))}
-                        helper={`Effective rate ${effectiveDividendRate.toFixed(2)}% on base capital.`}
-                        tone="success"
-                    />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%" }}>
-                        <CardContent>
-                            <Typography variant="subtitle2">Compliance Badge</Typography>
-                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.25 }}>
-                                <Chip
-                                    label={contributionComplianceStatus}
-                                    color={contributionComplianceRatio >= 100 ? "success" : "warning"}
-                                    variant={contributionComplianceRatio >= 100 ? "filled" : "outlined"}
-                                    size="small"
+
+                <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, md: 6 }}>
+                        <MotionCard variant="outlined" sx={contentCardSx}>
+                            <CardContent>
+                                <Typography variant="h6" sx={{ mb: 2 }}>
+                                    Dividend History by Year
+                                </Typography>
+                                <DataTable
+                                    rows={dividendHistoryByYear}
+                                    columns={[
+                                        { key: "year", header: "Year", render: (row) => row.year },
+                                        { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) }
+                                    ]}
+                                    emptyMessage="No dividend entries for selected period."
                                 />
-                                <Typography variant="body2" color="text.secondary">
-                                    {contributionComplianceRatio.toFixed(1)}% achieved
-                                </Typography>
-                            </Stack>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.9 }}>
-                                Schedule: {contributionScheduleStatus} {nextContributionDue ? `• next due ${formatDate(nextContributionDue)}` : ""}
-                            </Typography>
-                        </CardContent>
-                    </MotionCard>
+                            </CardContent>
+                        </MotionCard>
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 6 }}>
+                        <MotionCard variant="outlined" sx={contentCardSx}>
+                            <CardContent sx={{ p: 2.25 }}>
+                                <Stack spacing={1.2}>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                        <Box
+                                            sx={{
+                                                width: 30,
+                                                height: 30,
+                                                borderRadius: 1.25,
+                                                display: "grid",
+                                                placeItems: "center",
+                                                bgcolor: alpha(scheduleToneColor, 0.12),
+                                                color: scheduleToneColor
+                                            }}
+                                        >
+                                            <EventRoundedIcon fontSize="small" />
+                                        </Box>
+                                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                            Contribution Schedule
+                                        </Typography>
+                                    </Stack>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Status: <Box component="span" sx={{ color: scheduleToneColor, fontWeight: 700 }}>{contributionScheduleStatus}</Box>
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Next expected contribution: {formatDate(nextContributionDue)}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Monthly baseline: {formatCurrency(contributionBaselineMonthly)}
+                                    </Typography>
+                                </Stack>
+                            </CardContent>
+                        </MotionCard>
+                    </Grid>
                 </Grid>
-            </Grid>
 
-            <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                    <MotionCard variant="outlined" sx={contentCardSx}>
-                        <CardContent>
-                            <Typography variant="h6" sx={{ mb: 1.5 }}>
-                                Running Total Summary (Period)
+                <MotionCard variant="outlined" sx={contentCardSx}>
+                    <CardContent>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1.2} sx={{ mb: 2 }}>
+                            <Typography variant="h6">
+                                Share Contributions & Dividends
                             </Typography>
-                            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                                <Chip label={`${contributionEntriesCount} contributions`} variant="outlined" />
-                                <Chip label={`${dividendEntriesCount} dividend entries`} variant="outlined" />
-                                <Chip label={`Total posted ${formatCurrency(contributionRunningTotal)}`} color="primary" variant="outlined" />
-                            </Stack>
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.25 }}>
-                                Expected contribution base: {formatCurrency(contributionExpected)} (baseline {formatCurrency(contributionBaselineMonthly)} per month).
-                            </Typography>
-                        </CardContent>
-                    </MotionCard>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                    <MotionCard variant="outlined" sx={contentCardSx}>
-                        <CardContent>
-                            <Typography variant="h6" sx={{ mb: 1.5 }}>
-                                Dividend Calculation Transparency
-                            </Typography>
-                            <Stack spacing={0.75}>
-                                <Typography variant="body2" color="text.secondary">
-                                    Base capital used: {formatCurrency(totalShareCapital)}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Dividend credits posted: {formatCurrency(totalDividends)}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Effective rate: {effectiveDividendRate.toFixed(2)}%
-                                </Typography>
-                            </Stack>
-                        </CardContent>
-                    </MotionCard>
-                </Grid>
-            </Grid>
-
-            <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                    <MotionCard variant="outlined" sx={contentCardSx}>
-                        <CardContent>
-                            <Typography variant="h6" sx={{ mb: 2 }}>
-                                Dividend History by Year
-                            </Typography>
-                            <DataTable
-                                rows={dividendHistoryByYear}
-                                columns={[
-                                    { key: "year", header: "Year", render: (row) => row.year },
-                                    { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) }
-                                ]}
-                                emptyMessage="No dividend entries for selected period."
+                            <Chip
+                                size="small"
+                                label={`${filteredContributions.length} records`}
+                                sx={{
+                                    borderRadius: 1.2,
+                                    bgcolor: alpha(memberAccent, 0.12),
+                                    color: memberAccent,
+                                    fontWeight: 700
+                                }}
                             />
-                        </CardContent>
-                    </MotionCard>
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                    <MotionCard variant="outlined" sx={contentCardSx}>
-                        <CardContent>
-                            <Typography variant="h6" sx={{ mb: 2 }}>
-                                Contribution Schedule
-                            </Typography>
-                            <Stack spacing={1}>
-                                <Typography variant="body2" color="text.secondary">
-                                    Status: {contributionScheduleStatus}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Next expected contribution: {formatDate(nextContributionDue)}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Monthly baseline: {formatCurrency(contributionBaselineMonthly)}
-                                </Typography>
-                            </Stack>
-                        </CardContent>
-                    </MotionCard>
-                </Grid>
-            </Grid>
-
-            <MotionCard variant="outlined" sx={contentCardSx}>
-                <CardContent>
-                    <Typography variant="h6" sx={{ mb: 2 }}>
-                        Share Contributions & Dividends
-                    </Typography>
-                    <DataTable
-                        rows={paginatedContributions}
-                        columns={statementColumns}
-                        emptyMessage="No share contributions or dividends posted in this period."
-                    />
-                    <TablePagination
-                        component="div"
-                        count={filteredContributions.length}
-                        page={contributionsPage}
-                        onPageChange={(_, value) => setContributionsPage(value)}
-                        rowsPerPage={contributionsRowsPerPage}
-                        onRowsPerPageChange={(event) => {
-                            setContributionsRowsPerPage(Number(event.target.value));
-                            setContributionsPage(0);
-                        }}
-                        rowsPerPageOptions={[10, 25, 50]}
-                    />
-                </CardContent>
-            </MotionCard>
-        </Stack>
-    );
+                        </Stack>
+                        <DataTable
+                            rows={paginatedContributions}
+                            columns={statementColumns}
+                            emptyMessage="No share contributions or dividends posted in this period."
+                        />
+                        <TablePagination
+                            component="div"
+                            count={filteredContributions.length}
+                            page={contributionsPage}
+                            onPageChange={(_, value) => setContributionsPage(value)}
+                            rowsPerPage={contributionsRowsPerPage}
+                            onRowsPerPageChange={(event) => {
+                                setContributionsRowsPerPage(Number(event.target.value));
+                                setContributionsPage(0);
+                            }}
+                            rowsPerPageOptions={[10, 25, 50]}
+                        />
+                    </CardContent>
+                </MotionCard>
+            </Stack>
+        );
+    };
 
     const renderActiveView = () => {
         switch (activeSection) {
@@ -2596,54 +2876,80 @@ export function MemberPortalPage() {
                 height: "100%",
                 display: "flex",
                 flexDirection: "column",
-                bgcolor: theme.palette.mode === "dark" ? darkThemeColors.paper : "#fff",
-                borderRight: mobile ? "none" : `1px solid ${alpha(theme.palette.divider, 0.8)}`
+                background: theme.palette.mode === "dark"
+                    ? `linear-gradient(180deg, ${alpha("#091224", 0.98)} 0%, ${alpha(darkThemeColors.paper, 0.98)} 100%)`
+                    : "linear-gradient(180deg, #FFFFFF 0%, #F7FAFF 100%)",
+                borderRight: mobile ? "none" : `1px solid ${alpha(theme.palette.divider, 0.72)}`,
+                boxShadow: mobile ? "none" : "inset -1px 0 0 rgba(15, 23, 42, 0.04)"
             }}
         >
             <Box
                 sx={{
-                    px: collapsed ? 1.5 : 2.5,
-                    py: 2,
-                    minHeight: 76,
+                    px: collapsed ? 1.5 : 2.25,
+                    py: collapsed ? 1.75 : 2,
+                    minHeight: 82,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: collapsed ? "center" : "space-between",
-                    borderBottom: `1px solid ${alpha(theme.palette.divider, 0.8)}`
+                    borderBottom: `1px solid ${alpha(theme.palette.divider, 0.68)}`
                 }}
             >
                 {collapsed ? (
-                    <Avatar
+                    <Box
                         sx={{
-                            width: 40,
-                            height: 40,
-                            bgcolor: brandColors.primary[900],
+                            width: 44,
+                            height: 44,
                             borderRadius: 2,
-                            fontWeight: 800
+                            display: "grid",
+                            placeItems: "center",
+                            p: 0.45,
+                            bgcolor: "#fff",
+                            border: `1px solid ${alpha(theme.palette.divider, 0.68)}`,
+                            boxShadow: `0 10px 22px ${alpha(memberAccentStrong, 0.2)}`
                         }}
                     >
-                        {(selectedTenantName || "S").slice(0, 1).toUpperCase()}
-                    </Avatar>
+                        <Box
+                            component="img"
+                            src={portalLogoSrc}
+                            alt="SACCOS logo"
+                            sx={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "contain"
+                            }}
+                        />
+                    </Box>
                 ) : (
                     <Stack direction="row" spacing={1.5} alignItems="center">
                         <Box
                             sx={{
-                                width: 40,
-                                height: 40,
+                                width: 46,
+                                height: 46,
                                 borderRadius: 2,
                                 display: "grid",
                                 placeItems: "center",
-                                bgcolor: brandColors.primary[900],
-                                color: "#fff",
-                                fontWeight: 800
+                                p: 0.45,
+                                bgcolor: "#fff",
+                                border: `1px solid ${alpha(theme.palette.divider, 0.68)}`,
+                                boxShadow: `0 10px 22px ${alpha(memberAccentStrong, 0.18)}`
                             }}
                         >
-                            M
+                            <Box
+                                component="img"
+                                src={portalLogoSrc}
+                                alt="SACCOS logo"
+                                sx={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "contain"
+                                }}
+                            />
                         </Box>
                         <Box>
                             <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
                                 {selectedTenantName || "Member Portal"}
                             </Typography>
-                            <Typography variant="caption" color="text.secondary">
+                            <Typography variant="caption" color="text.secondary" sx={{ letterSpacing: 0.2 }}>
                                 Personal finance workspace
                             </Typography>
                         </Box>
@@ -2656,92 +2962,164 @@ export function MemberPortalPage() {
                 ) : null}
             </Box>
 
-            <Box sx={{ px: collapsed ? 1 : 2, py: 2 }}>
+            <Box sx={{ px: collapsed ? 0.85 : 1.35, py: 1.7 }}>
                 {!collapsed ? (
-                    <Typography variant="overline" color="text.secondary" sx={{ px: 1.5, display: "block", mb: 0.75 }}>
+                    <Typography
+                        variant="overline"
+                        color="text.secondary"
+                        sx={{ px: 1.2, display: "block", mb: 1, letterSpacing: 1.1, fontWeight: 700 }}
+                    >
                         Workspace
                     </Typography>
                 ) : null}
-                <List disablePadding>
-                    {portalSections.map((section) => {
-                        const Icon = section.icon;
-                        const active = activeSection === section.id;
+                <Paper
+                    sx={{
+                        p: collapsed ? 0.65 : 0.85,
+                        borderRadius: 2.4,
+                        border: "none",
+                        boxShadow: "none",
+                        bgcolor: theme.palette.mode === "dark"
+                            ? alpha("#0F1A2B", 0.46)
+                            : alpha("#F8FBFF", 0.96)
+                    }}
+                >
+                    <List disablePadding>
+                        {portalSections.map((section) => {
+                            const Icon = section.icon;
+                            const active = activeSection === section.id;
 
-                        return (
-                            <ListItemButton
-                                key={section.id}
-                                selected={active}
-                                onClick={() => handleSectionSelect(section.id)}
-                                sx={{
-                                    mb: 0.5,
-                                    minHeight: 46,
-                                    borderRadius: 1.5,
-                                    justifyContent: collapsed ? "center" : "flex-start",
-                                    px: collapsed ? 1 : 1.5,
-                                    "&:hover": {
-                                        bgcolor: active
-                                            ? brandColors.primary[900]
-                                            : theme.palette.mode === "dark"
-                                                ? alpha(brandColors.accent[500], 0.14)
-                                                : alpha(brandColors.primary[500], 0.1),
-                                        color: active ? "#fff" : "text.primary",
-                                        "& .MuiListItemIcon-root": {
-                                            color: active
-                                                ? "#fff"
-                                                : theme.palette.mode === "dark"
-                                                    ? alpha("#FFFFFF", 0.92)
-                                                    : brandColors.primary[700]
-                                        }
-                                    },
-                                    "&.Mui-selected": {
-                                        bgcolor: brandColors.primary[900],
-                                        color: "#fff",
-                                        "& .MuiListItemIcon-root": {
-                                            color: "#fff"
-                                        }
-                                    }
-                                }}
-                            >
-                                <ListItemIcon
+                            return (
+                                <ListItemButton
+                                    key={section.id}
+                                    selected={active}
+                                    onClick={() => handleSectionSelect(section.id)}
                                     sx={{
-                                        minWidth: collapsed ? 0 : 36,
-                                        color: active ? "#fff" : "text.secondary",
-                                        justifyContent: "center"
+                                        position: "relative",
+                                        overflow: "hidden",
+                                        mb: 0.7,
+                                        minHeight: collapsed ? 48 : 58,
+                                        borderRadius: 2,
+                                        justifyContent: collapsed ? "center" : "flex-start",
+                                        px: collapsed ? 0.85 : 1.15,
+                                        transition: "all 180ms ease",
+                                        "&::before": {
+                                            content: '""',
+                                            position: "absolute",
+                                            left: 0,
+                                            top: 8,
+                                            bottom: 8,
+                                            width: 3,
+                                            borderRadius: "0 6px 6px 0",
+                                            bgcolor: "#fff",
+                                            opacity: active ? 0.95 : 0
+                                        },
+                                        "&:hover": {
+                                            bgcolor: active
+                                                ? undefined
+                                                : theme.palette.mode === "dark"
+                                                    ? alpha(memberAccent, 0.14)
+                                                    : alpha(brandColors.primary[500], 0.1),
+                                            transform: collapsed ? "none" : "translateX(2px)"
+                                        },
+                                        "&.Mui-selected": {
+                                            background: theme.palette.mode === "dark"
+                                                ? `linear-gradient(135deg, ${alpha(memberAccentStrong, 0.9)}, ${alpha(memberAccentAlt, 0.68)})`
+                                                : `linear-gradient(135deg, ${brandColors.primary[900]}, ${brandColors.accent[700]})`,
+                                            color: "#fff",
+                                            boxShadow: `0 12px 22px ${alpha(memberAccentStrong, 0.26)}`
+                                        }
                                     }}
                                 >
-                                    <Icon fontSize="small" />
-                                </ListItemIcon>
-                                {!collapsed ? (
-                                    <ListItemText
-                                        primary={section.label}
-                                        primaryTypographyProps={{
-                                            fontSize: 14,
-                                            fontWeight: active ? 700 : 600,
-                                            color: active ? "#FFFFFF" : undefined
+                                    <ListItemIcon
+                                        sx={{
+                                            minWidth: collapsed ? 0 : 38,
+                                            justifyContent: "center"
                                         }}
-                                    />
-                                ) : null}
-                            </ListItemButton>
-                        );
-                    })}
-                </List>
+                                    >
+                                        <Box
+                                            sx={{
+                                                width: 30,
+                                                height: 30,
+                                                borderRadius: 1.25,
+                                                display: "grid",
+                                                placeItems: "center",
+                                                bgcolor: active
+                                                    ? alpha("#FFFFFF", 0.22)
+                                                    : theme.palette.mode === "dark"
+                                                        ? alpha("#FFFFFF", 0.1)
+                                                        : alpha(brandColors.primary[500], 0.1),
+                                                color: active
+                                                    ? "#fff"
+                                                    : theme.palette.mode === "dark"
+                                                        ? alpha("#FFFFFF", 0.9)
+                                                        : memberAccent
+                                            }}
+                                        >
+                                            <Icon fontSize="small" />
+                                        </Box>
+                                    </ListItemIcon>
+                                    {!collapsed ? (
+                                        <ListItemText
+                                            primary={section.label}
+                                            secondary={section.subtitle}
+                                            primaryTypographyProps={{
+                                                fontSize: 14,
+                                                fontWeight: active ? 700 : 600,
+                                                color: active ? "#FFFFFF" : undefined
+                                            }}
+                                            secondaryTypographyProps={{
+                                                fontSize: 11.5,
+                                                lineHeight: 1.25,
+                                                mt: 0.25,
+                                                color: active ? alpha("#FFFFFF", 0.8) : "text.secondary"
+                                            }}
+                                        />
+                                    ) : null}
+                                </ListItemButton>
+                            );
+                        })}
+                    </List>
+                </Paper>
             </Box>
 
-            <Box sx={{ mt: "auto", px: collapsed ? 1 : 2, pb: 2 }}>
-                <MotionCard variant="outlined" sx={{ ...contentCardSx, borderRadius: 2 }}>
-                    <CardContent sx={{ p: collapsed ? 1.15 : 1.5 }}>
-                        <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{
-                                display: "block",
-                                textAlign: "center",
-                                lineHeight: 1.5,
-                                fontSize: collapsed ? 10 : 11
-                            }}
-                        >
-                            © 2026 All rights reserved.
-                        </Typography>
+            <Box sx={{ mt: "auto", px: collapsed ? 0.85 : 1.35, pb: 1.7 }}>
+                <MotionCard
+                    variant="outlined"
+                    sx={{
+                        ...contentCardSx,
+                        borderRadius: 2.2,
+                        borderColor: alpha(theme.palette.divider, 0.75),
+                        bgcolor: theme.palette.mode === "dark"
+                            ? alpha("#0E1727", 0.64)
+                            : alpha("#FFFFFF", 0.96)
+                    }}
+                >
+                    <CardContent sx={{ p: collapsed ? 1.05 : 1.35 }}>
+                        {collapsed ? (
+                            <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ display: "block", textAlign: "center", lineHeight: 1.5, fontSize: 10 }}
+                            >
+                                ©26
+                            </Typography>
+                        ) : (
+                            <Stack spacing={0.8}>
+                                <Stack direction="row" spacing={0.75} alignItems="center" justifyContent="center">
+                                    <ShieldRoundedIcon sx={{ fontSize: 14, color: brandColors.success }} />
+                                    <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary" }}>
+                                        Secure member session
+                                    </Typography>
+                                </Stack>
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: "block", textAlign: "center", lineHeight: 1.45, fontSize: 11 }}
+                                >
+                                    © 2026 All rights reserved.
+                                </Typography>
+                            </Stack>
+                        )}
                     </CardContent>
                 </MotionCard>
             </Box>
@@ -2767,7 +3145,20 @@ export function MemberPortalPage() {
             sx={{
                 minHeight: "100vh",
                 bgcolor: theme.palette.mode === "dark" ? darkThemeColors.background : brandColors.neutral.background,
-                color: "text.primary"
+                color: "text.primary",
+                ...(isDarkMode
+                    ? {
+                        "& .MuiButton-containedPrimary": {
+                            bgcolor: memberAccent,
+                            color: "#1a1a1a",
+                            "&:hover": { bgcolor: memberAccentAlt }
+                        },
+                        "& .MuiButton-outlinedPrimary": {
+                            borderColor: alpha(memberAccent, 0.42),
+                            color: memberAccent
+                        }
+                    }
+                    : {})
             }}
         >
             <Box
@@ -2880,8 +3271,8 @@ export function MemberPortalPage() {
                                         width: 32,
                                         height: 32,
                                         borderRadius: 1.3,
-                                        bgcolor: alpha(brandColors.primary[500], 0.14),
-                                        color: brandColors.primary[900],
+                                        bgcolor: alpha(memberAccent, 0.14),
+                                        color: memberAccentStrong,
                                         fontWeight: 800,
                                         fontSize: 14
                                     }}
@@ -2928,8 +3319,12 @@ export function MemberPortalPage() {
                                                 label="Verified"
                                                 size="small"
                                                 variant="outlined"
-                                                color="primary"
-                                                sx={{ borderRadius: 0.5, fontWeight: 600 }}
+                                                sx={{
+                                                    borderRadius: 0.5,
+                                                    fontWeight: 600,
+                                                    borderColor: alpha(memberAccent, 0.36),
+                                                    color: memberAccent
+                                                }}
                                             />
                                         ) : null}
                                     </Stack>
@@ -2940,8 +3335,8 @@ export function MemberPortalPage() {
                                         sx={{
                                             width: 42,
                                             height: 42,
-                                            bgcolor: alpha(theme.palette.primary.main, 0.14),
-                                            color: theme.palette.primary.main,
+                                            bgcolor: alpha(memberAccent, 0.14),
+                                            color: memberAccent,
                                             fontWeight: 700
                                         }}
                                     >
@@ -3180,7 +3575,17 @@ export function MemberPortalPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setShowApplyDialog(false)}>Cancel</Button>
-                    <Button variant="contained" type="submit" form="member-loan-application-form" disabled={submittingApplication || !canApplyForLoan}>
+                    <Button
+                        variant="contained"
+                        type="submit"
+                        form="member-loan-application-form"
+                        disabled={submittingApplication || !canApplyForLoan}
+                        sx={
+                            isDarkMode
+                                ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                : undefined
+                        }
+                    >
                         {submittingApplication ? "Submitting..." : "Submit Application"}
                     </Button>
                 </DialogActions>
@@ -3214,7 +3619,7 @@ export function MemberPortalPage() {
                                     minWidth: 0,
                                     flexDirection: "column",
                                     gap: 0.25,
-                                    color: active ? brandColors.primary[900] : "text.secondary",
+                                    color: active ? memberAccentStrong : "text.secondary",
                                     fontSize: 10,
                                     fontWeight: 700,
                                     textTransform: "none"

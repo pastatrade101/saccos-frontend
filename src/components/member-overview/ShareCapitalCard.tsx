@@ -2,7 +2,7 @@ import AccountBalanceRoundedIcon from "@mui/icons-material/AccountBalanceRounded
 import EventAvailableRoundedIcon from "@mui/icons-material/EventAvailableRounded";
 import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import { Box, CardContent, Stack, Typography } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 
 import { brandColors } from "../../theme/colors";
 import { formatCurrency, formatDate } from "../../utils/format";
@@ -15,6 +15,10 @@ interface ShareCapitalCardProps {
 }
 
 export function ShareCapitalCard({ totalShares, dividendEarned, lastContributionDate }: ShareCapitalCardProps) {
+    const theme = useTheme();
+    const isDarkMode = theme.palette.mode === "dark";
+    const accent = isDarkMode ? "#D9B273" : brandColors.info;
+
     return (
         <MotionCard
             variant="outlined"
@@ -102,7 +106,7 @@ export function ShareCapitalCard({ totalShares, dividendEarned, lastContribution
                             }}
                         >
                             <Stack direction="row" spacing={0.75} alignItems="center">
-                                <EventAvailableRoundedIcon fontSize="small" sx={{ color: brandColors.info }} />
+                                <EventAvailableRoundedIcon fontSize="small" sx={{ color: accent }} />
                                 <Typography variant="body2" color="text.secondary">
                                     Last Contribution Date
                                 </Typography>
