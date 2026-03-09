@@ -144,15 +144,19 @@ export function ResetPasswordPage() {
                 // Some accounts may not have a backend profile context during recovery.
             }
 
-            await supabase.auth.signOut();
+            // Do not block navigation on sign-out network calls.
+            void supabase.auth.signOut().catch(() => undefined);
 
             pushToast({
                 type: "success",
                 title: "Password reset complete",
                 message: "Sign in with your new password."
             });
-            // Force a hard redirect so recovery links never leave users stuck on /reset-password.
-            window.location.replace("/signin");
+
+            navigate("/signin", { replace: true });
+            window.setTimeout(() => {
+                window.location.assign("/signin");
+            }, 0);
         } catch (error) {
             pushToast({
                 type: "error",
