@@ -113,7 +113,9 @@ export function PlatformTenantsPage() {
         setError(null);
 
         try {
-            const { data: tenantsResponse } = await api.get<PlatformTenantsResponse>(endpoints.platform.tenants());
+            const { data: tenantsResponse } = await api.get<PlatformTenantsResponse>(endpoints.platform.tenants(), {
+                params: { page: 1, limit: 100 }
+            });
             setTenants(tenantsResponse.data || []);
         } catch (loadError) {
             setError(getApiErrorMessage(loadError));

@@ -45,14 +45,18 @@ export function ContributionsPage() {
 
             try {
                 const [{ data: membersResponse }, statementsResponse, { data: accountsResponse }] = await Promise.all([
-                    api.get<MembersResponse>(endpoints.members.list()),
+                    api.get<MembersResponse>(endpoints.members.list(), {
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                    }),
                     api.get<StatementsResponse>(endpoints.finance.statements(), {
-                        params: { tenant_id: selectedTenantId }
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
                     }),
                     api.get<MemberAccountsResponse>(endpoints.members.accounts(), {
                         params: {
                             tenant_id: selectedTenantId,
-                            product_type: "shares"
+                            product_type: "shares",
+                            page: 1,
+                            limit: 100
                         }
                     })
                 ]);

@@ -227,8 +227,12 @@ export function StaffUsersPage() {
 
         try {
             const [{ data: usersResponse }, { data: branchesResponse }] = await Promise.all([
-                api.get<UsersListResponse>(endpoints.users.list()),
-                api.get<BranchesListResponse>(endpoints.branches.list(), { params: { tenant_id: selectedTenantId } })
+                api.get<UsersListResponse>(endpoints.users.list(), {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                }),
+                api.get<BranchesListResponse>(endpoints.branches.list(), {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                })
             ]);
 
             const resolvedPayload = usersResponse.data;

@@ -72,9 +72,13 @@ export function CashControlPage() {
         try {
             const branchQuery = branchId || selectedBranchId || undefined;
             const [{ data: branchesResponse }, { data: policyResponse }, { data: sessionsResponse }, { data: summaryResponse }] = await Promise.all([
-                api.get<BranchesListResponse>(endpoints.branches.list(), { params: { tenant_id: selectedTenantId } }),
+                api.get<BranchesListResponse>(endpoints.branches.list(), {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                }),
                 api.get<ReceiptPolicyResponse>(endpoints.cashControl.receiptPolicy(), { params: branchQuery ? { branch_id: branchQuery } : {} }),
-                api.get<TellerSessionsResponse>(endpoints.cashControl.sessions(), { params: branchQuery ? { branch_id: branchQuery } : {} }),
+                api.get<TellerSessionsResponse>(endpoints.cashControl.sessions(), {
+                    params: branchQuery ? { branch_id: branchQuery, page: 1, limit: 100 } : { page: 1, limit: 100 }
+                }),
                 api.get<DailyCashSummaryResponse>(endpoints.cashControl.dailySummary(), { params: branchQuery ? { branch_id: branchQuery } : {} })
             ]);
 

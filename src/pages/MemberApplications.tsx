@@ -103,8 +103,12 @@ export function MemberApplicationsPage() {
         setLoading(true);
         try {
             const [{ data: appsResponse }, { data: branchResponse }] = await Promise.all([
-                api.get<MemberApplicationsResponse>(endpoints.memberApplications.list()),
-                api.get<BranchesListResponse>(endpoints.branches.list(), { params: { tenant_id: selectedTenantId } })
+                api.get<MemberApplicationsResponse>(endpoints.memberApplications.list(), {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                }),
+                api.get<BranchesListResponse>(endpoints.branches.list(), {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                })
             ]);
 
             setApplications(appsResponse.data || []);

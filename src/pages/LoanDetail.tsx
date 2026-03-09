@@ -158,15 +158,17 @@ export function LoanDetailPage() {
 
             try {
                 const [{ data: membersResponse }, { data: loansResponse }, { data: schedulesResponse }, { data: transactionsResponse }] = await Promise.all([
-                    api.get<MembersResponse>(endpoints.members.list()),
+                    api.get<MembersResponse>(endpoints.members.list(), {
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                    }),
                     api.get<LoansResponse>(endpoints.finance.loanPortfolio(), {
-                        params: { tenant_id: selectedTenantId }
+                        params: { tenant_id: selectedTenantId, loan_id: loanId, page: 1, limit: 100 }
                     }),
                     api.get<LoanSchedulesResponse>(endpoints.finance.loanSchedules(), {
-                        params: { tenant_id: selectedTenantId, loan_id: loanId }
+                        params: { tenant_id: selectedTenantId, loan_id: loanId, page: 1, limit: 100 }
                     }),
                     api.get<LoanTransactionsResponse>(endpoints.finance.loanTransactions(), {
-                        params: { tenant_id: selectedTenantId, loan_id: loanId }
+                        params: { tenant_id: selectedTenantId, loan_id: loanId, page: 1, limit: 100 }
                     })
                 ]);
 

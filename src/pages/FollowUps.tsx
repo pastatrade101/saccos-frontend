@@ -66,12 +66,14 @@ export function FollowUpsPage() {
             try {
                 const [{ data: schedulesResponse }, { data: loansResponse }, { data: membersResponse }] = await Promise.all([
                     api.get<LoanSchedulesResponse>(endpoints.finance.loanSchedules(), {
-                        params: { tenant_id: selectedTenantId }
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
                     }),
                     api.get<LoansResponse>(endpoints.finance.loanPortfolio(), {
-                        params: { tenant_id: selectedTenantId }
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
                     }),
-                    api.get<MembersResponse>(endpoints.members.list())
+                    api.get<MembersResponse>(endpoints.members.list(), {
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                    })
                 ]);
 
                 setSchedules((schedulesResponse.data || []).filter((schedule) => ["pending", "partial", "overdue"].includes(schedule.status)));

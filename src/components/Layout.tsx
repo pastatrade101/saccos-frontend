@@ -283,7 +283,7 @@ export function AppLayout() {
             return;
         }
 
-        void api.get<TenantsListResponse>(endpoints.tenants.list())
+        void api.get<TenantsListResponse>(endpoints.tenants.list(), { params: { page: 1, limit: 100 } })
             .then(({ data }) => {
                 setPlatformTenants(data.data || []);
             })

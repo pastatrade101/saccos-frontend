@@ -529,7 +529,9 @@ export function MemberPortalPage() {
             setWarning(null);
 
             try {
-                const { data: membersResponse } = await api.get<MembersResponse>(endpoints.members.list());
+                const { data: membersResponse } = await api.get<MembersResponse>(endpoints.members.list(), {
+                    params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
+                });
                 const memberRecord =
                     (membersResponse.data || []).find((member: Member) => member.user_id === (user?.id || "")) ||
                     membersResponse.data?.[0];
@@ -547,28 +549,36 @@ export function MemberPortalPage() {
                 const results = await Promise.allSettled([
                     api.get<MemberAccountsResponse>(endpoints.members.accounts(), {
                         params: {
-                            tenant_id: profile.tenant_id
+                            tenant_id: profile.tenant_id,
+                            page: 1,
+                            limit: 100
                         }
                     }),
                     api.get<LoansResponse>(endpoints.finance.loanPortfolio(), {
                         params: {
                             tenant_id: profile.tenant_id,
-                            member_id: memberRecord.id
+                            member_id: memberRecord.id,
+                            page: 1,
+                            limit: 100
                         }
                     }),
                     api.get<LoanSchedulesResponse>(endpoints.finance.loanSchedules(), {
                         params: {
-                            tenant_id: profile.tenant_id
+                            tenant_id: profile.tenant_id,
+                            page: 1,
+                            limit: 100
                         }
                     }),
                     api.get<LoanProductsResponse>(endpoints.products.loans()),
                     api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
                         params: {
-                            tenant_id: profile.tenant_id
+                            tenant_id: profile.tenant_id,
+                            page: 1,
+                            limit: 100
                         }
                     }),
                     api.get<StatementsResponse>(endpoints.finance.statements(), {
-                        params: { tenant_id: profile.tenant_id, member_id: memberRecord.id }
+                        params: { tenant_id: profile.tenant_id, member_id: memberRecord.id, page: 1, limit: 100 }
                     })
                 ]);
 
@@ -1333,7 +1343,7 @@ export function MemberPortalPage() {
             setShowApplyDialog(false);
             await (async () => {
                 const { data: applicationsResponse } = await api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
-                    params: { tenant_id: profile.tenant_id }
+                    params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
                 });
                 setLoanApplications(applicationsResponse.data || []);
             })();

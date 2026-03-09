@@ -153,7 +153,7 @@ export function MemberImportPage() {
         setLoadingBranches(true);
         void api
             .get<BranchesListResponse>(endpoints.branches.list(), {
-                params: { tenant_id: selectedTenantId }
+                params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
             })
             .then(({ data }) => {
                 setBranches(data.data || []);

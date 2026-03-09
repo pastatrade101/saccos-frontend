@@ -265,7 +265,9 @@ export function DividendsPage() {
 
         try {
             const [{ data: cyclesResponse }, { data: optionsResponse }] = await Promise.all([
-                api.get<DividendCyclesResponse>(endpoints.dividends.cycles(), { params: { tenant_id: selectedTenantId } }),
+                api.get<DividendCyclesResponse>(endpoints.dividends.cycles(), {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                }),
                 api.get<DividendOptionsResponse>(endpoints.dividends.options())
             ]);
 
