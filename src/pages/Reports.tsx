@@ -28,11 +28,16 @@ import { FormField } from "../components/FormField";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
-import { endpoints } from "../lib/endpoints";
+import {
+    endpoints,
+    type ReportExportJobCreateResponse,
+    type ReportExportJobDownloadResponse,
+    type ReportExportJobResponse
+} from "../lib/endpoints";
 import { supabase } from "../lib/supabase";
 import type { MemberAccount } from "../types/api";
 import { MotionCard } from "../ui/motion";
-import { downloadFile, getFilenameFromDisposition } from "../utils/downloadFile";
+import { downloadFile } from "../utils/downloadFile";
 import pageStyles from "./Pages.module.css";
 
 const statementSchema = z.object({
@@ -43,6 +48,8 @@ const statementSchema = z.object({
 
 type StatementExportValues = z.infer<typeof statementSchema>;
 const PACK_DOWNLOAD_DELAY_MS = 260;
+const REPORT_EXPORT_POLL_INTERVAL_MS = 2000;
+const REPORT_EXPORT_MAX_POLLS = 45;
 
 function wait(ms: number) {
     return new Promise((resolve) => {
@@ -88,6 +95,69 @@ export function ReportsPage() {
         secondary: account.account_name
     }));
 
+    const performAsyncReportDownload = async (
+        key: string,
+        url: string,
+        params: Record<string, string | undefined>
+    ) => {
+        const start = await api.get<ReportExportJobCreateResponse>(url, {
+            params: {
+                ...params,
+                async: "true"
+            }
+        });
+
+        const jobId = start.data?.data?.job_id;
+        if (!jobId) {
+            throw new Error("Report export job could not be created.");
+        }
+
+        for (let attempt = 0; attempt < REPORT_EXPORT_MAX_POLLS; attempt += 1) {
+            const statusResponse = await api.get<ReportExportJobResponse>(
+                endpoints.reports.exportJob(jobId)
+            );
+            const job = statusResponse.data?.data;
+
+            if (!job?.status) {
+                throw new Error("Report export job status is unavailable.");
+            }
+
+            if (job.status === "completed") {
+                const downloadResponse = await api.get<ReportExportJobDownloadResponse>(
+                    endpoints.reports.exportJobDownload(jobId)
+                );
+                const downloadData = downloadResponse.data?.data;
+
+                if (!downloadData?.signed_url) {
+                    throw new Error("Report file URL is missing.");
+                }
+
+                const fileResponse = await fetch(downloadData.signed_url);
+                if (!fileResponse.ok) {
+                    throw new Error("Unable to download generated report file.");
+                }
+
+                const payload = await fileResponse.blob();
+                if (payload.size <= 0) {
+                    throw new Error("The report file is empty.");
+                }
+
+                const preferredExtension = params.format === "pdf" ? "pdf" : "csv";
+                const filename = downloadData.filename || `${key}.${preferredExtension}`;
+                downloadFile(payload, filename);
+                return filename;
+            }
+
+            if (job.status === "failed") {
+                throw new Error(job.error_message || "Report export failed.");
+            }
+
+            await wait(REPORT_EXPORT_POLL_INTERVAL_MS);
+        }
+
+        throw new Error("Report export timed out. Please try again.");
+    };
+
     const runDownload = async (
         key: string,
         url: string,
@@ -96,23 +166,7 @@ export function ReportsPage() {
         setDownloading(key);
 
         try {
-            const response = await api.get(url, {
-                params,
-                responseType: "blob"
-            });
-
-            const preferredExtension = params.format === "pdf" ? "pdf" : "csv";
-            const filename = getFilenameFromDisposition(
-                response.headers["content-disposition"],
-                `${key}.${preferredExtension}`
-            );
-
-            const payload = response.data as Blob;
-            if (payload.size <= 0) {
-                throw new Error("The report file is empty.");
-            }
-
-            downloadFile(payload, filename);
+            const filename = await performAsyncReportDownload(key, url, params);
             pushToast({
                 type: "success",
                 title: "Download ready",
@@ -138,23 +192,7 @@ export function ReportsPage() {
         try {
             for (let index = 0; index < jobs.length; index += 1) {
                 const job = jobs[index];
-                const response = await api.get(job.url, {
-                    params: job.params,
-                    responseType: "blob"
-                });
-
-                const preferredExtension = job.params.format === "pdf" ? "pdf" : "csv";
-                const filename = getFilenameFromDisposition(
-                    response.headers["content-disposition"],
-                    `${job.fileKey}.${preferredExtension}`
-                );
-
-                const payload = response.data as Blob;
-                if (payload.size <= 0) {
-                    throw new Error(`The ${job.fileKey} report file is empty.`);
-                }
-
-                downloadFile(payload, filename);
+                await performAsyncReportDownload(job.fileKey, job.url, job.params);
 
                 if (index < jobs.length - 1) {
                     await wait(PACK_DOWNLOAD_DELAY_MS);

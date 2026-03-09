@@ -174,7 +174,9 @@ const routeMap = {
         trialBalance: "/reports/trial-balance/export",
         memberStatements: "/reports/member-statements/export",
         par: "/reports/par/export",
-        loanAging: "/reports/loan-aging/export"
+        loanAging: "/reports/loan-aging/export",
+        exportJob: (jobId: string) => `/reports/export-jobs/${jobId}`,
+        exportJobDownload: (jobId: string) => `/reports/export-jobs/${jobId}/download`
     }
 } as const;
 
@@ -310,7 +312,9 @@ export const endpoints = {
         trialBalance: () => routeMap.reports.trialBalance,
         memberStatements: () => routeMap.reports.memberStatements,
         par: () => routeMap.reports.par,
-        loanAging: () => routeMap.reports.loanAging
+        loanAging: () => routeMap.reports.loanAging,
+        exportJob: (jobId: string) => routeMap.reports.exportJob(jobId),
+        exportJobDownload: (jobId: string) => routeMap.reports.exportJobDownload(jobId)
     }
 };
 
@@ -829,3 +833,42 @@ export type AuditorExceptionsResponse = ApiEnvelope<PaginatedResult<AuditorExcep
 export type AuditorJournalsResponse = ApiEnvelope<PaginatedResult<AuditorJournal>>;
 export type AuditorJournalDetailResponse = ApiEnvelope<AuditorJournalDetail>;
 export type AuditorAuditLogsResponse = ApiEnvelope<PaginatedResult<AuditLogEntry>>;
+
+export interface ReportExportJob {
+    id: string;
+    tenant_id: string;
+    created_by: string;
+    report_key: string;
+    format: "csv" | "pdf";
+    query: Record<string, unknown>;
+    status: "pending" | "processing" | "completed" | "failed";
+    filename?: string | null;
+    title?: string | null;
+    row_count: number;
+    result_path?: string | null;
+    content_type?: string | null;
+    error_code?: string | null;
+    error_message?: string | null;
+    started_at?: string | null;
+    completed_at?: string | null;
+    created_at: string;
+}
+
+export interface ReportExportJobCreated {
+    job_id: string;
+    status: "pending" | "processing" | "completed" | "failed";
+    report_key: string;
+    format: "csv" | "pdf";
+    created_at: string;
+}
+
+export interface ReportExportJobDownloadData {
+    signed_url: string;
+    expires_in_seconds: number;
+    filename: string;
+    content_type: string;
+}
+
+export type ReportExportJobCreateResponse = ApiEnvelope<ReportExportJobCreated>;
+export type ReportExportJobResponse = ApiEnvelope<ReportExportJob>;
+export type ReportExportJobDownloadResponse = ApiEnvelope<ReportExportJobDownloadData>;
