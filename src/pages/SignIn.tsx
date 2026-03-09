@@ -11,6 +11,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Link as RouterLink, Navigate, useNavigate } from "react-router-dom";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
+import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
+import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 
 import { useAuth } from "../auth/AuthProvider";
 import { FormField } from "../components/FormField";
@@ -47,6 +49,7 @@ export function SignInPage() {
     const { signIn, requestOtp, session } = useAuth();
     const { theme, toggleTheme } = useUI();
     const [submitting, setSubmitting] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const [verifyingOtp, setVerifyingOtp] = useState(false);
     const [resendingOtp, setResendingOtp] = useState(false);
     const [otpModalOpen, setOtpModalOpen] = useState(false);
@@ -540,17 +543,28 @@ export function SignInPage() {
                             />
                         </FormField>
                         <FormField label="Password" error={form.formState.errors.password?.message}>
-                            <input
-                                type="password"
-                                {...form.register("password", {
-                                    onChange: () => {
-                                        if (otpChallengeId) {
-                                            clearOtpState();
+                            <div className={pageStyles.passwordField}>
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    {...form.register("password", {
+                                        onChange: () => {
+                                            if (otpChallengeId) {
+                                                clearOtpState();
+                                            }
                                         }
-                                    }
-                                })}
-                                placeholder="Enter your password"
-                            />
+                                    })}
+                                    placeholder="Enter your password"
+                                />
+                                <button
+                                    type="button"
+                                    className={pageStyles.passwordToggle}
+                                    onClick={() => setShowPassword((current) => !current)}
+                                    aria-label={showPassword ? "Hide password" : "Show password"}
+                                    aria-pressed={showPassword}
+                                >
+                                    {showPassword ? <VisibilityOffRoundedIcon fontSize="small" /> : <VisibilityRoundedIcon fontSize="small" />}
+                                </button>
+                            </div>
                         </FormField>
                         <button
                             className="primary-button"
