@@ -27,6 +27,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useLocation } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthProvider";
 import { DataTable, type Column } from "../components/DataTable";
@@ -47,6 +48,7 @@ import { formatDate } from "../utils/format";
 const schema = z.object({
     default_branch_id: z.string().uuid().optional().or(z.literal("")),
     create_portal_account: z.boolean().default(false),
+    update_existing_only: z.boolean().default(false),
     file: z
         .custom<FileList | null>((value) => value instanceof FileList || value === null)
         .refine((value) => value && value.length > 0, "CSV file is required.")
@@ -91,6 +93,7 @@ function SummaryCard({
 }
 
 export function MemberImportPage() {
+    const location = useLocation();
     const theme = useTheme();
     const isDarkMode = theme.palette.mode === "dark";
     const memberAccent = isDarkMode ? "#D9B273" : "#1FA8E6";
@@ -112,17 +115,23 @@ export function MemberImportPage() {
     const [importStartedAt, setImportStartedAt] = useState<number | null>(null);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
+    const isUpdateExistingMode = useMemo(() => {
+        const params = new URLSearchParams(location.search);
+        return params.get("mode") === "update-existing";
+    }, [location.search]);
 
     const form = useForm<FormValues>({
         resolver: zodResolver(schema),
         defaultValues: {
             default_branch_id: selectedBranchId || "",
             create_portal_account: false,
+            update_existing_only: isUpdateExistingMode,
             file: null
         }
     });
 
     const createPortalAccount = form.watch("create_portal_account");
+    const updateExistingOnly = form.watch("update_existing_only");
     const selectedDefaultBranchId = form.watch("default_branch_id");
     const selectedFile = form.watch("file");
     const hasSingleBranch = branches.length <= 1;
@@ -179,6 +188,13 @@ export function MemberImportPage() {
             form.setValue("default_branch_id", preferredBranchId);
         }
     }, [branches, form, selectedBranchId]);
+
+    useEffect(() => {
+        form.setValue("update_existing_only", isUpdateExistingMode);
+        if (isUpdateExistingMode) {
+            form.setValue("create_portal_account", false);
+        }
+    }, [form, isUpdateExistingMode]);
 
     const loadFailedRows = async (jobId: string, page = failedRowsPage, limit = failedRowsLimit) => {
         setLoadingRows(true);
@@ -305,6 +321,7 @@ export function MemberImportPage() {
             const body = new FormData();
             body.append("file", file);
             body.append("create_portal_account", String(values.create_portal_account));
+            body.append("update_existing_only", String(values.update_existing_only));
 
             if (values.default_branch_id) {
                 body.append("default_branch_id", values.default_branch_id);
@@ -460,14 +477,17 @@ export function MemberImportPage() {
                     <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={3}>
                         <Box>
                             <Typography variant="overline" sx={{ color: alpha("#fff", 0.8) }}>
-                                Member Bulk Onboarding
+                                {isUpdateExistingMode ? "Member Bulk Update" : "Member Bulk Onboarding"}
                             </Typography>
                             <Typography variant="h4" fontWeight={700} sx={{ mt: 1 }}>
-                                Import members and issue secure first-login credentials
+                                {isUpdateExistingMode
+                                    ? "Upload updates for existing members only"
+                                    : "Import members and issue secure first-login credentials"}
                             </Typography>
                             <Typography variant="body1" sx={{ mt: 1.5, maxWidth: 760, color: alpha("#fff", 0.82) }}>
-                                Upload a tenant-scoped CSV to create or update members, optionally provision member portal access,
-                                and issue unique temporary passwords for one-time export only.
+                                {isUpdateExistingMode
+                                    ? "Upload a tenant-scoped CSV to update existing members by member_no/email/phone/tin_number/nin. New members will be rejected in this mode."
+                                    : "Upload a tenant-scoped CSV to create or update members, optionally provision member portal access, and issue unique temporary passwords for one-time export only."}
                             </Typography>
                         </Box>
                         <Stack spacing={1.25} alignItems={{ xs: "flex-start", md: "flex-end" }}>
@@ -519,6 +539,14 @@ export function MemberImportPage() {
                                 <Alert severity="warning">
                                     Store any downloaded credentials file securely. After distribution, delete it from local devices.
                                 </Alert>
+
+                                {updateExistingOnly ? (
+                                    <Alert severity="info">
+                                        Update-only mode is enabled. Each row must match an existing member using one of:
+                                        <strong> member_no</strong>, <strong>email</strong>, <strong>phone_number</strong>, <strong>tin_number</strong>, or <strong>nin</strong>.
+                                        New member creation is blocked in this mode.
+                                    </Alert>
+                                ) : null}
 
                                 <Alert severity="info">
                                     The current template accepts dated activity fields too: <strong>opening_savings_date</strong>, <strong>opening_shares_date</strong>, <strong>withdrawal_date</strong>, <strong>loan_disbursed_at</strong>, and <strong>repayment_date</strong>. Leave <strong>branch_code</strong> blank for a single-branch tenant and use the dates to spread imported activity across past months so dashboards and trends look realistic.
@@ -620,7 +648,7 @@ export function MemberImportPage() {
                                 )}
 
                                 <FormControlLabel
-                                    control={<Switch checked={createPortalAccount} onChange={(event) => form.setValue("create_portal_account", event.target.checked)} />}
+                                    control={<Switch checked={createPortalAccount} disabled={updateExistingOnly} onChange={(event) => form.setValue("create_portal_account", event.target.checked)} />}
                                     label="Create member portal accounts"
                                 />
 

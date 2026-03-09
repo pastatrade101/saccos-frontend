@@ -87,7 +87,7 @@ const navItems: NavItem[] = [
     { to: "/auditor/journals", label: "Journals", roles: ["auditor"], section: "workspace", icon: RuleFolderRoundedIcon },
     { to: "/auditor/audit-logs", label: "Audit Logs", roles: ["auditor"], section: "workspace", icon: PolicyRoundedIcon },
     { to: "/contributions", label: "Contributions", roles: ["branch_manager"], section: "finance", icon: PieChartRoundedIcon },
-    { to: "/dividends", label: "Dividends", roles: ["branch_manager"], section: "finance", icon: EventRepeatRoundedIcon },
+    { to: "/dividends", label: "Dividends", roles: ["super_admin", "branch_manager"], section: "finance", icon: EventRepeatRoundedIcon },
     { to: "/cash", label: "Cash Desk", roles: ["teller"], section: "finance", icon: PaidRoundedIcon },
     { to: "/cash-control", label: "Cash Control", roles: ["branch_manager"], section: "finance", icon: PaidRoundedIcon },
     { to: "/loans", label: "Loans", roles: ["branch_manager", "loan_officer", "teller"], section: "finance", icon: SummarizeRoundedIcon },

@@ -225,11 +225,9 @@ export function DividendsPage() {
     const [submitting, setSubmitting] = useState(false);
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [actionDialog, setActionDialog] = useState<null | {
-        type: "approve" | "reject" | "pay";
+        type: "approve" | "reject";
     }>(null);
     const [actionNotes, setActionNotes] = useState("");
-    const [paymentMethod, setPaymentMethod] = useState<DividendPaymentRequest["payment_method"]>("reinvest_to_shares");
-    const [paymentReference, setPaymentReference] = useState("");
     const importInputRef = useRef<HTMLInputElement | null>(null);
 
     const canManageCycles = Boolean(profile?.role === "branch_manager");
@@ -437,7 +435,7 @@ export function DividendsPage() {
         }
     });
 
-    const runCycleAction = async (type: "freeze" | "allocate" | "submit" | "approve" | "reject" | "pay" | "close") => {
+    const runCycleAction = async (type: "freeze" | "allocate" | "submit" | "approve" | "reject") => {
         if (!selectedCycleId) {
             return;
         }
@@ -454,28 +452,27 @@ export function DividendsPage() {
             } else if (type === "approve") {
                 const payload: DividendApprovalRequest = { notes: actionNotes || null };
                 await api.post(endpoints.dividends.approve(selectedCycleId), payload);
+                const paymentPayload: DividendPaymentRequest = {
+                    payment_method: "reinvest_to_shares",
+                    reference: `AUTO-DIV-${Date.now()}`,
+                    description: actionNotes || "Auto payment triggered immediately after approval."
+                };
+                await api.post(endpoints.dividends.pay(selectedCycleId), paymentPayload);
+                await api.post(endpoints.dividends.close(selectedCycleId));
             } else if (type === "reject") {
                 const payload: DividendApprovalRequest = { notes: actionNotes || null };
                 await api.post(endpoints.dividends.reject(selectedCycleId), payload);
-            } else if (type === "pay") {
-                const payload: DividendPaymentRequest = {
-                    payment_method: paymentMethod,
-                    reference: paymentReference || null,
-                    description: actionNotes || null
-                };
-                await api.post(endpoints.dividends.pay(selectedCycleId), payload);
-            } else if (type === "close") {
-                await api.post(endpoints.dividends.close(selectedCycleId));
             }
 
             pushToast({
                 type: "success",
-                title: "Dividend cycle updated",
-                message: `The cycle action ${type} completed successfully.`
+                title: type === "approve" ? "Dividend cycle approved and completed" : "Dividend cycle updated",
+                message: type === "approve"
+                    ? "Approval, payment posting, and close completed in one step."
+                    : `The cycle action ${type} completed successfully.`
             });
             setActionDialog(null);
             setActionNotes("");
-            setPaymentReference("");
             await loadCycles();
             await loadCycleDetail(selectedCycleId);
         } catch (error) {
@@ -795,16 +792,6 @@ export function DividendsPage() {
                                                 </Button>
                                             </>
                                         ) : null}
-                                        {selectedCycle.status === "approved" && canApproveAndPay ? (
-                                            <Button variant="contained" color="success" onClick={() => setActionDialog({ type: "pay" })} disabled={submitting}>
-                                                Process Payment Run
-                                            </Button>
-                                        ) : null}
-                                        {selectedCycle.status === "paid" && canApproveAndPay ? (
-                                            <Button variant="outlined" color="inherit" onClick={() => void runCycleAction("close")} disabled={submitting}>
-                                                Close Cycle
-                                            </Button>
-                                        ) : null}
                                     </Stack>
 
                                     <Divider />
@@ -1041,21 +1028,10 @@ export function DividendsPage() {
 
             <MotionModal open={Boolean(actionDialog)} onClose={submitting ? undefined : () => setActionDialog(null)} maxWidth="sm" fullWidth>
                 <DialogTitle>
-                    {actionDialog?.type === "approve" ? "Approve Dividend Cycle" : actionDialog?.type === "reject" ? "Reject Dividend Cycle" : "Process Dividend Payment"}
+                    {actionDialog?.type === "approve" ? "Approve Dividend Cycle" : "Reject Dividend Cycle"}
                 </DialogTitle>
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
-                        {actionDialog?.type === "pay" ? (
-                            <>
-                                <TextField select label="Payment Method" fullWidth value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as DividendPaymentRequest["payment_method"])}>
-                                    <MenuItem value="reinvest_to_shares">Reinvest to Shares</MenuItem>
-                                    <MenuItem value="cash">Cash</MenuItem>
-                                    <MenuItem value="bank">Bank</MenuItem>
-                                    <MenuItem value="mobile_money">Mobile Money</MenuItem>
-                                </TextField>
-                                <TextField label="Reference" fullWidth value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} />
-                            </>
-                        ) : null}
                         <TextField label="Notes" multiline minRows={4} fullWidth value={actionNotes} onChange={(event) => setActionNotes(event.target.value)} />
                     </Stack>
                 </DialogContent>
@@ -1069,8 +1045,6 @@ export function DividendsPage() {
                                 void runCycleAction("approve");
                             } else if (actionDialog?.type === "reject") {
                                 void runCycleAction("reject");
-                            } else if (actionDialog?.type === "pay") {
-                                void runCycleAction("pay");
                             }
                         }}
                     >

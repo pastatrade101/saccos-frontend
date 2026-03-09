@@ -270,7 +270,7 @@ export default function App() {
                     </Route>
                     <Route
                         element={
-                            <ProtectedRoute allowedRoles={["branch_manager"]} allowInternalOps={false} />
+                            <ProtectedRoute allowedRoles={["super_admin", "branch_manager"]} allowInternalOps={false} />
                         }
                     >
                         <Route path="/dividends" element={<DividendsPage />} />

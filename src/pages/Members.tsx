@@ -1076,6 +1076,15 @@ export function MembersPage() {
                                 {profile?.role === "branch_manager" ? (
                                     <Button
                                         variant="outlined"
+                                        startIcon={<UploadFileRoundedIcon />}
+                                        onClick={() => navigate("/members/import?mode=update-existing")}
+                                    >
+                                        Update Existing
+                                    </Button>
+                                ) : null}
+                                {profile?.role === "branch_manager" ? (
+                                    <Button
+                                        variant="outlined"
                                         startIcon={<BadgeRoundedIcon />}
                                         onClick={() => navigate("/staff-users")}
                                     >
@@ -1367,6 +1376,9 @@ export function MembersPage() {
                                                         </Button>
                                                         <Button size="small" variant="outlined" onClick={() => navigate("/members/import")}>
                                                             Import
+                                                        </Button>
+                                                        <Button size="small" variant="outlined" onClick={() => navigate("/members/import?mode=update-existing")}>
+                                                            Update Existing
                                                         </Button>
                                                     </Stack>
                                                 </Box>
