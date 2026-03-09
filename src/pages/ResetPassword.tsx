@@ -151,7 +151,8 @@ export function ResetPasswordPage() {
                 title: "Password reset complete",
                 message: "Sign in with your new password."
             });
-            navigate("/signin", { replace: true });
+            // Force a hard redirect so recovery links never leave users stuck on /reset-password.
+            window.location.replace("/signin");
         } catch (error) {
             pushToast({
                 type: "error",
