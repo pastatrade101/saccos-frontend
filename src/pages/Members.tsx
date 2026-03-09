@@ -134,6 +134,17 @@ interface MemberCredentialsHandoff {
 type MemberStatusFilter = "all" | "active" | "suspended" | "exited";
 type MemberOperationalFilter = "all" | "ready" | "needs_login" | "needs_account" | "needs_review";
 
+function isMissingDeletedAtColumnError(error: unknown) {
+    const code = typeof error === "object" && error && "code" in error
+        ? String((error as { code?: string }).code || "")
+        : "";
+    const message = typeof error === "object" && error && "message" in error
+        ? String((error as { message?: string }).message || "").toLowerCase()
+        : "";
+
+    return code === "42703" || message.includes("deleted_at");
+}
+
 function MetricCard({
     title,
     value,
@@ -307,16 +318,31 @@ export function MembersPage() {
         setAccountsLoading(true);
 
         try {
-            const { data, error } = await supabase
-                .from("member_accounts")
-                .select("*")
-                .eq("tenant_id", selectedTenantId)
-                .is("deleted_at", null)
-                .in("member_id", scopedMemberIds);
+            const fetchAccounts = async (includeSoftDeleteFilter: boolean) => {
+                let query = supabase
+                    .from("member_accounts")
+                    .select("*")
+                    .eq("tenant_id", selectedTenantId)
+                    .in("member_id", scopedMemberIds);
 
-            if (error) {
-                throw error;
-            }
+                if (includeSoftDeleteFilter) {
+                    query = query.is("deleted_at", null);
+                }
+
+                const { data, error } = await query;
+
+                if (error && includeSoftDeleteFilter && isMissingDeletedAtColumnError(error)) {
+                    return fetchAccounts(false);
+                }
+
+                if (error) {
+                    throw error;
+                }
+
+                return data || [];
+            };
+
+            const data = await fetchAccounts(true);
 
             const accountsByMember = new Map<string, MemberAccount>();
             (data || []).forEach((account) => {
@@ -341,6 +367,7 @@ export function MembersPage() {
             });
             setAccountsLoaded(true);
         } catch (error) {
+            setAccountsLoaded(true);
             if (!options?.silent) {
                 pushToast({
                     type: "error",
