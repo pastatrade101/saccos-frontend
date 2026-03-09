@@ -695,7 +695,7 @@ export function DashboardPage() {
                 if (role === "loan_officer") {
                     const [loanApplicationsResponse] = await Promise.all([
                         api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
-                            params: { tenant_id: tenantId }
+                            params: { tenant_id: tenantId, page: 1, limit: 50 }
                         })
                     ]);
 
@@ -712,13 +712,13 @@ export function DashboardPage() {
 
                 const supplemental = await Promise.allSettled([
                     api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
-                        params: { tenant_id: tenantId }
+                        params: { tenant_id: tenantId, page: 1, limit: 50 }
                     }),
                     api.get<MemberApplicationsResponse>(endpoints.memberApplications.list(), {
-                        params: { tenant_id: tenantId }
+                        params: { tenant_id: tenantId, page: 1, limit: 50 }
                     }),
                     api.get<UsersListResponse>(endpoints.users.list(), {
-                        params: { tenant_id: tenantId }
+                        params: { tenant_id: tenantId, page: 1, limit: 50 }
                     })
                 ]);
 
@@ -746,8 +746,8 @@ export function DashboardPage() {
 
                 try {
                     const [{ data: tenantsResponse }, { data: branchesResponse }] = await Promise.all([
-                        api.get<TenantsListResponse>(endpoints.tenants.list()),
-                        api.get<BranchesListResponse>(endpoints.branches.list())
+                        api.get<TenantsListResponse>(endpoints.tenants.list(), { params: { page: 1, limit: 100 } }),
+                        api.get<BranchesListResponse>(endpoints.branches.list(), { params: { page: 1, limit: 100 } })
                     ]);
 
                     if (isActive) {
@@ -792,15 +792,17 @@ export function DashboardPage() {
 
             try {
                 const [{ data: membersResponse }, statementsResponse, { data: loansResponse }, { data: schedulesResponse }] = await Promise.all([
-                    api.get<MembersResponse>(endpoints.members.list()),
+                    api.get<MembersResponse>(endpoints.members.list(), {
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                    }),
                     api.get<StatementsResponse>(endpoints.finance.statements(), {
-                        params: { tenant_id: selectedTenantId }
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
                     }),
                     api.get<LoansResponse>(endpoints.finance.loanPortfolio(), {
-                        params: { tenant_id: selectedTenantId }
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
                     }),
                     api.get<LoanSchedulesResponse>(endpoints.finance.loanSchedules(), {
-                        params: { tenant_id: selectedTenantId }
+                        params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
                     })
                 ]);
 

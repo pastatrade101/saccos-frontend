@@ -285,6 +285,8 @@ export function LoansPage() {
     const [pendingMoneyAction, setPendingMoneyAction] = useState<PendingMoneyAction>(null);
     const [applicationPage, setApplicationPage] = useState(1);
     const [loanPage, setLoanPage] = useState(1);
+    const [applicationTotal, setApplicationTotal] = useState(0);
+    const [loanTotal, setLoanTotal] = useState(0);
     const [activeTab, setActiveTab] = useState<LoanWorkspaceTab>("applications");
     const [referencesLoaded, setReferencesLoaded] = useState(false);
     const [referencesLoading, setReferencesLoading] = useState(false);
@@ -359,18 +361,26 @@ export function LoansPage() {
         try {
             const [{ data: applicationsResponse }, { data: loansResponse }, { data: schedulesResponse }] = await Promise.all([
                 api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
-                    params: { tenant_id: selectedTenantId }
+                    params: { tenant_id: selectedTenantId, page: applicationPage, limit: pageSize }
                 }),
                 api.get<LoansResponse>(endpoints.finance.loanPortfolio(), {
-                    params: { tenant_id: selectedTenantId }
+                    params: { tenant_id: selectedTenantId, page: loanPage, limit: pageSize }
                 }),
                 api.get<LoanSchedulesResponse>(endpoints.finance.loanSchedules(), {
-                    params: { tenant_id: selectedTenantId }
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
                 })
             ]);
 
             setApplications(applicationsResponse.data || []);
             setLoans(loansResponse.data || []);
+            setApplicationTotal(
+                Number((applicationsResponse as unknown as { pagination?: { total?: number } }).pagination?.total || 0) ||
+                (applicationsResponse.data || []).length
+            );
+            setLoanTotal(
+                Number((loansResponse as unknown as { pagination?: { total?: number } }).pagination?.total || 0) ||
+                (loansResponse.data || []).length
+            );
             setSchedules((schedulesResponse.data || []).filter((schedule) => ["pending", "partial", "overdue"].includes(schedule.status)));
         } catch (error) {
             pushToast({
@@ -399,7 +409,7 @@ export function LoansPage() {
         setReferencesLoading(true);
         try {
             const [{ data: membersResponse }, { data: productsResponse }] = await Promise.all([
-                api.get<MembersResponse>(endpoints.members.list()),
+                api.get<MembersResponse>(endpoints.members.list(), { params: { tenant_id: selectedTenantId, page: 1, limit: 100 } }),
                 api.get<LoanProductsResponse>(endpoints.products.loans())
             ]);
             setMembers(membersResponse.data || []);
@@ -435,7 +445,7 @@ export function LoansPage() {
         try {
             const [{ data: transactionsResponse }] = await Promise.all([
                 api.get<LoanTransactionsResponse>(endpoints.finance.loanTransactions(), {
-                    params: { tenant_id: selectedTenantId, limit: 300, page: 1 }
+                    params: { tenant_id: selectedTenantId, limit: 100, page: 1 }
                 }),
                 loadReferenceData({ silent: true })
             ]);
@@ -458,13 +468,27 @@ export function LoansPage() {
         setMembers([]);
         setLoanProducts([]);
         setTransactions([]);
+        setApplications([]);
+        setLoans([]);
+        setSchedules([]);
+        setApplicationTotal(0);
+        setLoanTotal(0);
+        setApplicationPage(1);
+        setLoanPage(1);
         setReferencesLoaded(false);
         setReferencesLoading(false);
         setActivityLoaded(false);
         setActivityLoading(false);
         setActiveTab("applications");
-        void loadWorkspace();
     }, [selectedTenantId]);
+
+    useEffect(() => {
+        if (!selectedTenantId) {
+            return;
+        }
+
+        void loadWorkspace();
+    }, [applicationPage, loanPage, selectedTenantId]);
 
     useEffect(() => {
         if (activeTab === "activity" && !activityLoaded && !activityLoading) {
@@ -713,38 +737,24 @@ export function LoansPage() {
         () =>
             role === "loan_officer"
                 ? [
-                    { value: "applications" as const, label: "Applications", count: applications.length },
-                    { value: "portfolio" as const, label: "Portfolio", count: loans.length },
+                    { value: "applications" as const, label: "Applications", count: applicationTotal },
+                    { value: "portfolio" as const, label: "Portfolio", count: loanTotal },
                     { value: "collections" as const, label: "Collections", count: overdueScheduleCount },
                     { value: "activity" as const, label: "Activity", count: transactions.length }
                 ]
                 : [
-                    { value: "applications" as const, label: "Applications", count: applications.length },
-                    { value: "portfolio" as const, label: "Portfolio", count: loans.length },
+                    { value: "applications" as const, label: "Applications", count: applicationTotal },
+                    { value: "portfolio" as const, label: "Portfolio", count: loanTotal },
                     { value: "activity" as const, label: "Activity", count: transactions.length }
                 ],
-        [applications.length, loans.length, overdueScheduleCount, role, transactions.length]
+        [applicationTotal, loanTotal, overdueScheduleCount, role, transactions.length]
     );
 
-    const paginatedApplications = useMemo(
-        () => applications.slice((applicationPage - 1) * pageSize, applicationPage * pageSize),
-        [applications, applicationPage]
-    );
-    const applicationTotalPages = Math.max(1, Math.ceil(applications.length / pageSize));
+    const paginatedApplications = applications;
+    const applicationTotalPages = Math.max(1, Math.ceil((applicationTotal || 0) / pageSize));
 
-    const paginatedLoans = useMemo(
-        () => loans.slice((loanPage - 1) * pageSize, loanPage * pageSize),
-        [loans, loanPage]
-    );
-    const loanTotalPages = Math.max(1, Math.ceil(loans.length / pageSize));
-
-    useEffect(() => {
-        setApplicationPage(1);
-    }, [applications.length]);
-
-    useEffect(() => {
-        setLoanPage(1);
-    }, [loans.length]);
+    const paginatedLoans = loans;
+    const loanTotalPages = Math.max(1, Math.ceil((loanTotal || 0) / pageSize));
 
     useEffect(() => {
         if (!workspaceTabs.some((tab) => tab.value === activeTab)) {
@@ -1593,7 +1603,7 @@ export function LoansPage() {
                                         </Typography>
                                     </Box>
                                     <Chip
-                                        label={`${applications.length} application(s)`}
+                                        label={`${applicationTotal} application(s)`}
                                         color="primary"
                                         variant="outlined"
                                         sx={darkAccentChipSx}
@@ -1602,7 +1612,7 @@ export function LoansPage() {
                                 <DataTable rows={paginatedApplications} columns={applicationColumns} emptyMessage={loading ? "Loading applications..." : "No loan applications found."} />
                                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }}>
                                     <Typography variant="body2" color="text.secondary">
-                                        Showing {applications.length ? (applicationPage - 1) * pageSize + 1 : 0}-{Math.min(applicationPage * pageSize, applications.length)} of {applications.length}
+                                        Showing {applicationTotal ? (applicationPage - 1) * pageSize + 1 : 0}-{Math.min(applicationPage * pageSize, applicationTotal)} of {applicationTotal}
                                     </Typography>
                                     <Pagination
                                         page={applicationPage}
@@ -1683,12 +1693,12 @@ export function LoansPage() {
                                             Disbursed loans remain visible here with their repayment position and next due date.
                                         </Typography>
                                     </Box>
-                                    <Chip label={`${loans.length} disbursed loan(s)`} variant="outlined" />
+                                    <Chip label={`${loanTotal} disbursed loan(s)`} variant="outlined" />
                                 </Stack>
                                 <DataTable rows={paginatedLoans} columns={loanColumns} emptyMessage={loading ? "Loading loan portfolio..." : "No disbursed loans found."} />
                                 <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }}>
                                     <Typography variant="body2" color="text.secondary">
-                                        Showing {loans.length ? (loanPage - 1) * pageSize + 1 : 0}-{Math.min(loanPage * pageSize, loans.length)} of {loans.length}
+                                        Showing {loanTotal ? (loanPage - 1) * pageSize + 1 : 0}-{Math.min(loanPage * pageSize, loanTotal)} of {loanTotal}
                                     </Typography>
                                     <Pagination
                                         page={loanPage}

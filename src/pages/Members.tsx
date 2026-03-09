@@ -217,6 +217,7 @@ export function MembersPage() {
     const [operationalFilter, setOperationalFilter] = useState<MemberOperationalFilter>("all");
     const [branchFilter, setBranchFilter] = useState<string>("all");
     const [page, setPage] = useState(1);
+    const [serverTotalMembers, setServerTotalMembers] = useState(0);
     const deferredSearch = useDeferredValue(search);
     const pageSize = 8;
 
@@ -283,7 +284,7 @@ export function MembersPage() {
     const onboardingInviteMode = form.watch("send_invite");
     const standaloneInviteMode = memberLoginForm.watch("send_invite");
 
-    const loadMemberAccounts = async (options?: { silent?: boolean; force?: boolean }) => {
+    const loadMemberAccounts = async (options?: { silent?: boolean; force?: boolean; members?: MemberWithAccount[] }) => {
         if (!selectedTenantId) {
             return;
         }
@@ -296,6 +297,13 @@ export function MembersPage() {
             return;
         }
 
+        const scopedMembers = options?.members || members;
+        const scopedMemberIds = scopedMembers.map((member) => member.id);
+        if (!scopedMemberIds.length) {
+            setAccountsLoaded(true);
+            return;
+        }
+
         setAccountsLoading(true);
 
         try {
@@ -303,7 +311,8 @@ export function MembersPage() {
                 .from("member_accounts")
                 .select("*")
                 .eq("tenant_id", selectedTenantId)
-                .is("deleted_at", null);
+                .is("deleted_at", null)
+                .in("member_id", scopedMemberIds);
 
             if (error) {
                 throw error;
@@ -349,6 +358,7 @@ export function MembersPage() {
             setMembers([]);
             setBranches([]);
             setSelectedMember(null);
+            setServerTotalMembers(0);
             setAccountsLoaded(false);
             setAccountsLoading(false);
             setLoading(false);
@@ -359,8 +369,19 @@ export function MembersPage() {
 
         try {
             const [{ data: memberResponse }, { data: branchResponse }] = await Promise.all([
-                api.get<MembersResponse>(endpoints.members.list()),
-                api.get<BranchesListResponse>(endpoints.branches.list(), { params: { tenant_id: selectedTenantId } })
+                api.get<MembersResponse>(endpoints.members.list(), {
+                    params: {
+                        tenant_id: selectedTenantId,
+                        page,
+                        limit: pageSize,
+                        search: deferredSearch.trim() || undefined,
+                        status: statusFilter === "all" ? undefined : statusFilter,
+                        branch_id: branchFilter === "all" ? undefined : branchFilter
+                    }
+                }),
+                api.get<BranchesListResponse>(endpoints.branches.list(), {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                })
             ]);
 
             const currentAccounts = new Map<string, MemberAccount>();
@@ -375,9 +396,13 @@ export function MembersPage() {
                 ...member,
                 account: currentAccounts.get(member.id) || null
             }));
+            const totalMembers =
+                Number((memberResponse as unknown as { pagination?: { total?: number } }).pagination?.total || 0) ||
+                nextMembers.length;
 
             setBranches(nextBranches);
             setMembers(nextMembers);
+            setServerTotalMembers(totalMembers);
             setSelectedMember((current) => {
                 if (!current) {
                     return null;
@@ -385,7 +410,7 @@ export function MembersPage() {
 
                 return nextMembers.find((member) => member.id === current.id) || null;
             });
-            void loadMemberAccounts({ silent: true, force: true });
+            void loadMemberAccounts({ silent: true, force: true, members: nextMembers });
         } catch (error) {
             pushToast({
                 type: "error",
@@ -401,7 +426,7 @@ export function MembersPage() {
         setAccountsLoaded(false);
         setAccountsLoading(false);
         void loadMembers();
-    }, [selectedTenantId]);
+    }, [branchFilter, deferredSearch, page, selectedTenantId, statusFilter]);
 
     useEffect(() => {
         form.setValue("branch_id", selectedBranchId || branches[0]?.id || "");
@@ -433,24 +458,7 @@ export function MembersPage() {
     }, [branchFilter, selectedBranchId]);
 
     const filteredMembers = useMemo(() => {
-        const normalized = deferredSearch.trim().toLowerCase();
         return members.filter((member) => {
-            const matchesSearch = !normalized || [member.full_name, member.phone, member.national_id]
-                .filter(Boolean)
-                .some((value) => String(value).toLowerCase().includes(normalized));
-
-            if (!matchesSearch) {
-                return false;
-            }
-
-            if (statusFilter !== "all" && member.status !== statusFilter) {
-                return false;
-            }
-
-            if (branchFilter !== "all" && member.branch_id !== branchFilter) {
-                return false;
-            }
-
             if (operationalFilter === "ready") {
                 if (!accountsLoaded) {
                     return member.status === "active" && Boolean(member.user_id);
@@ -478,13 +486,10 @@ export function MembersPage() {
 
             return true;
         });
-    }, [branchFilter, deferredSearch, members, operationalFilter, statusFilter]);
+    }, [accountsLoaded, members, operationalFilter]);
 
-    const totalPages = Math.max(1, Math.ceil(filteredMembers.length / pageSize));
-    const paginatedMembers = useMemo(
-        () => filteredMembers.slice((page - 1) * pageSize, page * pageSize),
-        [filteredMembers, page]
-    );
+    const totalPages = Math.max(1, Math.ceil((serverTotalMembers || 0) / pageSize));
+    const paginatedMembers = filteredMembers;
     const selectedMemberIdSet = useMemo(() => new Set(selectedMemberIds), [selectedMemberIds]);
     const selectedMembers = useMemo(
         () => members.filter((member) => selectedMemberIdSet.has(member.id)),
@@ -496,7 +501,7 @@ export function MembersPage() {
 
     useEffect(() => {
         setPage(1);
-    }, [branchFilter, deferredSearch, operationalFilter, statusFilter]);
+    }, [branchFilter, deferredSearch, statusFilter]);
 
     useEffect(() => {
         const memberIds = new Set(members.map((member) => member.id));
@@ -837,13 +842,13 @@ export function MembersPage() {
     };
 
     const memberCounts = useMemo(() => ({
-        total: members.length,
+        total: serverTotalMembers,
         active: members.filter((member) => member.status === "active").length,
         linkedLogins: members.filter((member) => Boolean(member.user_id)).length,
         totalSavings: accountsLoaded
             ? members.reduce((sum, member) => sum + Number(member.account?.available_balance || 0), 0)
             : 0
-    }), [accountsLoaded, members]);
+    }), [accountsLoaded, members, serverTotalMembers]);
     const tellerReadyCount = useMemo(
         () => accountsLoaded
             ? members.filter((member) => member.status === "active" && Boolean(member.account?.id)).length
@@ -865,9 +870,10 @@ export function MembersPage() {
     const hasActiveDirectoryFilters = Boolean(
         deferredSearch.trim() || statusFilter !== "all" || operationalFilter !== "all" || branchFilter !== "all"
     );
-    const directoryEmptyMessage = members.length && !filteredMembers.length
+    const directoryEmptyMessage = (members.length || serverTotalMembers) && !filteredMembers.length
         ? "No members match the current filters."
         : "No members yet.";
+    const visibleResultCount = operationalFilter === "all" ? serverTotalMembers : filteredMembers.length;
 
     const handleSelectMember = (member: MemberWithAccount) => {
         setSelectedMember(member);
@@ -1784,7 +1790,7 @@ export function MembersPage() {
                             </Typography>
                         </Box>
                         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                            <Chip label={`${filteredMembers.length} result${filteredMembers.length === 1 ? "" : "s"}`} />
+                            <Chip label={`${visibleResultCount} result${visibleResultCount === 1 ? "" : "s"}`} />
                             {canDeleteMembers ? (
                                 <Chip
                                     label={`${selectedMemberIds.length} selected`}
@@ -1905,7 +1911,7 @@ export function MembersPage() {
                     ) : (
                         <Stack spacing={2}>
                             <DataTable rows={paginatedMembers} columns={columns} emptyMessage={directoryEmptyMessage} />
-                            {filteredMembers.length > pageSize ? (
+                            {operationalFilter === "all" && serverTotalMembers > pageSize ? (
                                 <Stack direction="row" justifyContent="flex-end">
                                     <Pagination
                                         count={totalPages}
