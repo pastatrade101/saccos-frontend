@@ -1,10 +1,12 @@
 import AccountBalanceRoundedIcon from "@mui/icons-material/AccountBalanceRounded";
 import ApprovalRoundedIcon from "@mui/icons-material/ApprovalRounded";
 import AssignmentTurnedInRoundedIcon from "@mui/icons-material/AssignmentTurnedInRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import CreditScoreRoundedIcon from "@mui/icons-material/CreditScoreRounded";
 import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
 import PendingActionsRoundedIcon from "@mui/icons-material/PendingActionsRounded";
 import PlaylistAddCheckRoundedIcon from "@mui/icons-material/PlaylistAddCheckRounded";
+import PersonAddAltRoundedIcon from "@mui/icons-material/PersonAddAltRounded";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 import {
     Alert,
@@ -19,6 +21,7 @@ import {
     Grid,
     MenuItem,
     Pagination,
+    IconButton,
     Stack,
     Tab,
     Tabs,
@@ -54,7 +57,7 @@ import {
     type ApproveLoanApplicationRequest,
     type RejectLoanApplicationRequest
 } from "../lib/endpoints";
-import type { Loan, LoanApplication, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
+import type { Loan, LoanApplication, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
 import { MotionCard, MotionModal } from "../ui/motion";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -112,6 +115,75 @@ type PendingMoneyAction =
     | null;
 
 type LoanWorkspaceTab = "applications" | "portfolio" | "collections" | "activity";
+
+type CreditRiskDefaultCase = {
+    id: string;
+    tenant_id: string;
+    branch_id: string;
+    loan_id: string;
+    member_id: string;
+    status: "delinquent" | "in_recovery" | "claim_ready" | "restructured" | "written_off" | "recovered";
+    dpd_days: number;
+    opened_at: string;
+    closed_at?: string | null;
+    reason_code: string;
+    notes?: string | null;
+    loans?: {
+        id: string;
+        loan_number?: string | null;
+        status?: string | null;
+    };
+    members?: {
+        id: string;
+        full_name?: string | null;
+        member_no?: string | null;
+        phone?: string | null;
+    };
+};
+
+type CollectionAction = {
+    id: string;
+    tenant_id: string;
+    branch_id: string;
+    default_case_id: string;
+    loan_id: string;
+    member_id: string;
+    action_type: "call" | "visit" | "notice" | "legal_warning" | "settlement_offer";
+    owner_user_id?: string | null;
+    due_at: string;
+    completed_at?: string | null;
+    outcome_code?: "promised_to_pay" | "partial_paid" | "no_contact" | "refused" | "escalate" | null;
+    status: "open" | "completed" | "overdue" | "cancelled";
+    priority: number;
+    escalated_at?: string | null;
+    escalation_reason?: string | null;
+    notes?: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+type CreditRiskListResponse<T> = {
+    data: T[];
+    pagination?: {
+        page: number;
+        limit: number;
+        total: number;
+    };
+};
+
+type DefaultDetectionRunResult = {
+    tenant_id: string;
+    branch_id: string | null;
+    source: string;
+    detection_enabled: boolean;
+    dry_run: boolean;
+    threshold_dpd_days: number;
+    scanned_candidates: number;
+    open_cases_existing: number;
+    would_open_cases: number;
+    created_cases: number;
+    skipped_duplicates: number;
+};
 
 function formatLoanTransactionType(transactionType: LoanTransaction["transaction_type"]) {
     if (transactionType === "loan_repayment") {
@@ -273,11 +345,15 @@ export function LoansPage() {
     const [loans, setLoans] = useState<Loan[]>([]);
     const [schedules, setSchedules] = useState<LoanSchedule[]>([]);
     const [transactions, setTransactions] = useState<LoanTransaction[]>([]);
+    const [defaultCases, setDefaultCases] = useState<CreditRiskDefaultCase[]>([]);
+    const [collectionActions, setCollectionActions] = useState<CollectionAction[]>([]);
     const [loading, setLoading] = useState(true);
     const [processing, setProcessing] = useState(false);
+    const [runningDefaultDetection, setRunningDefaultDetection] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [reviewTarget, setReviewTarget] = useState<LoanApplication | null>(null);
     const [appraisalTarget, setAppraisalTarget] = useState<LoanApplication | null>(null);
+    const [appraisalGuarantors, setAppraisalGuarantors] = useState<Array<Pick<LoanGuarantor, "member_id" | "guaranteed_amount" | "notes">>>([]);
     const [approvalTarget, setApprovalTarget] = useState<LoanApplication | null>(null);
     const [rejectionTarget, setRejectionTarget] = useState<LoanApplication | null>(null);
     const [disbursementTarget, setDisbursementTarget] = useState<LoanApplication | null>(null);
@@ -292,6 +368,8 @@ export function LoansPage() {
     const [referencesLoading, setReferencesLoading] = useState(false);
     const [activityLoaded, setActivityLoaded] = useState(false);
     const [activityLoading, setActivityLoading] = useState(false);
+    const [creditRiskLoaded, setCreditRiskLoaded] = useState(false);
+    const [creditRiskLoading, setCreditRiskLoading] = useState(false);
     const pageSize = 8;
 
     const role = profile?.role || "loan_officer";
@@ -408,11 +486,25 @@ export function LoansPage() {
 
         setReferencesLoading(true);
         try {
-            const [{ data: membersResponse }, { data: productsResponse }] = await Promise.all([
-                api.get<MembersResponse>(endpoints.members.list(), { params: { tenant_id: selectedTenantId, page: 1, limit: 100 } }),
-                api.get<LoanProductsResponse>(endpoints.products.loans())
-            ]);
-            setMembers(membersResponse.data || []);
+            const productsPromise = api.get<LoanProductsResponse>(endpoints.products.loans());
+            const memberRows: Member[] = [];
+            const perPage = 100;
+            const maxPages = 10;
+
+            for (let page = 1; page <= maxPages; page += 1) {
+                const { data: membersResponse } = await api.get<MembersResponse>(endpoints.members.list(), {
+                    params: { tenant_id: selectedTenantId, page, limit: perPage }
+                });
+                const batch = membersResponse.data || [];
+                memberRows.push(...batch);
+                if (batch.length < perPage) {
+                    break;
+                }
+            }
+
+            const { data: productsResponse } = await productsPromise;
+            const uniqueMembers = Array.from(new Map(memberRows.map((member) => [member.id, member])).values());
+            setMembers(uniqueMembers);
             setLoanProducts(productsResponse.data || []);
             setReferencesLoaded(true);
         } catch (error) {
@@ -464,6 +556,80 @@ export function LoansPage() {
         }
     };
 
+    const loadCreditRiskData = async (options?: { silent?: boolean; force?: boolean }) => {
+        if (!selectedTenantId) {
+            return;
+        }
+
+        if (creditRiskLoading) {
+            return;
+        }
+
+        if (creditRiskLoaded && !options?.force) {
+            return;
+        }
+
+        setCreditRiskLoading(true);
+        try {
+            const [{ data: defaultCasesResponse }, { data: collectionActionsResponse }] = await Promise.all([
+                api.get<CreditRiskListResponse<CreditRiskDefaultCase>>("/credit-risk/default-cases", {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                }),
+                api.get<CreditRiskListResponse<CollectionAction>>("/credit-risk/collection-actions", {
+                    params: { tenant_id: selectedTenantId, page: 1, limit: 100 }
+                })
+            ]);
+
+            setDefaultCases(defaultCasesResponse.data || []);
+            setCollectionActions(collectionActionsResponse.data || []);
+            setCreditRiskLoaded(true);
+        } catch (error) {
+            if (!options?.silent) {
+                pushToast({
+                    type: "error",
+                    title: "Unable to load credit risk data",
+                    message: getApiErrorMessage(error)
+                });
+            }
+        } finally {
+            setCreditRiskLoading(false);
+        }
+    };
+
+    const runDefaultDetection = async () => {
+        if (!selectedTenantId) {
+            return;
+        }
+
+        setRunningDefaultDetection(true);
+        try {
+            const { data } = await api.post<{ data: DefaultDetectionRunResult }>("/credit-risk/default-detection/run", {
+                tenant_id: selectedTenantId,
+                dry_run: false,
+                max_loans: 500
+            });
+            const result = data.data;
+            pushToast({
+                type: "success",
+                title: "Default detection completed",
+                message: result.created_cases > 0
+                    ? `${result.created_cases} default case(s) opened automatically.`
+                    : `No new default cases opened. ${result.open_cases_existing} already open.`
+            });
+
+            await loadCreditRiskData({ force: true, silent: true });
+            await loadWorkspace();
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Unable to run default detection",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setRunningDefaultDetection(false);
+        }
+    };
+
     useEffect(() => {
         setMembers([]);
         setLoanProducts([]);
@@ -475,10 +641,14 @@ export function LoansPage() {
         setLoanTotal(0);
         setApplicationPage(1);
         setLoanPage(1);
+        setDefaultCases([]);
+        setCollectionActions([]);
         setReferencesLoaded(false);
         setReferencesLoading(false);
         setActivityLoaded(false);
         setActivityLoading(false);
+        setCreditRiskLoaded(false);
+        setCreditRiskLoading(false);
         setActiveTab("applications");
     }, [selectedTenantId]);
 
@@ -497,18 +667,63 @@ export function LoansPage() {
     }, [activeTab, activityLoaded, activityLoading]);
 
     useEffect(() => {
-        if ((showCreateModal || showRepayModal) && !referencesLoaded && !referencesLoading) {
+        if (
+            activeTab === "collections"
+            && ["loan_officer", "branch_manager"].includes(role)
+            && !creditRiskLoaded
+            && !creditRiskLoading
+        ) {
+            void loadCreditRiskData({ silent: true });
+        }
+    }, [activeTab, creditRiskLoaded, creditRiskLoading, role]);
+
+    useEffect(() => {
+        if ((showCreateModal || showRepayModal || Boolean(appraisalTarget)) && !referencesLoaded && !referencesLoading) {
             void loadReferenceData({ silent: true });
         }
-    }, [referencesLoaded, referencesLoading, showCreateModal, showRepayModal]);
+    }, [appraisalTarget, referencesLoaded, referencesLoading, showCreateModal, showRepayModal]);
 
     const memberOptions = useMemo(
         () =>
-            members.map((member) => ({
-                value: member.id,
-                label: member.full_name,
-                secondary: member.member_no || member.phone || undefined
-            })),
+            members.map((member) => {
+                const typedMember = member as Member & {
+                    first_name?: string | null;
+                    middle_name?: string | null;
+                    last_name?: string | null;
+                    phone_number?: string | null;
+                    nin?: string | null;
+                    tin_number?: string | null;
+                };
+                const fallbackName = [
+                    typedMember.first_name,
+                    typedMember.middle_name,
+                    typedMember.last_name
+                ]
+                    .map((entry) => String(entry || "").trim())
+                    .filter(Boolean)
+                    .join(" ");
+                const label = String(member.full_name || "").trim()
+                    || fallbackName
+                    || String(member.member_no || "").trim()
+                    || String(member.phone || typedMember.phone_number || "").trim()
+                    || `Member ${member.id.slice(0, 8)}`;
+                const secondary = [
+                    member.member_no,
+                    member.phone,
+                    member.email,
+                    typedMember.nin,
+                    typedMember.tin_number
+                ]
+                    .map((entry) => String(entry || "").trim())
+                    .filter(Boolean)
+                    .join(" · ");
+
+                return {
+                    value: member.id,
+                    label,
+                    secondary: secondary || undefined
+                };
+            }),
         [members]
     );
 
@@ -594,6 +809,14 @@ export function LoansPage() {
             "& .MuiAlert-icon": { color: dashboardAccent }
         }
         : undefined;
+    const darkAccentWarningAlertSx = theme.palette.mode === "dark"
+        ? {
+            borderColor: alpha(dashboardAccentStrong, 0.45),
+            color: dashboardAccent,
+            bgcolor: alpha(dashboardAccentStrong, 0.1),
+            "& .MuiAlert-icon": { color: dashboardAccentStrong }
+        }
+        : undefined;
     const arrearsRate = loans.length ? (metrics.arrearsLoans / loans.length) * 100 : 0;
     const overdueScheduleCount = useMemo(
         () => schedules.filter((schedule) => schedule.status === "overdue").length,
@@ -618,39 +841,48 @@ export function LoansPage() {
             return diffDays >= 0 && diffDays <= 7;
         }).length;
     }, [schedules]);
-    const loanOfficerPriorityItems = useMemo(() => {
-        return schedules
-            .map((schedule) => {
-                const loan = loans.find((entry) => entry.id === schedule.loan_id);
-                const member = members.find((entry) => entry.id === loan?.member_id);
-                const dueDate = new Date(schedule.due_date);
-                const daysToDue = Math.floor((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                return {
-                    id: schedule.id,
-                    loanId: schedule.loan_id,
-                    loanNumber: loan?.loan_number || "Unknown loan",
-                    borrower: member?.full_name || "Unknown member",
-                    dueDate: schedule.due_date,
-                    amount: pendingAmountForSchedule(schedule),
-                    status: schedule.status,
-                    daysToDue
-                };
-            })
+    const openDefaultCases = useMemo(
+        () => defaultCases.filter((item) => ["delinquent", "in_recovery", "claim_ready"].includes(item.status)),
+        [defaultCases]
+    );
+    const openDefaultCaseCount = openDefaultCases.length;
+    const openCollectionActionCount = useMemo(
+        () => collectionActions.filter((action) => action.status === "open").length,
+        [collectionActions]
+    );
+    const overdueCollectionActionCount = useMemo(
+        () => collectionActions.filter((action) => action.status === "overdue").length,
+        [collectionActions]
+    );
+    const collectionPriorityCases = useMemo(() => {
+        return openDefaultCases
+            .map((item) => ({
+                id: item.id,
+                loanId: item.loan_id,
+                loanNumber: item.loans?.loan_number || "Unknown loan",
+                borrower: item.members?.full_name || "Unknown member",
+                status: item.status,
+                dpdDays: Number(item.dpd_days || 0),
+                openedAt: item.opened_at,
+                reasonCode: item.reason_code
+            }))
             .sort((left, right) => {
-                const leftPriority = left.status === "overdue" ? 0 : left.status === "partial" ? 1 : 2;
-                const rightPriority = right.status === "overdue" ? 0 : right.status === "partial" ? 1 : 2;
-                if (leftPriority !== rightPriority) {
-                    return leftPriority - rightPriority;
+                if (left.dpdDays !== right.dpdDays) {
+                    return right.dpdDays - left.dpdDays;
                 }
 
-                if (left.daysToDue !== right.daysToDue) {
-                    return left.daysToDue - right.daysToDue;
-                }
-
-                return right.amount - left.amount;
+                return new Date(left.openedAt).getTime() - new Date(right.openedAt).getTime();
             })
             .slice(0, 6);
-    }, [schedules, loans, members]);
+    }, [openDefaultCases]);
+    const upcomingCollectionActions = useMemo(
+        () =>
+            collectionActions
+                .filter((action) => ["open", "overdue"].includes(action.status))
+                .sort((left, right) => new Date(left.due_at).getTime() - new Date(right.due_at).getTime())
+                .slice(0, 6),
+        [collectionActions]
+    );
     const loanOfficerQueue = [
         {
             id: "queue-appraisal",
@@ -669,20 +901,20 @@ export function LoansPage() {
             tone: metrics.readyToDisburse > 0 ? "warning" : "success"
         },
         {
-            id: "queue-overdue",
-            label: "Overdue schedules",
-            count: overdueScheduleCount,
-            helper: "Installments past due requiring immediate member outreach.",
+            id: "queue-default-cases",
+            label: "Open default cases",
+            count: openDefaultCaseCount,
+            helper: "Detected loan defaults currently under collections workflow.",
             route: "/follow-ups",
-            tone: overdueScheduleCount > 0 ? "error" : "success"
+            tone: openDefaultCaseCount > 0 ? "error" : "success"
         },
         {
-            id: "queue-arrears",
-            label: "Loans in arrears",
-            count: metrics.arrearsLoans,
-            helper: "Loan accounts already in arrears and under collections pressure.",
+            id: "queue-actions",
+            label: "Open collection actions",
+            count: openCollectionActionCount + overdueCollectionActionCount,
+            helper: "Open and overdue collection tasks requiring execution.",
             route: "/loans",
-            tone: metrics.arrearsLoans > 0 ? "warning" : "success"
+            tone: openCollectionActionCount + overdueCollectionActionCount > 0 ? "warning" : "success"
         }
     ] as const;
     const orderedTransactions = useMemo(
@@ -735,11 +967,11 @@ export function LoansPage() {
     }, [loans, members, orderedTransactions]);
     const workspaceTabs = useMemo(
         () =>
-            role === "loan_officer"
+            ["loan_officer", "branch_manager"].includes(role)
                 ? [
                     { value: "applications" as const, label: "Applications", count: applicationTotal },
                     { value: "portfolio" as const, label: "Portfolio", count: loanTotal },
-                    { value: "collections" as const, label: "Collections", count: overdueScheduleCount },
+                    { value: "collections" as const, label: "Collections", count: openDefaultCaseCount || overdueScheduleCount },
                     { value: "activity" as const, label: "Activity", count: transactions.length }
                 ]
                 : [
@@ -747,7 +979,7 @@ export function LoansPage() {
                     { value: "portfolio" as const, label: "Portfolio", count: loanTotal },
                     { value: "activity" as const, label: "Activity", count: transactions.length }
                 ],
-        [applicationTotal, loanTotal, overdueScheduleCount, role, transactions.length]
+        [applicationTotal, loanTotal, openDefaultCaseCount, overdueScheduleCount, role, transactions.length]
     );
 
     const paginatedApplications = applications;
@@ -764,6 +996,14 @@ export function LoansPage() {
 
     const openAppraisalDialog = (application: LoanApplication) => {
         setAppraisalTarget(application);
+        void loadReferenceData({ silent: true, force: true });
+        setAppraisalGuarantors(
+            (application.loan_guarantors || []).map((guarantor) => ({
+                member_id: guarantor.member_id,
+                guaranteed_amount: Number(guarantor.guaranteed_amount || 0),
+                notes: guarantor.notes || ""
+            }))
+        );
         appraiseForm.reset({
             recommended_amount: application.recommended_amount ?? application.requested_amount,
             recommended_term_count: application.recommended_term_count ?? application.requested_term_count,
@@ -772,6 +1012,28 @@ export function LoansPage() {
             risk_rating: (application.risk_rating as AppraiseValues["risk_rating"]) || "medium",
             appraisal_notes: application.appraisal_notes || ""
         });
+    };
+
+    const closeAppraisalDialog = () => {
+        setAppraisalTarget(null);
+        setAppraisalGuarantors([]);
+    };
+
+    const updateAppraisalGuarantor = (
+        index: number,
+        patch: Partial<Pick<LoanGuarantor, "member_id" | "guaranteed_amount" | "notes">>
+    ) => {
+        setAppraisalGuarantors((prev) =>
+            prev.map((entry, entryIndex) =>
+                entryIndex === index
+                    ? { ...entry, ...patch }
+                    : entry
+            )
+        );
+    };
+
+    const removeAppraisalGuarantor = (index: number) => {
+        setAppraisalGuarantors((prev) => prev.filter((_, entryIndex) => entryIndex !== index));
     };
 
     const createApplication = createForm.handleSubmit(async (values) => {
@@ -804,6 +1066,9 @@ export function LoansPage() {
             if (activityLoaded) {
                 await loadActivityData({ silent: true, force: true });
             }
+            if (creditRiskLoaded) {
+                await loadCreditRiskData({ silent: true, force: true });
+            }
         } catch (error) {
             pushToast({
                 type: "error",
@@ -828,6 +1093,9 @@ export function LoansPage() {
             if (activityLoaded) {
                 await loadActivityData({ silent: true, force: true });
             }
+            if (creditRiskLoaded) {
+                await loadCreditRiskData({ silent: true, force: true });
+            }
         } catch (error) {
             pushToast({
                 type: "error",
@@ -846,8 +1114,38 @@ export function LoansPage() {
 
         setProcessing(true);
         try {
+            const normalizedGuarantors = appraisalGuarantors
+                .map((entry) => ({
+                    member_id: String(entry.member_id || "").trim(),
+                    guaranteed_amount: Number(entry.guaranteed_amount || 0),
+                    notes: String(entry.notes || "").trim() || null
+                }))
+                .filter((entry) => entry.member_id && entry.guaranteed_amount > 0);
+
+            const guarantorIds = normalizedGuarantors.map((entry) => entry.member_id);
+            if (guarantorIds.some((memberId) => memberId === appraisalTarget.member_id)) {
+                pushToast({
+                    type: "error",
+                    title: "Invalid guarantor selection",
+                    message: "Borrower cannot be selected as guarantor."
+                });
+                setProcessing(false);
+                return;
+            }
+
+            if (new Set(guarantorIds).size !== guarantorIds.length) {
+                pushToast({
+                    type: "error",
+                    title: "Duplicate guarantors",
+                    message: "Each guarantor member can only be added once."
+                });
+                setProcessing(false);
+                return;
+            }
+
             const payload: AppraiseLoanApplicationRequest = {
-                ...values
+                ...values,
+                guarantors: normalizedGuarantors
             };
             await api.post<LoanApplicationResponse>(endpoints.loanApplications.appraise(appraisalTarget.id), payload);
             pushToast({
@@ -855,10 +1153,13 @@ export function LoansPage() {
                 title: "Application appraised",
                 message: "The branch manager can now review this recommendation."
             });
-            setAppraisalTarget(null);
+            closeAppraisalDialog();
             await loadWorkspace();
             if (activityLoaded) {
                 await loadActivityData({ silent: true, force: true });
+            }
+            if (creditRiskLoaded) {
+                await loadCreditRiskData({ silent: true, force: true });
             }
         } catch (error) {
             pushToast({
@@ -896,6 +1197,9 @@ export function LoansPage() {
             if (activityLoaded) {
                 await loadActivityData({ silent: true, force: true });
             }
+            if (creditRiskLoaded) {
+                await loadCreditRiskData({ silent: true, force: true });
+            }
         } catch (error) {
             pushToast({
                 type: "error",
@@ -929,6 +1233,9 @@ export function LoansPage() {
             await loadWorkspace();
             if (activityLoaded) {
                 await loadActivityData({ silent: true, force: true });
+            }
+            if (creditRiskLoaded) {
+                await loadCreditRiskData({ silent: true, force: true });
             }
         } catch (error) {
             pushToast({
@@ -997,6 +1304,9 @@ export function LoansPage() {
             await loadWorkspace();
             if (activityLoaded) {
                 await loadActivityData({ silent: true, force: true });
+            }
+            if (creditRiskLoaded) {
+                await loadCreditRiskData({ silent: true, force: true });
             }
         } catch (error) {
             pushToast({
@@ -1769,7 +2079,7 @@ export function LoansPage() {
                 </Grid>
             ) : null}
 
-            {activeTab === "collections" && role === "loan_officer" ? (
+            {activeTab === "collections" && ["loan_officer", "branch_manager"].includes(role) ? (
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, lg: 8 }}>
                         <MotionCard variant="outlined" sx={{ height: "100%" }}>
@@ -1778,31 +2088,38 @@ export function LoansPage() {
                                     <Box>
                                         <Typography variant="h6">Collections Priority Board</Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                            Highest-risk installment items to follow up immediately.
+                                            Live default cases detected by credit-risk controls, ranked by delinquency pressure.
                                         </Typography>
                                     </Box>
                                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                         <Chip
-                                            label={`${overdueScheduleCount} overdue`}
-                                            color={overdueScheduleCount > 0 ? "error" : "success"}
+                                            label={`${openDefaultCaseCount} open default case(s)`}
+                                            color={openDefaultCaseCount > 0 ? "error" : "success"}
                                             variant="outlined"
                                         />
                                         <Chip
-                                            label={`${dueWithin7DaysCount} due this week`}
-                                            color={dueWithin7DaysCount > 0 ? "warning" : "success"}
+                                            label={`${openCollectionActionCount} open action(s)`}
+                                            color={openCollectionActionCount > 0 ? "warning" : "success"}
                                             variant="outlined"
                                         />
                                         <Chip
-                                            label={`${formatCurrency(overdueExposure)} exposed`}
+                                            label={`${overdueCollectionActionCount} overdue action(s)`}
                                             color="primary"
                                             variant="outlined"
                                             sx={darkAccentChipSx}
                                         />
+                                        {!openDefaultCaseCount && overdueScheduleCount ? (
+                                            <Chip
+                                                label={`${overdueScheduleCount} overdue schedule(s)`}
+                                                color="warning"
+                                                variant="outlined"
+                                            />
+                                        ) : null}
                                     </Stack>
                                     <Divider />
-                                    {loanOfficerPriorityItems.length ? (
+                                    {collectionPriorityCases.length ? (
                                         <Stack spacing={1.1}>
-                                            {loanOfficerPriorityItems.map((item) => (
+                                            {collectionPriorityCases.map((item) => (
                                                 <Button
                                                     key={item.id}
                                                     fullWidth
@@ -1814,21 +2131,21 @@ export function LoansPage() {
                                                     <Stack spacing={0.15} sx={{ textAlign: "left", flex: 1 }}>
                                                         <Typography variant="subtitle2">{item.loanNumber} · {item.borrower}</Typography>
                                                         <Typography variant="caption" color="text.secondary">
-                                                            Due {formatDate(item.dueDate)} · {formatCurrency(item.amount)}
+                                                            DPD {item.dpdDays} days · {item.reasonCode.replace(/_/g, " ")}
                                                         </Typography>
                                                     </Stack>
                                                     <Chip
                                                         size="small"
                                                         label={item.status}
-                                                        color={item.status === "overdue" ? "error" : item.status === "partial" ? "warning" : "success"}
-                                                        variant={item.status === "pending" ? "outlined" : "filled"}
+                                                        color={item.status === "claim_ready" ? "error" : item.status === "in_recovery" ? "warning" : "default"}
+                                                        variant={item.status === "delinquent" ? "outlined" : "filled"}
                                                     />
                                                 </Button>
                                             ))}
                                         </Stack>
                                     ) : (
-                                        <Alert severity="success" variant="outlined">
-                                            No pending or overdue schedules currently require follow-up.
+                                        <Alert severity="info" variant="outlined" sx={darkAccentInfoAlertSx}>
+                                            No open default cases yet. Run detection or wait for scheduler cycle.
                                         </Alert>
                                     )}
                                 </Stack>
@@ -1842,14 +2159,22 @@ export function LoansPage() {
                                     <Box>
                                         <Typography variant="h6">Collections Actions</Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                            Move quickly between follow-up, portfolio, and repayment operations.
+                                            Trigger detection, review action backlog, and execute your recovery workflow.
                                         </Typography>
                                     </Box>
                                     <Button
                                         variant="contained"
                                         startIcon={<PendingActionsRoundedIcon />}
-                                        onClick={() => navigate("/follow-ups")}
+                                        onClick={() => void runDefaultDetection()}
+                                        disabled={runningDefaultDetection || subscriptionInactive}
                                         sx={darkAccentContainedSx}
+                                    >
+                                        {runningDefaultDetection ? "Detecting defaults..." : "Run Default Detection"}
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        onClick={() => navigate("/follow-ups")}
+                                        sx={darkAccentOutlinedSx}
                                     >
                                         Open Follow-ups
                                     </Button>
@@ -1858,16 +2183,37 @@ export function LoansPage() {
                                     </Button>
                                     <Divider />
                                     <Stack spacing={1.1}>
-                                        {loanOfficerQueue.map((item) => (
-                                            <Stack key={item.id} direction="row" justifyContent="space-between" alignItems="center">
-                                                <Typography variant="body2" color="text.secondary">{item.label}</Typography>
-                                                <Chip
-                                                    label={String(item.count)}
-                                                    size="small"
-                                                    color={item.tone === "error" ? "error" : item.tone === "warning" ? "warning" : "success"}
-                                                />
-                                            </Stack>
-                                        ))}
+                                        {upcomingCollectionActions.length ? (
+                                            upcomingCollectionActions.map((action) => (
+                                                <Button
+                                                    key={action.id}
+                                                    fullWidth
+                                                    variant="text"
+                                                    color="inherit"
+                                                    onClick={() => navigate(`/loans/${action.loan_id}`)}
+                                                    sx={{ justifyContent: "space-between", textTransform: "none", px: 0, py: 0.75 }}
+                                                >
+                                                    <Stack spacing={0.15} sx={{ textAlign: "left", flex: 1 }}>
+                                                        <Typography variant="subtitle2">
+                                                            {action.action_type.replace(/_/g, " ")} · due {formatDate(action.due_at)}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            Priority {action.priority} · {action.notes || "No notes"}
+                                                        </Typography>
+                                                    </Stack>
+                                                    <Chip
+                                                        size="small"
+                                                        label={action.status}
+                                                        color={action.status === "overdue" ? "error" : "warning"}
+                                                        variant={action.status === "open" ? "outlined" : "filled"}
+                                                    />
+                                                </Button>
+                                            ))
+                                        ) : (
+                                            <Alert severity="info" variant="outlined" sx={darkAccentInfoAlertSx}>
+                                                No open collection actions yet.
+                                            </Alert>
+                                        )}
                                     </Stack>
                                 </Stack>
                             </CardContent>
@@ -2302,7 +2648,7 @@ export function LoansPage() {
                 </DialogActions>
             </MotionModal>
 
-            <MotionModal open={Boolean(appraisalTarget)} onClose={processing ? undefined : () => setAppraisalTarget(null)} maxWidth="md" fullWidth>
+            <MotionModal open={Boolean(appraisalTarget)} onClose={processing ? undefined : closeAppraisalDialog} maxWidth="md" fullWidth>
                 <DialogTitle>Appraise Loan Application</DialogTitle>
                 <DialogContent dividers>
                     <Box component="form" id="loan-appraisal-form" onSubmit={saveAppraisal} sx={{ display: "grid", gap: 2, pt: 0.5 }}>
@@ -2373,10 +2719,102 @@ export function LoansPage() {
                             error={Boolean(appraiseForm.formState.errors.appraisal_notes)}
                             helperText={appraiseForm.formState.errors.appraisal_notes?.message}
                         />
+                        <Divider />
+                        <Stack spacing={1.25}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Box>
+                                    <Typography variant="subtitle2">Guarantors</Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Select guarantor members and committed amount. These values feed guarantor exposure controls.
+                                    </Typography>
+                                </Box>
+                                <Button
+                                    size="small"
+                                    variant="outlined"
+                                    startIcon={<PersonAddAltRoundedIcon fontSize="small" />}
+                                    onClick={() =>
+                                        setAppraisalGuarantors((prev) => [
+                                            ...prev,
+                                            { member_id: "", guaranteed_amount: 0, notes: "" }
+                                        ])
+                                    }
+                                    sx={darkAccentOutlinedSx}
+                                >
+                                    Add guarantor
+                                </Button>
+                            </Stack>
+                            {appraisalGuarantors.length ? (
+                                appraisalGuarantors.map((guarantor, index) => {
+                                    const selectedElsewhere = appraisalGuarantors
+                                        .filter((_, entryIndex) => entryIndex !== index)
+                                        .map((entry) => entry.member_id);
+                                    const rowMemberOptions = memberOptions.filter((option) => {
+                                        if (appraisalTarget && option.value === appraisalTarget.member_id) {
+                                            return false;
+                                        }
+                                        if (option.value === guarantor.member_id) {
+                                            return true;
+                                        }
+                                        return !selectedElsewhere.includes(option.value);
+                                    });
+
+                                    return (
+                                        <Grid container spacing={1.5} key={`appraisal-guarantor-${index}`}>
+                                            <Grid size={{ xs: 12, md: 5 }}>
+                                                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
+                                                    Guarantor Member
+                                                </Typography>
+                                                <SearchableSelect
+                                                    value={guarantor.member_id}
+                                                    options={rowMemberOptions}
+                                                    onChange={(value) => updateAppraisalGuarantor(index, { member_id: value })}
+                                                    placeholder="Search guarantor member..."
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    label="Guaranteed Amount"
+                                                    type="number"
+                                                    fullWidth
+                                                    value={guarantor.guaranteed_amount}
+                                                    onChange={(event) =>
+                                                        updateAppraisalGuarantor(index, {
+                                                            guaranteed_amount: Number(event.target.value || 0)
+                                                        })
+                                                    }
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    label="Notes"
+                                                    fullWidth
+                                                    value={guarantor.notes || ""}
+                                                    onChange={(event) => updateAppraisalGuarantor(index, { notes: event.target.value })}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 1 }}>
+                                                <IconButton
+                                                    color="error"
+                                                    aria-label="Remove guarantor"
+                                                    onClick={() => removeAppraisalGuarantor(index)}
+                                                    sx={{ mt: { xs: 0, md: 2.25 } }}
+                                                >
+                                                    <DeleteOutlineRoundedIcon fontSize="small" />
+                                                </IconButton>
+                                            </Grid>
+                                        </Grid>
+                                    );
+                                })
+                            ) : (
+                                <Alert severity="warning" variant="outlined" sx={darkAccentWarningAlertSx}>
+                                    No guarantors added. Exposure controls will not evaluate until guarantors are provided.
+                                </Alert>
+                            )}
+                        </Stack>
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setAppraisalTarget(null)}>Cancel</Button>
+                    <Button onClick={closeAppraisalDialog}>Cancel</Button>
                     <Button variant="contained" type="submit" form="loan-appraisal-form" disabled={processing} sx={darkAccentContainedSx}>
                         {processing ? "Saving..." : "Save Appraisal"}
                     </Button>
