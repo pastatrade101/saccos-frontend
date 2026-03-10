@@ -176,6 +176,8 @@ const routeMap = {
     },
     reports: {
         trialBalance: "/reports/trial-balance/export",
+        balanceSheet: "/reports/balance-sheet/export",
+        incomeStatement: "/reports/income-statement/export",
         memberStatements: "/reports/member-statements/export",
         par: "/reports/par/export",
         loanAging: "/reports/loan-aging/export",
@@ -322,6 +324,8 @@ export const endpoints = {
     },
     reports: {
         trialBalance: () => routeMap.reports.trialBalance,
+        balanceSheet: () => routeMap.reports.balanceSheet,
+        incomeStatement: () => routeMap.reports.incomeStatement,
         memberStatements: () => routeMap.reports.memberStatements,
         par: () => routeMap.reports.par,
         loanAging: () => routeMap.reports.loanAging,

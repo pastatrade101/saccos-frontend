@@ -1,4 +1,5 @@
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
+import BalanceRoundedIcon from "@mui/icons-material/BalanceRounded";
 import AutoGraphRoundedIcon from "@mui/icons-material/AutoGraphRounded";
 import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
@@ -47,6 +48,43 @@ const statementSchema = z.object({
 });
 
 type StatementExportValues = z.infer<typeof statementSchema>;
+const financialExportSchema = z
+    .object({
+        balance_as_of_date: z.string().optional(),
+        balance_compare_as_of_date: z.string().optional(),
+        income_from_date: z.string().optional(),
+        income_to_date: z.string().optional(),
+        income_compare_from_date: z.string().optional(),
+        income_compare_to_date: z.string().optional(),
+        include_zero_balances: z.boolean().default(false)
+    })
+    .superRefine((values, ctx) => {
+        if ((values.income_compare_from_date && !values.income_compare_to_date)
+            || (!values.income_compare_from_date && values.income_compare_to_date)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Provide both comparative dates for income statement.",
+                path: ["income_compare_from_date"]
+            });
+        }
+
+        if (values.income_from_date && values.income_to_date && values.income_from_date > values.income_to_date) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Income from date cannot be after to date.",
+                path: ["income_from_date"]
+            });
+        }
+
+        if (values.income_compare_from_date && values.income_compare_to_date && values.income_compare_from_date > values.income_compare_to_date) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Comparative from date cannot be after comparative to date.",
+                path: ["income_compare_from_date"]
+            });
+        }
+    });
+type FinancialExportValues = z.infer<typeof financialExportSchema>;
 const PACK_DOWNLOAD_DELAY_MS = 260;
 const REPORT_EXPORT_POLL_INTERVAL_MS = 2000;
 const REPORT_EXPORT_MAX_POLLS = 45;
@@ -57,6 +95,19 @@ function wait(ms: number) {
     });
 }
 
+function dateIso(value: Date) {
+    return value.toISOString().slice(0, 10);
+}
+
+function getTodayIso() {
+    return dateIso(new Date());
+}
+
+function getYearStartIso() {
+    const now = new Date();
+    return dateIso(new Date(now.getFullYear(), 0, 1));
+}
+
 export function ReportsPage() {
     const theme = useTheme();
     const { pushToast } = useToast();
@@ -64,6 +115,8 @@ export function ReportsPage() {
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
     const [downloading, setDownloading] = useState<string | null>(null);
     const advancedReportsEnabled = Boolean(subscription?.features?.advanced_reports);
+    const todayIso = useMemo(() => getTodayIso(), []);
+    const yearStartIso = useMemo(() => getYearStartIso(), []);
     const reportsAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
     const reportsAccentStrong = theme.palette.mode === "dark" ? "#C89B52" : theme.palette.primary.dark;
 
@@ -73,6 +126,18 @@ export function ReportsPage() {
             account_id: localStorage.getItem("saccos:selectedAccountId") || "",
             from_date: "",
             to_date: ""
+        }
+    });
+    const financialForm = useForm<FinancialExportValues>({
+        resolver: zodResolver(financialExportSchema),
+        defaultValues: {
+            balance_as_of_date: todayIso,
+            balance_compare_as_of_date: "",
+            income_from_date: yearStartIso,
+            income_to_date: todayIso,
+            income_compare_from_date: "",
+            income_compare_to_date: "",
+            include_zero_balances: false
         }
     });
 
@@ -224,6 +289,26 @@ export function ReportsPage() {
             format: "pdf"
         });
     });
+    const exportBalanceSheet = financialForm.handleSubmit(async (values) => {
+        await runDownload("balance-sheet", endpoints.reports.balanceSheet(), {
+            tenant_id: selectedTenantId || undefined,
+            as_of_date: values.balance_as_of_date || todayIso,
+            compare_as_of_date: values.balance_compare_as_of_date || undefined,
+            include_zero_balances: values.include_zero_balances ? "true" : undefined,
+            format: "pdf"
+        });
+    });
+    const exportIncomeStatement = financialForm.handleSubmit(async (values) => {
+        await runDownload("income-statement", endpoints.reports.incomeStatement(), {
+            tenant_id: selectedTenantId || undefined,
+            from_date: values.income_from_date || yearStartIso,
+            to_date: values.income_to_date || todayIso,
+            compare_from_date: values.income_compare_from_date || undefined,
+            compare_to_date: values.income_compare_to_date || undefined,
+            include_zero_balances: values.include_zero_balances ? "true" : undefined,
+            format: "pdf"
+        });
+    });
 
     const applyStatementDatePreset = (preset: "month" | "quarter" | "year" | "last30") => {
         const now = new Date();
@@ -246,6 +331,27 @@ export function ReportsPage() {
 
         form.setValue("from_date", fromDate, { shouldValidate: true });
         form.setValue("to_date", today, { shouldValidate: true });
+    };
+    const applyIncomeDatePreset = (preset: "month" | "quarter" | "year" | "last30") => {
+        const now = new Date();
+        const today = dateIso(now);
+
+        let fromDate = today;
+        if (preset === "month") {
+            fromDate = dateIso(new Date(now.getFullYear(), now.getMonth(), 1));
+        } else if (preset === "quarter") {
+            const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+            fromDate = dateIso(new Date(now.getFullYear(), quarterStartMonth, 1));
+        } else if (preset === "year") {
+            fromDate = dateIso(new Date(now.getFullYear(), 0, 1));
+        } else {
+            const last30 = new Date(now);
+            last30.setDate(last30.getDate() - 30);
+            fromDate = dateIso(last30);
+        }
+
+        financialForm.setValue("income_from_date", fromDate, { shouldValidate: true });
+        financialForm.setValue("income_to_date", today, { shouldValidate: true });
     };
 
     const readyMadePacks = useMemo(
@@ -280,9 +386,27 @@ export function ReportsPage() {
                     { fileKey: "trial-balance", url: endpoints.reports.trialBalance(), params: { tenant_id: selectedTenantId || undefined, format: "pdf" } },
                     { fileKey: "member-statements", url: endpoints.reports.memberStatements(), params: { tenant_id: selectedTenantId || undefined, format: "pdf" } }
                 ]
+            },
+            {
+                key: "statutory-pack",
+                label: "Statutory Pack",
+                helper: "Balance Sheet + Income Statement for period governance review.",
+                icon: <BalanceRoundedIcon fontSize="small" />,
+                jobs: [
+                    {
+                        fileKey: "balance-sheet",
+                        url: endpoints.reports.balanceSheet(),
+                        params: { tenant_id: selectedTenantId || undefined, as_of_date: todayIso, format: "pdf" }
+                    },
+                    {
+                        fileKey: "income-statement",
+                        url: endpoints.reports.incomeStatement(),
+                        params: { tenant_id: selectedTenantId || undefined, from_date: yearStartIso, to_date: todayIso, format: "pdf" }
+                    }
+                ]
             }
         ],
-        [selectedTenantId]
+        [selectedTenantId, todayIso, yearStartIso]
     );
 
     const metricCards = [
@@ -294,8 +418,8 @@ export function ReportsPage() {
         },
         {
             label: "Core exports",
-            value: "3",
-            helper: "Trial Balance, PAR, and Loan Aging PDF.",
+            value: "5",
+            helper: "Trial Balance, Balance Sheet, Income Statement, PAR, and Loan Aging.",
             icon: <AssessmentRoundedIcon fontSize="small" />
         },
         {
@@ -554,6 +678,74 @@ export function ReportsPage() {
                                     >
                                         {downloading === "par" ? "Preparing PAR..." : "Download PAR PDF"}
                                     </Button>
+                                </Stack>
+                                <Divider />
+                                <Stack spacing={1}>
+                                    <Typography variant="subtitle2">Balance Sheet Export</Typography>
+                                    <form className={pageStyles.form} onSubmit={exportBalanceSheet}>
+                                        <div className="grid-2">
+                                            <FormField label="As of date">
+                                                <input type="date" {...financialForm.register("balance_as_of_date")} />
+                                            </FormField>
+                                            <FormField label="Comparative as of date (optional)">
+                                                <input type="date" {...financialForm.register("balance_compare_as_of_date")} />
+                                            </FormField>
+                                        </div>
+                                        <Box sx={{ mt: 0.5 }}>
+                                            <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                                <input type="checkbox" {...financialForm.register("include_zero_balances")} />
+                                                <Typography variant="body2" color="text.secondary">
+                                                    Include zero-balance accounts
+                                                </Typography>
+                                            </label>
+                                        </Box>
+                                        <Button
+                                            variant="contained"
+                                            type="submit"
+                                            disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                            startIcon={<BalanceRoundedIcon />}
+                                            sx={theme.palette.mode === "dark" ? darkContainedButtonSx : undefined}
+                                        >
+                                            {downloading === "balance-sheet" ? "Preparing Balance Sheet..." : "Download Balance Sheet PDF"}
+                                        </Button>
+                                    </form>
+                                </Stack>
+                                <Divider />
+                                <Stack spacing={1}>
+                                    <Typography variant="subtitle2">Income Statement Export</Typography>
+                                    <form className={pageStyles.form} onSubmit={exportIncomeStatement}>
+                                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                            <Chip label="This Month" variant="outlined" onClick={() => applyIncomeDatePreset("month")} sx={{ cursor: "pointer" }} />
+                                            <Chip label="This Quarter" variant="outlined" onClick={() => applyIncomeDatePreset("quarter")} sx={{ cursor: "pointer" }} />
+                                            <Chip label="YTD" variant="outlined" onClick={() => applyIncomeDatePreset("year")} sx={{ cursor: "pointer" }} />
+                                            <Chip label="Last 30 Days" variant="outlined" onClick={() => applyIncomeDatePreset("last30")} sx={{ cursor: "pointer" }} />
+                                        </Stack>
+                                        <div className="grid-2">
+                                            <FormField label="From date">
+                                                <input type="date" {...financialForm.register("income_from_date")} />
+                                            </FormField>
+                                            <FormField label="To date">
+                                                <input type="date" {...financialForm.register("income_to_date")} />
+                                            </FormField>
+                                        </div>
+                                        <div className="grid-2">
+                                            <FormField label="Comparative from (optional)">
+                                                <input type="date" {...financialForm.register("income_compare_from_date")} />
+                                            </FormField>
+                                            <FormField label="Comparative to (optional)">
+                                                <input type="date" {...financialForm.register("income_compare_to_date")} />
+                                            </FormField>
+                                        </div>
+                                        <Button
+                                            variant="contained"
+                                            type="submit"
+                                            disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                            startIcon={<BalanceRoundedIcon />}
+                                            sx={theme.palette.mode === "dark" ? darkContainedButtonSx : undefined}
+                                        >
+                                            {downloading === "income-statement" ? "Preparing Income Statement..." : "Download Income Statement PDF"}
+                                        </Button>
+                                    </form>
                                 </Stack>
                             </Stack>
                         </CardContent>
