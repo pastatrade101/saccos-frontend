@@ -41,6 +41,16 @@ import {
     type LoansResponse,
     type MemberApplicationsResponse,
     type MembersResponse,
+    type PlatformErrorRow,
+    type PlatformErrorsResponse,
+    type PlatformInfrastructureMetrics,
+    type PlatformInfrastructureMetricsResponse,
+    type PlatformSlowEndpointRow,
+    type PlatformSlowEndpointsResponse,
+    type PlatformSystemMetrics,
+    type PlatformSystemMetricsResponse,
+    type PlatformTenantTrafficResponse,
+    type PlatformTenantTrafficRow,
     type StatementsResponse,
     type TenantsListResponse,
     type UsersListResponse
@@ -63,6 +73,11 @@ interface DashboardState {
 interface PlatformState {
     tenants: Tenant[];
     branches: Branch[];
+    systemMetrics: PlatformSystemMetrics | null;
+    tenantTraffic: PlatformTenantTrafficRow[];
+    infrastructure: PlatformInfrastructureMetrics | null;
+    errors: PlatformErrorRow[];
+    slowEndpoints: PlatformSlowEndpointRow[];
 }
 
 interface RoleMetric {
@@ -665,7 +680,12 @@ export function DashboardPage() {
     });
     const [platformState, setPlatformState] = useState<PlatformState>({
         tenants: [],
-        branches: []
+        branches: [],
+        systemMetrics: null,
+        tenantTraffic: [],
+        infrastructure: null,
+        errors: [],
+        slowEndpoints: []
     });
     const [loading, setLoading] = useState(true);
     const [supplementalLoading, setSupplementalLoading] = useState(false);
@@ -745,16 +765,53 @@ export function DashboardPage() {
                 setError(null);
 
                 try {
-                    const [{ data: tenantsResponse }, { data: branchesResponse }] = await Promise.all([
+                    const [
+                        tenantsResult,
+                        branchesResult,
+                        systemResult,
+                        tenantTrafficResult,
+                        infrastructureResult,
+                        errorsResult,
+                        slowEndpointsResult
+                    ] = await Promise.allSettled([
                         api.get<TenantsListResponse>(endpoints.tenants.list(), { params: { page: 1, limit: 100 } }),
-                        api.get<BranchesListResponse>(endpoints.branches.list(), { params: { page: 1, limit: 100 } })
+                        api.get<BranchesListResponse>(endpoints.branches.list(), { params: { page: 1, limit: 100 } }),
+                        api.get<PlatformSystemMetricsResponse>(endpoints.platform.metricsSystem(), {
+                            params: { window_minutes: 60 }
+                        }),
+                        api.get<PlatformTenantTrafficResponse>(endpoints.platform.metricsTenants(), {
+                            params: { window_minutes: 60, sort_by: "traffic", sort_dir: "desc" }
+                        }),
+                        api.get<PlatformInfrastructureMetricsResponse>(endpoints.platform.metricsInfrastructure(), {
+                            params: { window_minutes: 1 }
+                        }),
+                        api.get<PlatformErrorsResponse>(endpoints.platform.errors(), {
+                            params: { page: 1, limit: 20 }
+                        }),
+                        api.get<PlatformSlowEndpointsResponse>(endpoints.platform.metricsSlowEndpoints(), {
+                            params: { window_minutes: 60, limit: 10 }
+                        })
                     ]);
 
                     if (isActive) {
                         setPlatformState({
-                            tenants: tenantsResponse.data || [],
-                            branches: branchesResponse.data || []
+                            tenants: tenantsResult.status === "fulfilled" ? tenantsResult.value.data.data || [] : [],
+                            branches: branchesResult.status === "fulfilled" ? branchesResult.value.data.data || [] : [],
+                            systemMetrics: systemResult.status === "fulfilled" ? systemResult.value.data.data : null,
+                            tenantTraffic: tenantTrafficResult.status === "fulfilled" ? tenantTrafficResult.value.data.data || [] : [],
+                            infrastructure: infrastructureResult.status === "fulfilled" ? infrastructureResult.value.data.data : null,
+                            errors: errorsResult.status === "fulfilled" ? errorsResult.value.data.data || [] : [],
+                            slowEndpoints: slowEndpointsResult.status === "fulfilled" ? slowEndpointsResult.value.data.data || [] : []
                         });
+                    }
+
+                    const criticalFailure =
+                        tenantsResult.status === "rejected"
+                        && branchesResult.status === "rejected"
+                        && systemResult.status === "rejected";
+
+                    if (criticalFailure && isActive) {
+                        setError(getApiErrorMessage(tenantsResult.reason));
                     }
                 } catch (loadError) {
                     if (isActive) {
@@ -1275,6 +1332,15 @@ export function DashboardPage() {
             activeSubscriptions: latestSubscriptions.filter((subscription) => subscription?.status === "active").length,
             pastDueSubscriptions: latestSubscriptions.filter((subscription) => subscription?.status === "past_due").length,
             totalBranches: platformState.branches.length,
+            requestsPerSec: Number(platformState.systemMetrics?.requests_per_sec || 0),
+            p95LatencyMs: Number(platformState.systemMetrics?.p95_latency_ms || 0),
+            errorRatePct: Number(platformState.systemMetrics?.error_rate_pct || 0),
+            activeUsers: Number(platformState.systemMetrics?.active_users || 0),
+            activeTenants: Number(platformState.systemMetrics?.active_tenants || 0),
+            cpuPct: Number(platformState.infrastructure?.cpu_pct || 0),
+            memoryPct: Number(platformState.infrastructure?.memory_pct || 0),
+            diskPct: Number(platformState.infrastructure?.disk_pct || 0),
+            networkMbps: Number(platformState.infrastructure?.network_mbps || 0),
             planBreakdown: ["starter", "growth", "enterprise"].map((plan) => ({
                 plan,
                 count: latestSubscriptions.filter((subscription) => (subscription?.plan || "starter") === plan).length
@@ -1283,7 +1349,10 @@ export function DashboardPage() {
                 const key = tenant.created_at.slice(0, 7);
                 accumulator.set(key, (accumulator.get(key) || 0) + 1);
                 return accumulator;
-            }, new Map<string, number>()).entries()].sort(([left], [right]) => left.localeCompare(right)).slice(-6)
+            }, new Map<string, number>()).entries()].sort(([left], [right]) => left.localeCompare(right)).slice(-6),
+            topTrafficTenants: platformState.tenantTraffic.slice(0, 6),
+            recentErrors: platformState.errors.slice(0, 8),
+            slowEndpoints: platformState.slowEndpoints.slice(0, 8)
         };
     }, [platformState]);
     const platformColumns: Column<Tenant>[] = [
@@ -1316,6 +1385,49 @@ export function DashboardPage() {
             render: (row) => String(platformState.branches.filter((branch) => branch.tenant_id === row.id).length)
         },
         { key: "created", header: "Created", render: (row) => formatDate(row.created_at) }
+    ];
+    const platformTrafficColumns: Column<PlatformTenantTrafficRow>[] = [
+        {
+            key: "tenant_name",
+            header: "Tenant",
+            render: (row) => (
+                <Stack spacing={0.25}>
+                    <Typography variant="body2" fontWeight={700}>{row.tenant_name}</Typography>
+                    <Typography variant="caption" color="text.secondary">{row.tenant_id}</Typography>
+                </Stack>
+            )
+        },
+        { key: "request_count", header: "Requests", render: (row) => row.request_count.toLocaleString() },
+        { key: "error_count", header: "Errors", render: (row) => row.error_count.toLocaleString() },
+        { key: "avg_latency_ms", header: "Avg Latency", render: (row) => `${row.avg_latency_ms.toFixed(1)} ms` },
+        { key: "active_users", header: "Active Users", render: (row) => row.active_users.toLocaleString() }
+    ];
+    const platformErrorColumns: Column<PlatformErrorRow>[] = [
+        { key: "timestamp", header: "Time", render: (row) => formatDate(row.timestamp) },
+        { key: "endpoint", header: "Endpoint", render: (row) => row.endpoint },
+        {
+            key: "status_code",
+            header: "Status",
+            render: (row) => (
+                <Chip
+                    size="small"
+                    label={String(row.status_code)}
+                    color={row.status_code >= 500 ? "error" : "warning"}
+                    variant="outlined"
+                />
+            )
+        },
+        {
+            key: "tenant_id",
+            header: "Tenant",
+            render: (row) => row.tenant_name || row.tenant_id || "System"
+        },
+        { key: "message", header: "Error", render: (row) => row.message }
+    ];
+    const platformSlowColumns: Column<PlatformSlowEndpointRow>[] = [
+        { key: "endpoint", header: "Endpoint", render: (row) => row.endpoint },
+        { key: "avg_latency_ms", header: "Avg Latency", render: (row) => `${row.avg_latency_ms.toFixed(1)} ms` },
+        { key: "calls", header: "Calls", render: (row) => row.calls.toLocaleString() }
     ];
 
     const roleMetrics: RoleMetric[] = role === "loan_officer"
@@ -1395,6 +1507,67 @@ export function DashboardPage() {
 
                     <MotionSection inView>
                     <Grid container spacing={2}>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="API Throughput"
+                                value={`${platformMetrics.requestsPerSec.toFixed(2)} req/s`}
+                                helper="Current system-wide request rate."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="API p95 Latency"
+                                value={`${platformMetrics.p95LatencyMs.toFixed(1)} ms`}
+                                helper="Current p95 latency from platform telemetry."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="Error Rate"
+                                value={`${platformMetrics.errorRatePct.toFixed(2)}%`}
+                                helper="Server-side API error ratio."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="Active Users / Tenants"
+                                value={`${platformMetrics.activeUsers} / ${platformMetrics.activeTenants}`}
+                                helper="Real active load in the current metrics window."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="CPU Usage"
+                                value={`${platformMetrics.cpuPct.toFixed(2)}%`}
+                                helper="Host compute utilization."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="RAM Usage"
+                                value={`${platformMetrics.memoryPct.toFixed(2)}%`}
+                                helper="Current memory pressure."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="Disk Usage"
+                                value={`${platformMetrics.diskPct.toFixed(2)}%`}
+                                helper="Persistent storage consumption."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="Network Throughput"
+                                value={`${platformMetrics.networkMbps.toFixed(2)} Mbps`}
+                                helper="Approximate network throughput."
+                            />
+                        </Grid>
+                    </Grid>
+                    </MotionSection>
+
+                    <MotionSection inView>
+                    <Grid container spacing={2}>
                         <Grid size={{ xs: 12, lg: 7 }}>
                             <ChartPanel
                                 title="Tenant Growth"
@@ -1435,11 +1608,58 @@ export function DashboardPage() {
 
                     <MotionCard variant="outlined" inView>
                         <CardContent>
-                            <Typography variant="h6" gutterBottom>Tenant Inventory</Typography>
+                            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.5} sx={{ mb: 1 }}>
+                                <Typography variant="h6">Tenant Inventory</Typography>
+                                <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => navigate("/platform/operations")}
+                                >
+                                    Open Operations Control Room
+                                </Button>
+                            </Stack>
                             <DataTable
                                 rows={platformState.tenants.slice(0, 8)}
                                 columns={platformColumns}
                                 emptyMessage="No tenants available on the platform."
+                            />
+                        </CardContent>
+                    </MotionCard>
+
+                    <Grid container spacing={2}>
+                        <Grid size={{ xs: 12, xl: 6 }}>
+                            <MotionCard variant="outlined" inView>
+                                <CardContent>
+                                    <Typography variant="h6" gutterBottom>Top Tenant Traffic</Typography>
+                                    <DataTable
+                                        rows={platformMetrics.topTrafficTenants}
+                                        columns={platformTrafficColumns}
+                                        emptyMessage="No tenant traffic metrics available yet."
+                                    />
+                                </CardContent>
+                            </MotionCard>
+                        </Grid>
+                        <Grid size={{ xs: 12, xl: 6 }}>
+                            <MotionCard variant="outlined" inView>
+                                <CardContent>
+                                    <Typography variant="h6" gutterBottom>Slow Endpoints</Typography>
+                                    <DataTable
+                                        rows={platformMetrics.slowEndpoints}
+                                        columns={platformSlowColumns}
+                                        emptyMessage="No slow endpoint telemetry available."
+                                    />
+                                </CardContent>
+                            </MotionCard>
+                        </Grid>
+                    </Grid>
+
+                    <MotionCard variant="outlined" inView>
+                        <CardContent>
+                            <Typography variant="h6" gutterBottom>Recent API Errors</Typography>
+                            <DataTable
+                                rows={platformMetrics.recentErrors}
+                                columns={platformErrorColumns}
+                                emptyMessage="No recent API errors detected."
                             />
                         </CardContent>
                     </MotionCard>
