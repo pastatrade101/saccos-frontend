@@ -140,7 +140,7 @@ export function PlatformOperationsPage() {
     const loadTenantOptions = useCallback(async () => {
         try {
             const { data } = await api.get<PlatformTenantsResponse>(endpoints.platform.tenants(), {
-                params: { page: 1, limit: 200 }
+                params: { page: 1, limit: 100 }
             });
 
             const rows = (data.data || []).map((tenant) => ({
