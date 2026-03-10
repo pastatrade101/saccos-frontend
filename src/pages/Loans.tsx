@@ -46,6 +46,7 @@ import {
     type AppraiseLoanApplicationRequest,
     type CreateLoanApplicationRequest,
     type DisburseApprovedLoanRequest,
+    type PendingApprovalPayload,
     type LoanApplicationResponse,
     type LoanApplicationsResponse,
     type LoanProductsResponse,
@@ -57,7 +58,7 @@ import {
     type ApproveLoanApplicationRequest,
     type RejectLoanApplicationRequest
 } from "../lib/endpoints";
-import type { Loan, LoanApplication, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
+import type { ApiEnvelope, Loan, LoanApplication, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
 import { MotionCard, MotionModal } from "../ui/motion";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -359,6 +360,12 @@ export function LoansPage() {
     const [disbursementTarget, setDisbursementTarget] = useState<LoanApplication | null>(null);
     const [showRepayModal, setShowRepayModal] = useState(false);
     const [pendingMoneyAction, setPendingMoneyAction] = useState<PendingMoneyAction>(null);
+    const [pendingApprovalNotice, setPendingApprovalNotice] = useState<{
+        requestId: string;
+        applicationId: string;
+        reference?: string | null;
+        description?: string | null;
+    } | null>(null);
     const [applicationPage, setApplicationPage] = useState(1);
     const [loanPage, setLoanPage] = useState(1);
     const [applicationTotal, setApplicationTotal] = useState(0);
@@ -1271,15 +1278,30 @@ export function LoansPage() {
                     reference: pendingMoneyAction.values.reference || null,
                     description: pendingMoneyAction.values.description || null
                 };
-                await api.post<LoanApplicationResponse>(
+                const { data } = await api.post<LoanApplicationResponse | ApiEnvelope<PendingApprovalPayload>>(
                     endpoints.loanApplications.disburse(pendingMoneyAction.application.id),
                     payload
                 );
-                pushToast({
-                    type: "success",
-                    title: "Loan disbursed",
-                    message: `${pendingMoneyAction.application.members?.full_name || "The borrower"} has been disbursed successfully.`
-                });
+                const maybePending = data.data as Partial<PendingApprovalPayload>;
+                if (maybePending.approval_required && maybePending.approval_request_id) {
+                    pushToast({
+                        type: "success",
+                        title: "Sent for approval",
+                        message: `Request ${maybePending.approval_request_id.slice(0, 8)}... is now waiting for checker approval.`
+                    });
+                    setPendingApprovalNotice({
+                        requestId: maybePending.approval_request_id,
+                        applicationId: pendingMoneyAction.application.id,
+                        reference: pendingMoneyAction.values.reference || null,
+                        description: pendingMoneyAction.values.description || null
+                    });
+                } else {
+                    pushToast({
+                        type: "success",
+                        title: "Loan disbursed",
+                        message: `${pendingMoneyAction.application.members?.full_name || "The borrower"} has been disbursed successfully.`
+                    });
+                }
                 setDisbursementTarget(null);
                 disburseForm.reset();
             } else {
@@ -1313,6 +1335,48 @@ export function LoansPage() {
                 type: "error",
                 title: "Loan action failed",
                 message: getApiErrorMessage(error)
+            });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const executeApprovedDisbursement = async () => {
+        if (!pendingApprovalNotice) {
+            return;
+        }
+
+        setProcessing(true);
+        try {
+            const payload: DisburseApprovedLoanRequest = {
+                reference: pendingApprovalNotice.reference || null,
+                description: pendingApprovalNotice.description || null,
+                approval_request_id: pendingApprovalNotice.requestId
+            };
+
+            await api.post<LoanApplicationResponse>(
+                endpoints.loanApplications.disburse(pendingApprovalNotice.applicationId),
+                payload
+            );
+
+            pushToast({
+                type: "success",
+                title: "Loan disbursed",
+                message: "Approved disbursement request was executed successfully."
+            });
+            setPendingApprovalNotice(null);
+            await loadWorkspace();
+            if (activityLoaded) {
+                await loadActivityData({ silent: true, force: true });
+            }
+            if (creditRiskLoaded) {
+                await loadCreditRiskData({ silent: true, force: true });
+            }
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Execution not ready",
+                message: getApiErrorMessage(error, "Approval may still be pending or was rejected.")
             });
         } finally {
             setProcessing(false);
@@ -1396,9 +1460,9 @@ export function LoansPage() {
                             Submit
                         </Button>
                     ) : null}
-                    {row.status === "submitted" && canAppraise ? (
+                    {["submitted", "appraised"].includes(row.status) && canAppraise ? (
                         <Button size="small" variant="outlined" color="inherit" onClick={() => openAppraisalDialog(row)} sx={darkAccentOutlinedSx}>
-                            Appraise
+                            {row.status === "submitted" ? "Appraise" : "Update Appraisal"}
                         </Button>
                     ) : null}
                     {(row.status === "appraised" || (row.status === "approved" && row.approval_count < row.required_approval_count)) && canApprove ? (
@@ -1749,6 +1813,28 @@ export function LoansPage() {
             {subscriptionInactive ? (
                 <Alert severity="warning" variant="outlined">
                     Loan actions are blocked while the tenant subscription is inactive.
+                </Alert>
+            ) : null}
+
+            {pendingApprovalNotice ? (
+                <Alert
+                    severity="info"
+                    variant="outlined"
+                    action={
+                        <Stack direction="row" spacing={1}>
+                            <Button size="small" onClick={() => void executeApprovedDisbursement()} disabled={processing}>
+                                Execute Approved
+                            </Button>
+                            <Button size="small" onClick={() => navigate("/approvals")}>
+                                Open Queue
+                            </Button>
+                            <Button size="small" onClick={() => setPendingApprovalNotice(null)}>
+                                Dismiss
+                            </Button>
+                        </Stack>
+                    }
+                >
+                    Disbursement was sent for maker-checker approval. Request ID: {pendingApprovalNotice.requestId}
                 </Alert>
             ) : null}
 
@@ -2633,7 +2719,7 @@ export function LoansPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setReviewTarget(null)}>Close</Button>
-                    {reviewTarget?.status === "submitted" && canAppraise ? (
+                    {reviewTarget && ["submitted", "appraised"].includes(reviewTarget.status) && canAppraise ? (
                         <Button
                             variant="contained"
                             onClick={() => {
@@ -2642,14 +2728,14 @@ export function LoansPage() {
                             }}
                             sx={darkAccentContainedSx}
                         >
-                            Appraise This Application
+                            {reviewTarget.status === "submitted" ? "Appraise This Application" : "Update Appraisal"}
                         </Button>
                     ) : null}
                 </DialogActions>
             </MotionModal>
 
             <MotionModal open={Boolean(appraisalTarget)} onClose={processing ? undefined : closeAppraisalDialog} maxWidth="md" fullWidth>
-                <DialogTitle>Appraise Loan Application</DialogTitle>
+                <DialogTitle>{appraisalTarget?.status === "appraised" ? "Update Loan Appraisal" : "Appraise Loan Application"}</DialogTitle>
                 <DialogContent dividers>
                     <Box component="form" id="loan-appraisal-form" onSubmit={saveAppraisal} sx={{ display: "grid", gap: 2, pt: 0.5 }}>
                         <Grid container spacing={2}>
@@ -2738,11 +2824,17 @@ export function LoansPage() {
                                             { member_id: "", guaranteed_amount: 0, notes: "" }
                                         ])
                                     }
+                                    disabled={!memberOptions.length}
                                     sx={darkAccentOutlinedSx}
                                 >
                                     Add guarantor
                                 </Button>
                             </Stack>
+                            {!memberOptions.length ? (
+                                <Alert severity="info" variant="outlined" sx={darkAccentInfoAlertSx}>
+                                    No member options loaded yet. Wait a moment or reopen this dialog after members sync.
+                                </Alert>
+                            ) : null}
                             {appraisalGuarantors.length ? (
                                 appraisalGuarantors.map((guarantor, index) => {
                                     const selectedElsewhere = appraisalGuarantors

@@ -333,6 +333,54 @@ export interface LoanApproval {
     created_at: string;
 }
 
+export type ApprovalOperationKey = "finance.withdraw" | "finance.loan_disburse";
+export type ApprovalRequestStatus = "pending" | "approved" | "rejected" | "executed" | "expired" | "cancelled";
+
+export interface ApprovalPolicy {
+    operation_key: ApprovalOperationKey;
+    enabled: boolean;
+    threshold_amount: number;
+    required_checker_count: number;
+    allowed_maker_roles: string[];
+    allowed_checker_roles: string[];
+    sla_minutes: number;
+}
+
+export interface ApprovalDecision {
+    id: string;
+    decision: "approved" | "rejected";
+    decided_by: string;
+    notes?: string | null;
+    created_at: string;
+}
+
+export interface ApprovalRequest {
+    id: string;
+    tenant_id: string;
+    branch_id?: string | null;
+    operation_key: ApprovalOperationKey;
+    entity_type?: string | null;
+    entity_id?: string | null;
+    status: ApprovalRequestStatus;
+    maker_user_id: string;
+    payload_json?: Record<string, unknown>;
+    policy_snapshot?: Record<string, unknown>;
+    requested_amount: number;
+    currency: string;
+    threshold_amount: number;
+    required_checker_count: number;
+    approved_count: number;
+    rejection_reason?: string | null;
+    requested_at: string;
+    expires_at?: string | null;
+    last_decision_at?: string | null;
+    executed_at?: string | null;
+    created_at: string;
+    updated_at: string;
+    awaiting_additional_approvals?: boolean;
+    decisions?: ApprovalDecision[];
+}
+
 export interface LoanApplication {
     id: string;
     tenant_id: string;

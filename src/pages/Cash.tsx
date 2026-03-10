@@ -23,6 +23,7 @@ import {
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -47,10 +48,11 @@ import {
     type ReceiptPolicyResponse,
     type ShareContributionResponse,
     type StatementsResponse,
+    type PendingApprovalPayload,
     type TellerSessionResponse
 } from "../lib/endpoints";
 import { supabase } from "../lib/supabase";
-import type { DailyCashSummary, Member, MemberAccount, ReceiptPolicy, StatementRow, TellerSession } from "../types/api";
+import type { ApiEnvelope, DailyCashSummary, Member, MemberAccount, ReceiptPolicy, StatementRow, TellerSession } from "../types/api";
 import { formatCurrency, formatDate } from "../utils/format";
 
 const actionSchema = z.object({
@@ -131,6 +133,7 @@ function MetricCard({
 
 export function CashPage() {
     const theme = useTheme();
+    const navigate = useNavigate();
     const { pushToast } = useToast();
     const { selectedTenantId, selectedTenantName, selectedBranchId, subscriptionInactive } = useAuth();
     const [members, setMembers] = useState<Member[]>([]);
@@ -148,6 +151,10 @@ export function CashPage() {
     const [closingSession, setClosingSession] = useState(false);
     const [openSessionDialog, setOpenSessionDialog] = useState(false);
     const [closeSessionDialog, setCloseSessionDialog] = useState(false);
+    const [pendingApprovalNotice, setPendingApprovalNotice] = useState<{
+        requestId: string;
+        payload: CashRequest;
+    } | null>(null);
     const [page, setPage] = useState(1);
     const pageSize = 10;
 
@@ -465,19 +472,33 @@ export function CashPage() {
                         ? endpoints.finance.withdraw()
                         : endpoints.finance.shareContribution();
 
-            const { data } = await api.post<CashResponse | ShareContributionResponse>(endpoint, payload);
-            pushToast({
-                type: "success",
-                title:
-                    pendingAction.type === "deposit"
-                        ? "Deposit posted"
-                        : pendingAction.type === "withdraw"
-                            ? "Withdrawal posted"
-                            : "Share contribution posted",
-                message: data.data.journal_id
-                    ? `Journal ${data.data.journal_id} posted successfully.`
-                    : data.data.message
-            });
+            const { data } = await api.post<CashResponse | ShareContributionResponse | ApiEnvelope<PendingApprovalPayload>>(endpoint, payload);
+            const maybePending = data.data as Partial<PendingApprovalPayload>;
+            if (pendingAction.type === "withdraw" && maybePending.approval_required && maybePending.approval_request_id) {
+                pushToast({
+                    type: "success",
+                    title: "Sent for approval",
+                    message: `Withdrawal is waiting checker approval (${maybePending.approval_request_id.slice(0, 8)}...).`
+                });
+                setPendingApprovalNotice({
+                    requestId: maybePending.approval_request_id,
+                    payload
+                });
+            } else {
+                const financeData = data.data as { journal_id?: string | null; message?: string | null };
+                pushToast({
+                    type: "success",
+                    title:
+                        pendingAction.type === "deposit"
+                            ? "Deposit posted"
+                            : pendingAction.type === "withdraw"
+                                ? "Withdrawal posted"
+                                : "Share contribution posted",
+                    message: financeData.journal_id
+                        ? `Journal ${financeData.journal_id} posted successfully.`
+                        : financeData.message || "Transaction completed."
+                });
+            }
 
             setPendingAction(null);
             setActionDialog(null);
@@ -491,6 +512,38 @@ export function CashPage() {
                 type: "error",
                 title: "Cash transaction failed",
                 message: getApiErrorMessage(error)
+            });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const executeApprovedWithdrawal = async () => {
+        if (!pendingApprovalNotice) {
+            return;
+        }
+
+        setProcessing(true);
+        try {
+            const payload: CashRequest = {
+                ...pendingApprovalNotice.payload,
+                approval_request_id: pendingApprovalNotice.requestId
+            };
+            const { data } = await api.post<CashResponse>(endpoints.finance.withdraw(), payload);
+            pushToast({
+                type: "success",
+                title: "Withdrawal posted",
+                message: data.data.journal_id
+                    ? `Journal ${data.data.journal_id} posted successfully.`
+                    : data.data.message || "Approved withdrawal executed."
+            });
+            setPendingApprovalNotice(null);
+            await loadCashData();
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Execution not ready",
+                message: getApiErrorMessage(error, "Approval may still be pending or was rejected.")
             });
         } finally {
             setProcessing(false);
@@ -613,6 +666,28 @@ export function CashPage() {
                     </Stack>
                 </CardContent>
             </MotionCard>
+
+            {pendingApprovalNotice ? (
+                <Alert
+                    severity="info"
+                    variant="outlined"
+                    action={
+                        <Stack direction="row" spacing={1}>
+                            <Button size="small" onClick={() => void executeApprovedWithdrawal()} disabled={processing}>
+                                Execute Approved
+                            </Button>
+                            <Button size="small" onClick={() => navigate("/approvals")}>
+                                Open Queue
+                            </Button>
+                            <Button size="small" onClick={() => setPendingApprovalNotice(null)}>
+                                Dismiss
+                            </Button>
+                        </Stack>
+                    }
+                >
+                    Withdrawal submitted for maker-checker approval. Request ID: {pendingApprovalNotice.requestId}
+                </Alert>
+            ) : null}
 
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6, lg: 3 }}>

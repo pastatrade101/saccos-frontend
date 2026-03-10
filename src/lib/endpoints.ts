@@ -39,7 +39,11 @@ import type {
     TellerSession,
     ReceiptPolicy,
     TransactionReceipt,
-    DailyCashSummary
+    DailyCashSummary,
+    ApprovalPolicy,
+    ApprovalRequest,
+    ApprovalOperationKey,
+    ApprovalRequestStatus
 } from "../types/api";
 
 const routeMap = {
@@ -177,6 +181,14 @@ const routeMap = {
         loanAging: "/reports/loan-aging/export",
         exportJob: (jobId: string) => `/reports/export-jobs/${jobId}`,
         exportJobDownload: (jobId: string) => `/reports/export-jobs/${jobId}/download`
+    },
+    approvals: {
+        policies: "/approvals/policies",
+        policy: (operationKey: ApprovalOperationKey) => `/approvals/policies/${operationKey}`,
+        requests: "/approvals/requests",
+        request: (requestId: string) => `/approvals/requests/${requestId}`,
+        approve: (requestId: string) => `/approvals/requests/${requestId}/approve`,
+        reject: (requestId: string) => `/approvals/requests/${requestId}/reject`
     }
 } as const;
 
@@ -315,6 +327,14 @@ export const endpoints = {
         loanAging: () => routeMap.reports.loanAging,
         exportJob: (jobId: string) => routeMap.reports.exportJob(jobId),
         exportJobDownload: (jobId: string) => routeMap.reports.exportJobDownload(jobId)
+    },
+    approvals: {
+        policies: () => routeMap.approvals.policies,
+        policy: (operationKey: ApprovalOperationKey) => routeMap.approvals.policy(operationKey),
+        requests: () => routeMap.approvals.requests,
+        request: (requestId: string) => routeMap.approvals.request(requestId),
+        approve: (requestId: string) => routeMap.approvals.approve(requestId),
+        reject: (requestId: string) => routeMap.approvals.reject(requestId)
     }
 };
 
@@ -652,6 +672,7 @@ export interface RejectLoanApplicationRequest {
 export interface DisburseApprovedLoanRequest {
     reference?: string | null;
     description?: string | null;
+    approval_request_id?: string;
     receipt_ids?: string[];
 }
 
@@ -723,6 +744,7 @@ export interface CashRequest {
     amount: number;
     reference?: string | null;
     description?: string | null;
+    approval_request_id?: string;
     receipt_ids?: string[];
 }
 
@@ -872,3 +894,58 @@ export interface ReportExportJobDownloadData {
 export type ReportExportJobCreateResponse = ApiEnvelope<ReportExportJobCreated>;
 export type ReportExportJobResponse = ApiEnvelope<ReportExportJob>;
 export type ReportExportJobDownloadResponse = ApiEnvelope<ReportExportJobDownloadData>;
+
+export interface ApprovalPoliciesResponse extends ApiEnvelope<ApprovalPolicy[]> {}
+
+export interface ApprovalRequestsQuery {
+    tenant_id?: string;
+    branch_id?: string;
+    operation_key?: ApprovalOperationKey;
+    status?: ApprovalRequestStatus;
+    maker_user_id?: string;
+    page?: number;
+    limit?: number;
+}
+
+export interface ApprovalRequestsResponse {
+    data: ApprovalRequest[];
+    pagination: {
+        page: number;
+        limit: number;
+        total: number;
+    };
+}
+
+export interface ApprovalRequestResponse extends ApiEnvelope<ApprovalRequest> {}
+
+export interface UpdateApprovalPolicyRequest {
+    tenant_id?: string;
+    enabled?: boolean;
+    threshold_amount?: number;
+    required_checker_count?: number;
+    allowed_maker_roles?: string[];
+    allowed_checker_roles?: string[];
+    sla_minutes?: number;
+}
+
+export interface ApproveApprovalRequestBody {
+    tenant_id?: string;
+    notes?: string | null;
+}
+
+export interface RejectApprovalRequestBody {
+    tenant_id?: string;
+    reason: string;
+    notes?: string | null;
+}
+
+export interface PendingApprovalPayload {
+    approval_required: true;
+    status: "pending_approval" | "approved";
+    operation_key: ApprovalOperationKey;
+    approval_request_id: string;
+    required_checker_count: number;
+    approved_count: number;
+    threshold_amount: number;
+    requested_amount: number;
+}

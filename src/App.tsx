@@ -26,6 +26,7 @@ import { CashControlPage } from "./pages/CashControl";
 import { ContributionsPage } from "./pages/Contributions";
 import { DividendsPage } from "./pages/Dividends";
 import { FollowUpsPage } from "./pages/FollowUps";
+import { ApprovalsPage } from "./pages/Approvals";
 import { LoansPage } from "./pages/Loans";
 import { LoanDetailPage } from "./pages/LoanDetail";
 import { ProductCatalogPage } from "./pages/ProductCatalog";
@@ -208,6 +209,7 @@ export default function App() {
                         }
                     >
                         <Route path="/follow-ups" element={<FollowUpsPage />} />
+                        <Route path="/approvals" element={<ApprovalsPage />} />
                     </Route>
                     <Route
                         element={
