@@ -111,6 +111,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const selectedBranchIdRef = useRef(selectedBranchId);
     const selectedTenantNameRef = useRef(selectedTenantName);
     const selectedBranchNameRef = useRef(selectedBranchName);
+    const refreshProfileRequestIdRef = useRef(0);
 
     useEffect(() => {
         selectedTenantIdRef.current = selectedTenantId;
@@ -129,6 +130,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }, [selectedBranchName]);
 
     const clearAuthState = useCallback(() => {
+        refreshProfileRequestIdRef.current += 1;
         setProfile(null);
         setBranchIds([]);
         setSubscription(null);
@@ -136,6 +138,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }, []);
 
     const refreshProfile = useCallback(async (tenantOverride?: string | null) => {
+        const requestId = ++refreshProfileRequestIdRef.current;
         const tenantId = tenantOverride ?? selectedTenantIdRef.current;
 
         try {
@@ -147,6 +150,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
                     params: { tenant_id: tenantId }
                 })
                 : null;
+
+            if (requestId !== refreshProfileRequestIdRef.current) {
+                return;
+            }
 
             setProfile(data.data.profile);
             setBranchIds(data.data.branch_ids || []);
@@ -186,6 +193,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
                 localStorage.setItem(SELECTED_BRANCH_KEY, data.data.branch_ids[0]);
             }
         } catch (error) {
+            if (requestId !== refreshProfileRequestIdRef.current) {
+                return;
+            }
+
             const message = getApiErrorMessage(error);
             const errorCode =
                 typeof error === "object" &&
