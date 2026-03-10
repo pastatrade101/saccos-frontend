@@ -208,6 +208,57 @@ const demoStorySteps = [
     }
 ] as const;
 
+const enterpriseReadinessPhases = [
+    {
+        phase: "Phase 0",
+        priority: "Critical",
+        title: "Scope Lock and Control Blueprint",
+        copy: "Policy definitions, approval thresholds, regulatory report scope, and DR objectives are locked before scale execution."
+    },
+    {
+        phase: "Phase 1",
+        priority: "Critical",
+        title: "Credit Risk Controls",
+        copy: "Default lifecycle, collections workflow, guarantor exposure enforcement, and guarantor claims are implemented end-to-end."
+    },
+    {
+        phase: "Phase 2",
+        priority: "Critical",
+        title: "Enterprise Maker-Checker",
+        copy: "High-risk operations are approval-gated with policy thresholds, checker queue visibility, and auditable decisions."
+    },
+    {
+        phase: "Phase 3",
+        priority: "Important",
+        title: "Financial Statements and Period Governance",
+        copy: "Balance sheet and income statement exports are supported with closed-period guardrails and reporting traceability."
+    },
+    {
+        phase: "Phase 4",
+        priority: "Important",
+        title: "Notification Orchestration",
+        copy: "Operational events are prepared for event-driven alerts across approvals, repayments, and transaction confirmations."
+    },
+    {
+        phase: "Phase 5",
+        priority: "Important",
+        title: "Regulatory and Audit Hardening",
+        copy: "Compliance evidence quality is strengthened with reproducible report runs and stronger approval/reversal traceability."
+    },
+    {
+        phase: "Phase 6",
+        priority: "Important",
+        title: "Disaster Recovery Validation",
+        copy: "Backup verification and restore-drill evidence align resilience operations with defined RPO and RTO commitments."
+    },
+    {
+        phase: "Phase 7",
+        priority: "Important",
+        title: "100-Tenant Readiness Gate",
+        copy: "Mixed-workload and soak testing validate service reliability, control integrity, and operational readiness at target scale."
+    }
+] as const;
+
 export function LandingPage() {
     const theme = useTheme();
     const { theme: mode, toggleTheme } = useUI();
@@ -324,6 +375,9 @@ export function LandingPage() {
                             <Button component="a" href="#solutions" color="inherit">
                                 Solutions
                             </Button>
+                            <Button component="a" href="#readiness" color="inherit">
+                                Readiness
+                            </Button>
                             <Button component="a" href="#why-different" color="inherit">
                                 Why Different
                             </Button>
@@ -392,6 +446,7 @@ export function LandingPage() {
                     <List disablePadding>
                         {[
                             { label: "Solutions", href: "#solutions" },
+                            { label: "Readiness", href: "#readiness" },
                             { label: "Why Different", href: "#why-different" },
                             { label: "Plans", href: "#plans" },
                             { label: "How It Works", href: "#how-it-works" },
@@ -500,7 +555,7 @@ export function LandingPage() {
                         <Stack spacing={3}>
                             <Chip
                                 icon={<VerifiedRoundedIcon />}
-                                label="Built for real-member, real-money SACCOS"
+                                label="Roadmap-led enterprise SACCOS platform"
                                 sx={{
                                     alignSelf: "flex-start",
                                     bgcolor: alpha("#ffffff", 0.12),
@@ -530,9 +585,8 @@ export function LandingPage() {
                                     color: alpha("#ffffff", 0.86)
                                 }}
                             >
-                                This is not a dashboard over spreadsheets. It is a governed operating platform for
-                                member onboarding, cash, lending, dividends, and audit visibility with backend-enforced
-                                control points.
+                                Built on a phased remediation model from control blueprint through 100-tenant readiness,
+                                this platform gives cooperatives a practical path from startup operations to enterprise governance.
                             </Typography>
                             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                                 <Button
@@ -576,13 +630,13 @@ export function LandingPage() {
                                         Double-entry financial integrity
                                     </Typography>
                                 </Stack>
-                                <Stack direction="row" spacing={1.5} alignItems="center">
-                                    <InsightsRoundedIcon sx={{ color: "#ffffff" }} />
-                                    <Typography variant="body1" sx={{ color: alpha("#ffffff", 0.82) }}>
-                                        Audit-ready exception monitoring
-                                    </Typography>
+                                    <Stack direction="row" spacing={1.5} alignItems="center">
+                                        <InsightsRoundedIcon sx={{ color: "#ffffff" }} />
+                                        <Typography variant="body1" sx={{ color: alpha("#ffffff", 0.82) }}>
+                                        Scale-ready operations roadmap
+                                        </Typography>
+                                    </Stack>
                                 </Stack>
-                            </Stack>
                         </Stack>
                     </Grid>
 
@@ -668,9 +722,9 @@ export function LandingPage() {
 
                 <Grid container spacing={2} sx={{ mt: { xs: 4, md: 5 } }}>
                     {[
-                        { value: "6+", label: "Operational workspaces", caption: "cash, loans, members, dividends, audit, reports" },
-                        { value: "100%", label: "Backend-enforced entitlements", caption: "plan and subscription rules are not UI-only" },
-                        { value: "24/7", label: "Leadership visibility", caption: "dashboards, exports, and follow-up views by role" }
+                        { value: "8", label: "Enterprise readiness phases", caption: "from control blueprint to 100-tenant scale gate" },
+                        { value: "Critical", label: "Control-first sequencing", caption: "safety and governance controls are prioritized before expansion" },
+                        { value: "100", label: "Tenant target path", caption: "mixed-workload scale validation is designed around your growth goal" }
                     ].map((stat) => (
                         <Grid key={stat.label} size={{ xs: 12, md: 4 }}>
                             <Paper sx={{ ...sectionCardSx, p: 3 }}>
@@ -688,6 +742,55 @@ export function LandingPage() {
                     ))}
                 </Grid>
             </Container>
+
+            <Box id="readiness" sx={{ py: { xs: 7, md: 9 } }}>
+                <Container maxWidth="xl">
+                    <Stack spacing={1} sx={{ mb: 4 }}>
+                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
+                            Enterprise readiness roadmap
+                        </Typography>
+                        <Typography variant="h3" sx={{ maxWidth: 860 }}>
+                            A phase-based execution model that sells confidence to boards, regulators, and growth partners.
+                        </Typography>
+                        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 860 }}>
+                            Your SACCOS platform is positioned with a professional remediation path: critical controls first, then compliance depth,
+                            resilience evidence, and final scale validation. This converts technical work into business-grade assurance.
+                        </Typography>
+                    </Stack>
+
+                    <Grid container spacing={2}>
+                        {enterpriseReadinessPhases.map((item) => (
+                            <Grid key={item.phase} size={{ xs: 12, md: 6, lg: 3 }}>
+                                <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
+                                    <CardContent sx={{ p: 2.75 }}>
+                                        <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                                {item.phase}
+                                            </Typography>
+                                            <Chip
+                                                size="small"
+                                                label={item.priority}
+                                                sx={{
+                                                    fontWeight: 700,
+                                                    bgcolor: alpha(accentColor, isDark ? 0.18 : 0.08),
+                                                    color: accentColor,
+                                                    border: `1px solid ${alpha(accentColor, isDark ? 0.42 : 0.24)}`
+                                                }}
+                                            />
+                                        </Stack>
+                                        <Typography variant="subtitle1" sx={{ mt: 1.1, fontWeight: 700 }}>
+                                            {item.title}
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2, lineHeight: 1.75 }}>
+                                            {item.copy}
+                                        </Typography>
+                                    </CardContent>
+                                </MotionCard>
+                            </Grid>
+                        ))}
+                    </Grid>
+                </Container>
+            </Box>
 
             <Box
                 id="solutions"
@@ -1116,6 +1219,9 @@ export function LandingPage() {
                             <Stack spacing={0.8}>
                                 <Typography component="a" href="#solutions" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
                                     Solutions
+                                </Typography>
+                                <Typography component="a" href="#readiness" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
+                                    Readiness roadmap
                                 </Typography>
                                 <Typography component="a" href="#why-different" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
                                     Why different
