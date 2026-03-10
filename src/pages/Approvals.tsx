@@ -31,7 +31,8 @@ import {
     type ApprovalRequestResponse,
     type ApprovalRequestsResponse,
     type ApproveApprovalRequestBody,
-    type RejectApprovalRequestBody
+    type RejectApprovalRequestBody,
+    type UpdateApprovalPolicyRequest
 } from "../lib/endpoints";
 import type { ApprovalPolicy, ApprovalRequest, ApprovalRequestStatus } from "../types/api";
 import { MotionCard, MotionModal } from "../ui/motion";
@@ -76,6 +77,24 @@ function formatSla(expiresAt?: string | null) {
     return diff >= 0 ? `Due in ${label}` : `Overdue by ${label}`;
 }
 
+interface PolicyFormValues {
+    enabled: boolean;
+    threshold_amount: number;
+    required_checker_count: number;
+    sla_minutes: number;
+    allowed_maker_roles: string;
+    allowed_checker_roles: string;
+}
+
+function parseCsvRoles(raw: string) {
+    return [...new Set(
+        String(raw || "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+    )];
+}
+
 export function ApprovalsPage() {
     const theme = useTheme();
     const { pushToast } = useToast();
@@ -93,11 +112,24 @@ export function ApprovalsPage() {
     const [selected, setSelected] = useState<ApprovalRequest | null>(null);
     const [detailOpen, setDetailOpen] = useState(false);
     const [rejectOpen, setRejectOpen] = useState(false);
+    const [policyOpen, setPolicyOpen] = useState(false);
+    const [selectedPolicy, setSelectedPolicy] = useState<ApprovalPolicy | null>(null);
     const rejectForm = useForm<RejectApprovalRequestBody>({
         defaultValues: { reason: "", notes: "" }
     });
+    const policyForm = useForm<PolicyFormValues>({
+        defaultValues: {
+            enabled: true,
+            threshold_amount: 0,
+            required_checker_count: 1,
+            sla_minutes: 120,
+            allowed_maker_roles: "",
+            allowed_checker_roles: ""
+        }
+    });
 
     const canDecide = profile?.role === "branch_manager" || profile?.role === "super_admin";
+    const canManagePolicies = profile?.role === "branch_manager" || profile?.role === "super_admin";
     const pendingCount = useMemo(() => rows.filter((row) => row.status === "pending").length, [rows]);
     const overdueCount = useMemo(
         () => rows.filter((row) => row.status === "pending" && row.expires_at && new Date(row.expires_at).getTime() < Date.now()).length,
@@ -226,6 +258,53 @@ export function ApprovalsPage() {
             pushToast({
                 type: "error",
                 title: "Rejection failed",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setProcessing(false);
+        }
+    });
+    const openPolicyEditor = (policy: ApprovalPolicy) => {
+        setSelectedPolicy(policy);
+        policyForm.reset({
+            enabled: Boolean(policy.enabled),
+            threshold_amount: Number(policy.threshold_amount || 0),
+            required_checker_count: Number(policy.required_checker_count || 1),
+            sla_minutes: Number(policy.sla_minutes || 120),
+            allowed_maker_roles: (policy.allowed_maker_roles || []).join(", "),
+            allowed_checker_roles: (policy.allowed_checker_roles || []).join(", ")
+        });
+        setPolicyOpen(true);
+    };
+
+    const submitPolicyUpdate = policyForm.handleSubmit(async (values) => {
+        if (!selectedTenantId || !selectedPolicy) return;
+
+        const payload: UpdateApprovalPolicyRequest = {
+            tenant_id: selectedTenantId,
+            enabled: values.enabled,
+            threshold_amount: Number(values.threshold_amount),
+            required_checker_count: Number(values.required_checker_count),
+            sla_minutes: Number(values.sla_minutes),
+            allowed_maker_roles: parseCsvRoles(values.allowed_maker_roles),
+            allowed_checker_roles: parseCsvRoles(values.allowed_checker_roles)
+        };
+
+        setProcessing(true);
+        try {
+            await api.patch(endpoints.approvals.policy(selectedPolicy.operation_key), payload);
+            pushToast({
+                type: "success",
+                title: "Policy updated",
+                message: `${operationLabel(selectedPolicy.operation_key)} policy saved successfully.`
+            });
+            setPolicyOpen(false);
+            setSelectedPolicy(null);
+            await loadPolicies();
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Policy update failed",
                 message: getApiErrorMessage(error)
             });
         } finally {
@@ -424,6 +503,11 @@ export function ApprovalsPage() {
                             <RuleRoundedIcon fontSize="small" />
                             <Typography variant="h6">Approval Policies</Typography>
                         </Stack>
+                        {!canManagePolicies ? (
+                            <Alert severity="info" variant="outlined">
+                                Read-only view. Only super admin and branch manager can edit policy thresholds and role rules.
+                            </Alert>
+                        ) : null}
                         <DataTable
                             rows={policies}
                             columns={[
@@ -431,7 +515,18 @@ export function ApprovalsPage() {
                                 { key: "enabled", header: "Enabled", render: (row) => row.enabled ? "Yes" : "No" },
                                 { key: "threshold", header: "Threshold", render: (row) => formatCurrency(row.threshold_amount) },
                                 { key: "checkers", header: "Checkers", render: (row) => row.required_checker_count },
-                                { key: "sla", header: "SLA", render: (row) => `${row.sla_minutes} min` }
+                                { key: "sla", header: "SLA", render: (row) => `${row.sla_minutes} min` },
+                                {
+                                    key: "action",
+                                    header: "Action",
+                                    render: (row) => (
+                                        canManagePolicies ? (
+                                            <Button size="small" variant="outlined" onClick={() => openPolicyEditor(row)}>
+                                                Edit
+                                            </Button>
+                                        ) : "View"
+                                    )
+                                }
                             ]}
                             emptyMessage="No approval policies configured."
                         />
@@ -562,6 +657,70 @@ export function ApprovalsPage() {
                     <Button onClick={() => setRejectOpen(false)} disabled={processing}>Cancel</Button>
                     <Button color="error" variant="contained" onClick={() => void submitReject()} disabled={processing}>
                         Confirm Reject
+                    </Button>
+                </DialogActions>
+            </MotionModal>
+
+            <MotionModal
+                open={policyOpen}
+                onClose={processing ? undefined : () => setPolicyOpen(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>Edit Approval Policy</DialogTitle>
+                <DialogContent dividers>
+                    <Stack spacing={2} sx={{ mt: 0.5 }}>
+                        <Typography variant="body2" color="text.secondary">
+                            {selectedPolicy ? operationLabel(selectedPolicy.operation_key) : "Policy"}
+                        </Typography>
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    checked={Boolean(policyForm.watch("enabled"))}
+                                    onChange={(_, checked) => policyForm.setValue("enabled", checked)}
+                                />
+                            }
+                            label="Policy enabled"
+                        />
+                        <TextField
+                            type="number"
+                            label="Threshold amount (TZS)"
+                            fullWidth
+                            inputProps={{ min: 0, step: 0.01 }}
+                            {...policyForm.register("threshold_amount", { valueAsNumber: true })}
+                        />
+                        <TextField
+                            type="number"
+                            label="Required checker count"
+                            fullWidth
+                            inputProps={{ min: 1, max: 5, step: 1 }}
+                            {...policyForm.register("required_checker_count", { valueAsNumber: true })}
+                        />
+                        <TextField
+                            type="number"
+                            label="SLA minutes"
+                            fullWidth
+                            inputProps={{ min: 5, max: 10080, step: 1 }}
+                            {...policyForm.register("sla_minutes", { valueAsNumber: true })}
+                        />
+                        <TextField
+                            label="Allowed maker roles"
+                            fullWidth
+                            helperText="Comma-separated roles, e.g. teller, branch_manager, super_admin"
+                            {...policyForm.register("allowed_maker_roles")}
+                        />
+                        <TextField
+                            label="Allowed checker roles"
+                            fullWidth
+                            helperText="Comma-separated roles, e.g. branch_manager, super_admin"
+                            {...policyForm.register("allowed_checker_roles")}
+                        />
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setPolicyOpen(false)} disabled={processing}>Cancel</Button>
+                    <Button variant="contained" onClick={() => void submitPolicyUpdate()} disabled={processing}>
+                        Save policy
                     </Button>
                 </DialogActions>
             </MotionModal>
