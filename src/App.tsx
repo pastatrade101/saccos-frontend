@@ -17,6 +17,7 @@ import { AuditorAuditLogsPage } from "./pages/AuditorAuditLogs";
 import { AuditorReportsPage } from "./pages/AuditorReports";
 import { AccessDeniedPage } from "./pages/AccessDenied";
 import { PlatformPlansPage } from "./pages/PlatformPlans";
+import { PlatformOperationsPage } from "./pages/PlatformOperations";
 import { PlatformTenantsPage } from "./pages/PlatformTenants";
 import { StaffUsersPage } from "./pages/StaffUsers";
 import { MembersPage } from "./pages/Members";
@@ -167,7 +168,7 @@ export default function App() {
             <Route
                 element={
                     <ProtectedRoute
-                        allowedRoles={["platform_admin", "super_admin", "branch_manager", "loan_officer", "teller", "auditor", "member"]}
+                        allowedRoles={["platform_admin", "platform_owner", "super_admin", "branch_manager", "loan_officer", "teller", "auditor", "member"]}
                     />
                 }
             >
@@ -184,7 +185,7 @@ export default function App() {
                     <Route
                         element={
                             <ProtectedRoute
-                                allowedRoles={["platform_admin", "super_admin", "branch_manager", "loan_officer", "teller", "auditor"]}
+                                allowedRoles={["platform_admin", "platform_owner", "super_admin", "branch_manager", "loan_officer", "teller", "auditor"]}
                             />
                         }
                     >
@@ -213,11 +214,12 @@ export default function App() {
                     </Route>
                     <Route
                         element={
-                            <ProtectedRoute allowedRoles={["platform_admin"]} />
+                            <ProtectedRoute allowedRoles={["platform_admin", "platform_owner"]} />
                         }
                     >
                         <Route path="/platform/tenants" element={<PlatformTenantsPage />} />
                         <Route path="/platform/plans" element={<PlatformPlansPage />} />
+                        <Route path="/platform/operations" element={<PlatformOperationsPage />} />
                     </Route>
                     <Route
                         element={

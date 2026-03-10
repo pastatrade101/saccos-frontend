@@ -432,8 +432,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
         platformRole:
             typeof user?.app_metadata?.platform_role === "string"
                 ? user.app_metadata.platform_role
-                : profile?.role === "platform_admin"
-                    ? "platform_admin"
+                : profile?.role === "platform_admin" || profile?.role === "platform_owner"
+                    ? profile.role
                     : null,
         branchIds,
         subscription,
@@ -455,7 +455,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
         isInternalOps:
             user?.app_metadata?.platform_role === "internal_ops" ||
             user?.app_metadata?.platform_role === "platform_admin" ||
-            profile?.role === "platform_admin"
+            user?.app_metadata?.platform_role === "platform_owner" ||
+            profile?.role === "platform_admin" ||
+            profile?.role === "platform_owner"
     }), [
         branchIds,
         lastApiError,

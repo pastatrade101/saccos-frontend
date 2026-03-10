@@ -28,6 +28,10 @@ export function formatPlatformRole(role?: string | null) {
         return "N/A";
     }
 
+    if (role === "platform_owner") {
+        return "Platform Owner";
+    }
+
     if (role === "internal_ops" || role === "platform_admin") {
         return "Platform Admin";
     }

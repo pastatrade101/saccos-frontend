@@ -102,7 +102,12 @@ const routeMap = {
         planFeatures: (planId: string) => `/platform/plans/${planId}/features`,
         tenants: "/platform/tenants",
         assignSubscription: (tenantId: string) => `/platform/tenants/${tenantId}/subscription`,
-        deleteTenant: (tenantId: string) => `/platform/tenants/${tenantId}`
+        deleteTenant: (tenantId: string) => `/platform/tenants/${tenantId}`,
+        metricsSystem: "/platform/metrics/system",
+        metricsTenants: "/platform/metrics/tenants",
+        metricsInfrastructure: "/platform/metrics/infrastructure",
+        metricsSlowEndpoints: "/platform/metrics/slow-endpoints",
+        errors: "/platform/errors"
     },
     members: {
         list: "/members",
@@ -250,7 +255,12 @@ export const endpoints = {
         planFeatures: (planId: string) => routeMap.platform.planFeatures(planId),
         tenants: () => routeMap.platform.tenants,
         assignSubscription: (tenantId: string) => routeMap.platform.assignSubscription(tenantId),
-        deleteTenant: (tenantId: string) => routeMap.platform.deleteTenant(tenantId)
+        deleteTenant: (tenantId: string) => routeMap.platform.deleteTenant(tenantId),
+        metricsSystem: () => routeMap.platform.metricsSystem,
+        metricsTenants: () => routeMap.platform.metricsTenants,
+        metricsInfrastructure: () => routeMap.platform.metricsInfrastructure,
+        metricsSlowEndpoints: () => routeMap.platform.metricsSlowEndpoints,
+        errors: () => routeMap.platform.errors
     },
     members: {
         list: () => routeMap.members.list,
@@ -898,6 +908,70 @@ export interface ReportExportJobDownloadData {
 export type ReportExportJobCreateResponse = ApiEnvelope<ReportExportJobCreated>;
 export type ReportExportJobResponse = ApiEnvelope<ReportExportJob>;
 export type ReportExportJobDownloadResponse = ApiEnvelope<ReportExportJobDownloadData>;
+
+export interface PlatformMetricsTimeseriesPoint {
+    timestamp: string;
+    requests_per_sec: number;
+    p95_latency_ms: number;
+    error_rate_pct: number;
+}
+
+export interface PlatformSystemMetrics {
+    requests_per_sec: number;
+    p95_latency_ms: number;
+    error_rate_pct: number;
+    active_users: number;
+    active_tenants: number;
+    window_minutes: number;
+    timeseries: PlatformMetricsTimeseriesPoint[];
+}
+
+export interface PlatformTenantTrafficRow {
+    tenant_id: string;
+    tenant_name: string;
+    request_count: number;
+    error_count: number;
+    avg_latency_ms: number;
+    active_users: number;
+}
+
+export interface PlatformInfrastructureMetrics {
+    cpu_pct: number;
+    memory_pct: number;
+    disk_pct: number;
+    network_mbps: number;
+    sampled_at?: string;
+    network_window_minutes?: number;
+}
+
+export interface PlatformErrorRow {
+    timestamp: string;
+    endpoint: string;
+    status_code: number;
+    tenant_id: string | null;
+    tenant_name?: string;
+    message: string;
+}
+
+export interface PlatformErrorsResponse {
+    data: PlatformErrorRow[];
+    pagination: {
+        page: number;
+        limit: number;
+        total: number;
+    };
+}
+
+export interface PlatformSlowEndpointRow {
+    endpoint: string;
+    avg_latency_ms: number;
+    calls: number;
+}
+
+export type PlatformSystemMetricsResponse = ApiEnvelope<PlatformSystemMetrics>;
+export type PlatformTenantTrafficResponse = ApiEnvelope<PlatformTenantTrafficRow[]>;
+export type PlatformInfrastructureMetricsResponse = ApiEnvelope<PlatformInfrastructureMetrics>;
+export type PlatformSlowEndpointsResponse = ApiEnvelope<PlatformSlowEndpointRow[]>;
 
 export interface ApprovalPoliciesResponse extends ApiEnvelope<ApprovalPolicy[]> {}
 

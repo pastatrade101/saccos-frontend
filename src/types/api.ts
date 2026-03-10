@@ -1,5 +1,6 @@
 export type Role =
     | "platform_admin"
+    | "platform_owner"
     | "super_admin"
     | "branch_manager"
     | "loan_officer"

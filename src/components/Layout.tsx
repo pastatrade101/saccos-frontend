@@ -6,6 +6,7 @@ import HubRoundedIcon from "@mui/icons-material/HubRounded";
 import GppGoodRoundedIcon from "@mui/icons-material/GppGoodRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
+import MonitorHeartRoundedIcon from "@mui/icons-material/MonitorHeartRounded";
 import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import PeopleAltRoundedIcon from "@mui/icons-material/PeopleAltRounded";
 import PieChartRoundedIcon from "@mui/icons-material/PieChartRounded";
@@ -77,8 +78,9 @@ const navItems: NavItem[] = [
     { to: "/setup/super-admin", label: "Super Admin", allowSetup: true, section: "setup", icon: SettingsRoundedIcon },
     { to: "/dashboard", label: "Dashboard", roles: ["super_admin", "branch_manager", "loan_officer", "teller"], section: "workspace", icon: DashboardRoundedIcon },
     { to: "/dashboard", label: "Auditor Dashboard", roles: ["auditor"], section: "workspace", icon: GppGoodRoundedIcon },
-    { to: "/platform/tenants", label: "Tenants", roles: ["platform_admin"], section: "workspace", icon: StorefrontRoundedIcon },
-    { to: "/platform/plans", label: "Plans", roles: ["platform_admin"], section: "workspace", icon: TuneRoundedIcon },
+    { to: "/platform/tenants", label: "Tenants", roles: ["platform_admin", "platform_owner"], section: "workspace", icon: StorefrontRoundedIcon },
+    { to: "/platform/plans", label: "Plans", roles: ["platform_admin", "platform_owner"], section: "workspace", icon: TuneRoundedIcon },
+    { to: "/platform/operations", label: "Operations", roles: ["platform_admin", "platform_owner"], section: "workspace", icon: MonitorHeartRoundedIcon },
     { to: "/staff-users", label: "Team Access", roles: ["super_admin", "branch_manager"], section: "workspace", icon: PeopleAltRoundedIcon },
     { to: "/products", label: "Products", roles: ["branch_manager"], section: "workspace", icon: TuneRoundedIcon },
     { to: "/member-applications", label: "Applications", roles: ["super_admin", "branch_manager", "auditor"], section: "workspace", icon: DescriptionRoundedIcon },
@@ -107,6 +109,7 @@ const searchKeywords: Partial<Record<NavItem["to"], string[]>> = {
     "/dashboard": ["overview", "home", "kpi", "summary"],
     "/platform/tenants": ["platform", "saas", "tenants", "organizations"],
     "/platform/plans": ["pricing", "features", "entitlements", "plans"],
+    "/platform/operations": ["platform", "operations", "metrics", "observability", "errors", "incidents", "latency"],
     "/staff-users": ["team", "staff", "users", "roles", "access"],
     "/products": ["savings products", "share products", "charges", "posting rules", "coa mappings"],
     "/member-applications": ["applications", "kyc", "member approval", "onboarding review"],
@@ -157,6 +160,10 @@ function getPageSubtitle(pathname: string) {
 
     if (pathname.startsWith("/platform/plans")) {
         return "Define SaaS plans, limits, and feature entitlements for each subscription tier.";
+    }
+
+    if (pathname.startsWith("/platform/operations")) {
+        return "Monitor API health, infrastructure load, tenant traffic, and incident signals in one control room.";
     }
 
     if (pathname.startsWith("/members")) {
@@ -257,7 +264,8 @@ export function AppLayout() {
             return (
                 (item.to === "/dashboard" && item.label === "Dashboard") ||
                 item.to === "/platform/tenants" ||
-                item.to === "/platform/plans"
+                item.to === "/platform/plans" ||
+                item.to === "/platform/operations"
             );
         }
 
