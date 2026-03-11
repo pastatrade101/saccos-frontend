@@ -336,6 +336,23 @@ export interface LoanApproval {
 
 export type ApprovalOperationKey = "finance.withdraw" | "finance.loan_disburse";
 export type ApprovalRequestStatus = "pending" | "approved" | "rejected" | "executed" | "expired" | "cancelled";
+export type SmsTriggerEventType =
+    | "loan_application_submitted"
+    | "loan_application_rejected"
+    | "loan_application_ready_for_disbursement"
+    | "loan_guarantor_declined"
+    | "loan_default_flag"
+    | "withdrawal_approval_required"
+    | "approval_approved"
+    | "approval_rejected"
+    | "approval_expired"
+    | "teller_cash_mismatch"
+    | "teller_transaction_post_failed"
+    | "teller_transaction_blocked"
+    | "approval_request_pending"
+    | "default_case_opened"
+    | "default_case_claim_ready"
+    | "guarantor_claim_submitted";
 
 export interface ApprovalPolicy {
     operation_key: ApprovalOperationKey;
@@ -345,6 +362,13 @@ export interface ApprovalPolicy {
     allowed_maker_roles: string[];
     allowed_checker_roles: string[];
     sla_minutes: number;
+}
+
+export interface SmsTriggerSetting {
+    event_type: SmsTriggerEventType;
+    label: string;
+    description: string;
+    enabled: boolean;
 }
 
 export interface ApprovalDecision {

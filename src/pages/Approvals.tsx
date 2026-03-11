@@ -32,9 +32,11 @@ import {
     type ApprovalRequestsResponse,
     type ApproveApprovalRequestBody,
     type RejectApprovalRequestBody,
-    type UpdateApprovalPolicyRequest
+    type SmsTriggerSettingsResponse,
+    type UpdateApprovalPolicyRequest,
+    type UpdateSmsTriggerRequest
 } from "../lib/endpoints";
-import type { ApprovalPolicy, ApprovalRequest, ApprovalRequestStatus } from "../types/api";
+import type { ApprovalPolicy, ApprovalRequest, ApprovalRequestStatus, SmsTriggerSetting } from "../types/api";
 import { MotionCard, MotionModal } from "../ui/motion";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -102,6 +104,8 @@ export function ApprovalsPage() {
     const [loading, setLoading] = useState(true);
     const [processing, setProcessing] = useState(false);
     const [policies, setPolicies] = useState<ApprovalPolicy[]>([]);
+    const [smsTriggers, setSmsTriggers] = useState<SmsTriggerSetting[]>([]);
+    const [smsSavingKey, setSmsSavingKey] = useState<string | null>(null);
     const [rows, setRows] = useState<ApprovalRequest[]>([]);
     const [page, setPage] = useState(1);
     const [limit] = useState(20);
@@ -130,6 +134,7 @@ export function ApprovalsPage() {
 
     const canDecide = profile?.role === "branch_manager" || profile?.role === "super_admin";
     const canManagePolicies = profile?.role === "branch_manager" || profile?.role === "super_admin";
+    const canManageSmsTriggers = profile?.role === "super_admin";
     const pendingCount = useMemo(() => rows.filter((row) => row.status === "pending").length, [rows]);
     const overdueCount = useMemo(
         () => rows.filter((row) => row.status === "pending" && row.expires_at && new Date(row.expires_at).getTime() < Date.now()).length,
@@ -142,6 +147,26 @@ export function ApprovalsPage() {
             params: { tenant_id: selectedTenantId }
         });
         setPolicies(data.data || []);
+    };
+
+    const loadSmsTriggers = async () => {
+        if (!selectedTenantId || !canManageSmsTriggers) {
+            setSmsTriggers([]);
+            return;
+        }
+
+        try {
+            const { data } = await api.get<SmsTriggerSettingsResponse>(endpoints.notificationSettings.smsTriggers(), {
+                params: { tenant_id: selectedTenantId }
+            });
+            setSmsTriggers(data.data || []);
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Unable to load SMS triggers",
+                message: getApiErrorMessage(error)
+            });
+        }
     };
 
     const loadRequests = async (targetPage = page) => {
@@ -201,6 +226,10 @@ export function ApprovalsPage() {
     useEffect(() => {
         void loadPolicies();
     }, [selectedTenantId]);
+
+    useEffect(() => {
+        void loadSmsTriggers();
+    }, [selectedTenantId, canManageSmsTriggers]);
 
     useEffect(() => {
         void loadRequests(1);
@@ -312,6 +341,36 @@ export function ApprovalsPage() {
         }
     });
 
+    const toggleSmsTrigger = async (trigger: SmsTriggerSetting, enabled: boolean) => {
+        if (!selectedTenantId || !canManageSmsTriggers) return;
+        setSmsSavingKey(trigger.event_type);
+
+        try {
+            const payload: UpdateSmsTriggerRequest = {
+                tenant_id: selectedTenantId,
+                enabled
+            };
+
+            await api.patch(endpoints.notificationSettings.smsTrigger(trigger.event_type), payload);
+            setSmsTriggers((prev) =>
+                prev.map((row) => (row.event_type === trigger.event_type ? { ...row, enabled } : row))
+            );
+            pushToast({
+                type: "success",
+                title: "SMS trigger updated",
+                message: `${trigger.label} is now ${enabled ? "enabled" : "disabled"}.`
+            });
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Unable to update SMS trigger",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setSmsSavingKey(null);
+        }
+    };
+
     const columns: Column<ApprovalRequest>[] = [
         {
             key: "operation",
@@ -381,6 +440,39 @@ export function ApprovalsPage() {
                         </Button>
                     ) : null}
                 </Stack>
+            )
+        }
+    ];
+
+    const smsTriggerColumns: Column<SmsTriggerSetting>[] = [
+        {
+            key: "label",
+            header: "Trigger",
+            render: (row) => (
+                <Stack spacing={0.25}>
+                    <Typography variant="body2" fontWeight={700}>{row.label}</Typography>
+                    <Typography variant="caption" color="text.secondary">{row.event_type}</Typography>
+                </Stack>
+            )
+        },
+        {
+            key: "description",
+            header: "Description",
+            render: (row) => (
+                <Typography variant="body2" color="text.secondary">
+                    {row.description}
+                </Typography>
+            )
+        },
+        {
+            key: "enabled",
+            header: "Enabled",
+            render: (row) => (
+                <Switch
+                    checked={Boolean(row.enabled)}
+                    onChange={(_, checked) => void toggleSmsTrigger(row, checked)}
+                    disabled={!canManageSmsTriggers || smsSavingKey === row.event_type}
+                />
             )
         }
     ];
@@ -533,6 +625,27 @@ export function ApprovalsPage() {
                     </Stack>
                 </CardContent>
             </MotionCard>
+
+            {canManageSmsTriggers ? (
+                <MotionCard variant="outlined">
+                    <CardContent>
+                        <Stack spacing={2}>
+                            <Stack direction="row" alignItems="center" spacing={1}>
+                                <RuleRoundedIcon fontSize="small" />
+                                <Typography variant="h6">SMS Trigger Controls</Typography>
+                            </Stack>
+                            <Alert severity="info" variant="outlined">
+                                Tenant super admin can enable or mute operational SMS alerts per trigger without changing global SMS provider settings.
+                            </Alert>
+                            <DataTable
+                                rows={smsTriggers}
+                                columns={smsTriggerColumns}
+                                emptyMessage="No SMS triggers configured."
+                            />
+                        </Stack>
+                    </CardContent>
+                </MotionCard>
+            ) : null}
 
             <MotionModal
                 open={detailOpen}

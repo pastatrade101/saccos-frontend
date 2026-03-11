@@ -1337,6 +1337,10 @@ export function DashboardPage() {
             errorRatePct: Number(platformState.systemMetrics?.error_rate_pct || 0),
             activeUsers: Number(platformState.systemMetrics?.active_users || 0),
             activeTenants: Number(platformState.systemMetrics?.active_tenants || 0),
+            smsTotalCount: Number(platformState.systemMetrics?.sms_total_count || 0),
+            smsSentCount: Number(platformState.systemMetrics?.sms_sent_count || 0),
+            smsFailedCount: Number(platformState.systemMetrics?.sms_failed_count || 0),
+            smsDeliveryRatePct: Number(platformState.systemMetrics?.sms_delivery_rate_pct || 0),
             cpuPct: Number(platformState.infrastructure?.cpu_pct || 0),
             memoryPct: Number(platformState.infrastructure?.memory_pct || 0),
             diskPct: Number(platformState.infrastructure?.disk_pct || 0),
@@ -1399,6 +1403,16 @@ export function DashboardPage() {
         },
         { key: "request_count", header: "Requests", render: (row) => row.request_count.toLocaleString() },
         { key: "error_count", header: "Errors", render: (row) => row.error_count.toLocaleString() },
+        {
+            key: "sms_usage",
+            header: "SMS Sent / Total",
+            render: (row) => `${Number(row.sms_sent_count || 0).toLocaleString()} / ${Number(row.sms_total_count || 0).toLocaleString()}`
+        },
+        {
+            key: "sms_failed_count",
+            header: "SMS Failed",
+            render: (row) => Number(row.sms_failed_count || 0).toLocaleString()
+        },
         { key: "avg_latency_ms", header: "Avg Latency", render: (row) => `${row.avg_latency_ms.toFixed(1)} ms` },
         { key: "active_users", header: "Active Users", render: (row) => row.active_users.toLocaleString() }
     ];
@@ -1533,6 +1547,20 @@ export function DashboardPage() {
                                 label="Active Users / Tenants"
                                 value={`${platformMetrics.activeUsers} / ${platformMetrics.activeTenants}`}
                                 helper="Real active load in the current metrics window."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="SMS Sent / Total"
+                                value={`${platformMetrics.smsSentCount.toLocaleString()} / ${platformMetrics.smsTotalCount.toLocaleString()}`}
+                                helper="Tenant SMS dispatch volume in the same metrics window."
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+                            <MetricCard
+                                label="SMS Delivery Rate"
+                                value={`${platformMetrics.smsDeliveryRatePct.toFixed(2)}%`}
+                                helper={`${platformMetrics.smsFailedCount.toLocaleString()} failed SMS dispatches.`}
                             />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6, xl: 3 }}>

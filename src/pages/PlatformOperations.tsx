@@ -1,6 +1,7 @@
 import { MotionCard } from "../ui/motion";
 import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
 import LanRoundedIcon from "@mui/icons-material/LanRounded";
+import SmsRoundedIcon from "@mui/icons-material/SmsRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
@@ -38,7 +39,7 @@ import {
 import { formatDate } from "../utils/format";
 
 type Scope = "system" | "tenant";
-type SortBy = "traffic" | "errors" | "latency";
+type SortBy = "traffic" | "errors" | "latency" | "sms";
 type SortDir = "asc" | "desc";
 
 interface TenantOption {
@@ -335,6 +336,16 @@ export function PlatformOperationsPage() {
         { key: "requests", header: "Requests", render: (row) => row.request_count.toLocaleString() },
         { key: "errors", header: "Errors", render: (row) => row.error_count.toLocaleString() },
         { key: "latency", header: "Avg Latency", render: (row) => formatLatency(row.avg_latency_ms) },
+        {
+            key: "sms_usage",
+            header: "SMS Sent / Total",
+            render: (row) => `${Number(row.sms_sent_count || 0).toLocaleString()} / ${Number(row.sms_total_count || 0).toLocaleString()}`
+        },
+        {
+            key: "sms_failed",
+            header: "SMS Failed",
+            render: (row) => Number(row.sms_failed_count || 0).toLocaleString()
+        },
         { key: "users", header: "Active Users", render: (row) => row.active_users.toLocaleString() }
     ];
 
@@ -457,6 +468,22 @@ export function PlatformOperationsPage() {
                         icon={<LanRoundedIcon />}
                     />
                 </Grid>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <MetricCard
+                        label="SMS sent / total"
+                        value={`${Number(systemMetrics?.sms_sent_count || 0).toLocaleString()} / ${Number(systemMetrics?.sms_total_count || 0).toLocaleString()}`}
+                        helper="Tenant SMS dispatch volume in current window"
+                        icon={<SmsRoundedIcon />}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <MetricCard
+                        label="SMS delivery rate"
+                        value={formatPercent(systemMetrics?.sms_delivery_rate_pct)}
+                        helper={`${Number(systemMetrics?.sms_failed_count || 0).toLocaleString()} failed SMS in current window`}
+                        icon={<SmsRoundedIcon />}
+                    />
+                </Grid>
             </Grid>
 
             <Grid container spacing={2}>
@@ -521,6 +548,7 @@ export function PlatformOperationsPage() {
                                 <MenuItem value="traffic">Traffic</MenuItem>
                                 <MenuItem value="errors">Errors</MenuItem>
                                 <MenuItem value="latency">Latency</MenuItem>
+                                <MenuItem value="sms">SMS Usage</MenuItem>
                             </TextField>
                             <TextField
                                 select

@@ -43,7 +43,9 @@ import type {
     ApprovalPolicy,
     ApprovalRequest,
     ApprovalOperationKey,
-    ApprovalRequestStatus
+    ApprovalRequestStatus,
+    SmsTriggerEventType,
+    SmsTriggerSetting
 } from "../types/api";
 
 const routeMap = {
@@ -198,6 +200,10 @@ const routeMap = {
         request: (requestId: string) => `/approvals/requests/${requestId}`,
         approve: (requestId: string) => `/approvals/requests/${requestId}/approve`,
         reject: (requestId: string) => `/approvals/requests/${requestId}/reject`
+    },
+    notificationSettings: {
+        smsTriggers: "/notification-settings/sms-triggers",
+        smsTrigger: (eventType: SmsTriggerEventType) => `/notification-settings/sms-triggers/${eventType}`
     }
 } as const;
 
@@ -353,6 +359,10 @@ export const endpoints = {
         request: (requestId: string) => routeMap.approvals.request(requestId),
         approve: (requestId: string) => routeMap.approvals.approve(requestId),
         reject: (requestId: string) => routeMap.approvals.reject(requestId)
+    },
+    notificationSettings: {
+        smsTriggers: () => routeMap.notificationSettings.smsTriggers,
+        smsTrigger: (eventType: SmsTriggerEventType) => routeMap.notificationSettings.smsTrigger(eventType)
     }
 };
 
@@ -952,6 +962,10 @@ export interface PlatformSystemMetrics {
     error_rate_pct: number;
     active_users: number;
     active_tenants: number;
+    sms_total_count?: number;
+    sms_sent_count?: number;
+    sms_failed_count?: number;
+    sms_delivery_rate_pct?: number;
     window_minutes: number;
     timeseries: PlatformMetricsTimeseriesPoint[];
 }
@@ -963,6 +977,10 @@ export interface PlatformTenantTrafficRow {
     error_count: number;
     avg_latency_ms: number;
     active_users: number;
+    sms_total_count?: number;
+    sms_sent_count?: number;
+    sms_failed_count?: number;
+    sms_delivery_rate_pct?: number;
 }
 
 export interface PlatformInfrastructureMetrics {
@@ -1025,6 +1043,8 @@ export interface ApprovalRequestsResponse {
 }
 
 export interface ApprovalRequestResponse extends ApiEnvelope<ApprovalRequest> {}
+export interface SmsTriggerSettingsResponse extends ApiEnvelope<SmsTriggerSetting[]> {}
+export interface SmsTriggerSettingResponse extends ApiEnvelope<SmsTriggerSetting> {}
 
 export interface UpdateApprovalPolicyRequest {
     tenant_id?: string;
@@ -1045,6 +1065,11 @@ export interface RejectApprovalRequestBody {
     tenant_id?: string;
     reason: string;
     notes?: string | null;
+}
+
+export interface UpdateSmsTriggerRequest {
+    tenant_id?: string;
+    enabled: boolean;
 }
 
 export interface PendingApprovalPayload {
