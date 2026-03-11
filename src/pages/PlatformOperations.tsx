@@ -29,14 +29,10 @@ import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
-    type PlatformErrorsResponse,
     type PlatformInfrastructureMetrics,
-    type PlatformInfrastructureMetricsResponse,
+    type PlatformOperationsOverviewResponse,
     type PlatformSlowEndpointRow,
-    type PlatformSlowEndpointsResponse,
     type PlatformSystemMetrics,
-    type PlatformSystemMetricsResponse,
-    type PlatformTenantTrafficResponse,
     type PlatformTenantTrafficRow,
     type PlatformTenantsResponse
 } from "../lib/endpoints";
@@ -429,6 +425,10 @@ export function PlatformOperationsPage() {
     const scopedTenantId = scope === "tenant" ? monitoredTenantId || undefined : undefined;
 
     const loadTenantOptions = useCallback(async () => {
+        if (tenantOptions.length) {
+            return;
+        }
+
         try {
             const { data } = await api.get<PlatformTenantsResponse>(endpoints.platform.tenants(), {
                 params: { page: 1, limit: 100 }
@@ -454,7 +454,7 @@ export function PlatformOperationsPage() {
                 message: getApiErrorMessage(error)
             });
         }
-    }, [activeTenantId, monitoredTenantId, pushToast]);
+    }, [activeTenantId, monitoredTenantId, pushToast, tenantOptions.length]);
 
     const loadOperationsData = useCallback(async () => {
         if (scope === "tenant" && !monitoredTenantId) {
@@ -464,49 +464,26 @@ export function PlatformOperationsPage() {
         setLoading(true);
 
         try {
-            const sharedParams = {
-                tenant_id: scopedTenantId,
-                window_minutes: 60
-            };
-
-            const [systemResponse, tenantResponse, infrastructureResponse, errorsResponse, slowResponse] = await Promise.all([
-                api.get<PlatformSystemMetricsResponse>(endpoints.platform.metricsSystem(), {
-                    params: sharedParams
-                }),
-                api.get<PlatformTenantTrafficResponse>(endpoints.platform.metricsTenants(), {
-                    params: {
-                        ...sharedParams,
-                        sort_by: sortBy,
-                        sort_dir: sortDir
-                    }
-                }),
-                api.get<PlatformInfrastructureMetricsResponse>(endpoints.platform.metricsInfrastructure(), {
-                    params: {
-                        tenant_id: scopedTenantId,
-                        window_minutes: 1
-                    }
-                }),
-                api.get<PlatformErrorsResponse>(endpoints.platform.errors(), {
-                    params: {
-                        tenant_id: scopedTenantId,
-                        page: 1,
-                        limit: 20
-                    }
-                }),
-                api.get<PlatformSlowEndpointsResponse>(endpoints.platform.metricsSlowEndpoints(), {
+            const overviewResponse = await api.get<PlatformOperationsOverviewResponse>(
+                endpoints.platform.operationsOverview(),
+                {
                     params: {
                         tenant_id: scopedTenantId,
                         window_minutes: 60,
-                        limit: 10
+                        sort_by: sortBy,
+                        sort_dir: sortDir,
+                        errors_limit: 20,
+                        slow_limit: 10
                     }
-                })
-            ]);
+                }
+            );
 
-            setSystemMetrics(systemResponse.data.data);
-            setTenantTraffic(tenantResponse.data.data || []);
-            setInfrastructure(infrastructureResponse.data.data);
-            setErrors(errorsResponse.data.data || []);
-            setSlowEndpoints(slowResponse.data.data || []);
+            const overview = overviewResponse.data.data;
+            setSystemMetrics(overview.system);
+            setTenantTraffic(overview.tenants || []);
+            setInfrastructure(overview.infrastructure);
+            setErrors(overview.errors || []);
+            setSlowEndpoints(overview.slow_endpoints || []);
         } catch (error) {
             pushToast({
                 type: "error",
@@ -519,8 +496,10 @@ export function PlatformOperationsPage() {
     }, [scope, monitoredTenantId, scopedTenantId, sortBy, sortDir, pushToast]);
 
     useEffect(() => {
-        void loadTenantOptions();
-    }, [loadTenantOptions]);
+        if (scope === "tenant" && tenantOptions.length === 0) {
+            void loadTenantOptions();
+        }
+    }, [loadTenantOptions, scope, tenantOptions.length]);
 
     useEffect(() => {
         if (scope === "tenant" && !monitoredTenantId && tenantOptions.length) {
@@ -728,49 +707,26 @@ export function PlatformOperationsPage() {
         try {
             const windowMinutes = 7 * 24 * 60;
             const weeklyScopedTenantId = scope === "tenant" ? monitoredTenantId : undefined;
-            const sharedParams = {
-                tenant_id: weeklyScopedTenantId,
-                window_minutes: windowMinutes
-            };
-
-            const [systemResponse, tenantResponse, infraResponse, errorResponse, slowResponse] = await Promise.all([
-                api.get<PlatformSystemMetricsResponse>(endpoints.platform.metricsSystem(), {
-                    params: sharedParams
-                }),
-                api.get<PlatformTenantTrafficResponse>(endpoints.platform.metricsTenants(), {
-                    params: {
-                        ...sharedParams,
-                        sort_by: "traffic",
-                        sort_dir: "desc"
-                    }
-                }),
-                api.get<PlatformInfrastructureMetricsResponse>(endpoints.platform.metricsInfrastructure(), {
-                    params: {
-                        tenant_id: weeklyScopedTenantId,
-                        window_minutes: 60
-                    }
-                }),
-                api.get<PlatformErrorsResponse>(endpoints.platform.errors(), {
-                    params: {
-                        tenant_id: weeklyScopedTenantId,
-                        page: 1,
-                        limit: 100
-                    }
-                }),
-                api.get<PlatformSlowEndpointsResponse>(endpoints.platform.metricsSlowEndpoints(), {
+            const overviewResponse = await api.get<PlatformOperationsOverviewResponse>(
+                endpoints.platform.operationsOverview(),
+                {
                     params: {
                         tenant_id: weeklyScopedTenantId,
                         window_minutes: windowMinutes,
-                        limit: 20
+                        sort_by: "traffic",
+                        sort_dir: "desc",
+                        errors_limit: 100,
+                        slow_limit: 20
                     }
-                })
-            ]);
+                }
+            );
 
-            const weeklySystem = systemResponse.data.data;
-            const weeklyTenants = tenantResponse.data.data || [];
-            const weeklyInfra = infraResponse.data.data;
-            const weeklyErrors = errorResponse.data.data || [];
-            const weeklySlow = slowResponse.data.data || [];
+            const weeklyOverview = overviewResponse.data.data;
+            const weeklySystem = weeklyOverview.system;
+            const weeklyTenants = weeklyOverview.tenants || [];
+            const weeklyInfra = weeklyOverview.infrastructure;
+            const weeklyErrors = weeklyOverview.errors || [];
+            const weeklySlow = weeklyOverview.slow_endpoints || [];
             const weeklyInsights = buildOptimizationInsights({
                 systemMetrics: weeklySystem,
                 infrastructure: weeklyInfra,

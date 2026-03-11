@@ -109,7 +109,8 @@ const routeMap = {
         metricsTenants: "/platform/metrics/tenants",
         metricsInfrastructure: "/platform/metrics/infrastructure",
         metricsSlowEndpoints: "/platform/metrics/slow-endpoints",
-        errors: "/platform/errors"
+        errors: "/platform/errors",
+        operationsOverview: "/platform/operations/overview"
     },
     members: {
         list: "/members",
@@ -268,7 +269,8 @@ export const endpoints = {
         metricsTenants: () => routeMap.platform.metricsTenants,
         metricsInfrastructure: () => routeMap.platform.metricsInfrastructure,
         metricsSlowEndpoints: () => routeMap.platform.metricsSlowEndpoints,
-        errors: () => routeMap.platform.errors
+        errors: () => routeMap.platform.errors,
+        operationsOverview: () => routeMap.platform.operationsOverview
     },
     members: {
         list: () => routeMap.members.list,
@@ -1016,10 +1018,21 @@ export interface PlatformSlowEndpointRow {
     calls: number;
 }
 
+export interface PlatformOperationsOverview {
+    window_minutes: number;
+    scope_tenant_id?: string | null;
+    system: PlatformSystemMetrics;
+    tenants: PlatformTenantTrafficRow[];
+    infrastructure: PlatformInfrastructureMetrics;
+    slow_endpoints: PlatformSlowEndpointRow[];
+    errors: PlatformErrorRow[];
+}
+
 export type PlatformSystemMetricsResponse = ApiEnvelope<PlatformSystemMetrics>;
 export type PlatformTenantTrafficResponse = ApiEnvelope<PlatformTenantTrafficRow[]>;
 export type PlatformInfrastructureMetricsResponse = ApiEnvelope<PlatformInfrastructureMetrics>;
 export type PlatformSlowEndpointsResponse = ApiEnvelope<PlatformSlowEndpointRow[]>;
+export type PlatformOperationsOverviewResponse = ApiEnvelope<PlatformOperationsOverview>;
 
 export interface ApprovalPoliciesResponse extends ApiEnvelope<ApprovalPolicy[]> {}
 
