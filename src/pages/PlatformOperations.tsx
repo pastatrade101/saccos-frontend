@@ -1,4 +1,5 @@
 import { MotionCard } from "../ui/motion";
+import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
 import LanRoundedIcon from "@mui/icons-material/LanRounded";
 import SmsRoundedIcon from "@mui/icons-material/SmsRounded";
@@ -7,6 +8,7 @@ import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
     Alert,
     Avatar,
+    Button,
     CardContent,
     Chip,
     Grid,
@@ -16,6 +18,8 @@ import {
     Typography
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 import { useAuth } from "../auth/AuthProvider";
 import { AppLoader } from "../components/AppLoader";
@@ -36,6 +40,7 @@ import {
     type PlatformTenantTrafficRow,
     type PlatformTenantsResponse
 } from "../lib/endpoints";
+import { downloadFile } from "../utils/downloadFile";
 import { formatDate } from "../utils/format";
 
 type Scope = "system" | "tenant";
@@ -131,6 +136,256 @@ function formatRatioPercent(part: number, total: number) {
     return `${((part / total) * 100).toFixed(2)}%`;
 }
 
+function escapeCsv(value: unknown) {
+    if (value === null || value === undefined) {
+        return "";
+    }
+    const text = String(value).replace(/"/g, "\"\"");
+    return `"${text}"`;
+}
+
+function csvRow(values: unknown[]) {
+    return values.map((value) => escapeCsv(value)).join(",");
+}
+
+function buildOptimizationInsights({
+    systemMetrics,
+    infrastructure,
+    tenantTraffic,
+    slowEndpoints,
+    errors
+}: {
+    systemMetrics: PlatformSystemMetrics | null;
+    infrastructure: PlatformInfrastructureMetrics | null;
+    tenantTraffic: PlatformTenantTrafficRow[];
+    slowEndpoints: PlatformSlowEndpointRow[];
+    errors: ErrorRow[];
+}) {
+    const insights: OptimizationInsight[] = [];
+
+    if (systemMetrics) {
+        const errorRate = Number(systemMetrics.error_rate_pct || 0);
+        if (errorRate >= 2) {
+            insights.push({
+                id: "system-error-rate-critical",
+                severity: "critical",
+                area: "API Reliability",
+                finding: `Error rate is ${formatPercent(errorRate)} in the current window.`,
+                recommendation: "Inspect recent 5xx errors by endpoint and tenant, then fix top failing route before scaling traffic."
+            });
+        } else if (errorRate >= 1) {
+            insights.push({
+                id: "system-error-rate-high",
+                severity: "high",
+                area: "API Reliability",
+                finding: `Error rate is ${formatPercent(errorRate)} in the current window.`,
+                recommendation: "Prioritize the most frequent failing endpoint and add defensive retries/timeouts around upstream calls."
+            });
+        }
+
+        const p95 = Number(systemMetrics.p95_latency_ms || 0);
+        if (p95 >= 1200) {
+            insights.push({
+                id: "system-latency-critical",
+                severity: "critical",
+                area: "API Performance",
+                finding: `System p95 latency is ${formatLatency(p95)}.`,
+                recommendation: "Profile slow DB queries and add shared cache (Redis) for hot platform endpoints across backend replicas."
+            });
+        } else if (p95 >= 700) {
+            insights.push({
+                id: "system-latency-high",
+                severity: "high",
+                area: "API Performance",
+                finding: `System p95 latency is ${formatLatency(p95)}.`,
+                recommendation: "Optimize the top slow endpoints first and review query plans/index coverage."
+            });
+        } else if (p95 >= 450) {
+            insights.push({
+                id: "system-latency-medium",
+                severity: "medium",
+                area: "API Performance",
+                finding: `System p95 latency is ${formatLatency(p95)}.`,
+                recommendation: "Tune endpoint-level caching and reduce payload size for large list endpoints."
+            });
+        }
+
+        const smsTotal = Number(systemMetrics.sms_total_count || 0);
+        const smsDeliveryRate = Number(systemMetrics.sms_delivery_rate_pct || 0);
+        if (smsTotal >= 20 && smsDeliveryRate < 90) {
+            insights.push({
+                id: "sms-delivery-high",
+                severity: "high",
+                area: "SMS Delivery",
+                finding: `SMS delivery rate is ${formatPercent(smsDeliveryRate)} (${Number(systemMetrics.sms_failed_count || 0).toLocaleString()} failed).`,
+                recommendation: "Review provider response codes and retry policy; alert tenants with failing sender IDs/templates."
+            });
+        } else if (smsTotal >= 20 && smsDeliveryRate < 97) {
+            insights.push({
+                id: "sms-delivery-medium",
+                severity: "medium",
+                area: "SMS Delivery",
+                finding: `SMS delivery rate is ${formatPercent(smsDeliveryRate)}.`,
+                recommendation: "Investigate top tenants with failed SMS and verify channel configuration."
+            });
+        }
+    }
+
+    if (infrastructure) {
+        const cpu = Number(infrastructure.cpu_pct || 0);
+        const memory = Number(infrastructure.memory_pct || 0);
+        const disk = Number(infrastructure.disk_pct || 0);
+        const network = Number(infrastructure.network_mbps || 0);
+
+        if (cpu >= 85) {
+            insights.push({
+                id: "infra-cpu-high",
+                severity: cpu >= 92 ? "critical" : "high",
+                area: "Infrastructure",
+                finding: `CPU usage is ${formatPercent(cpu)}.`,
+                recommendation: "Scale backend replicas and profile CPU-heavy routes/background jobs."
+            });
+        }
+
+        if (memory >= 85) {
+            insights.push({
+                id: "infra-memory-high",
+                severity: memory >= 92 ? "critical" : "high",
+                area: "Infrastructure",
+                finding: `RAM usage is ${formatPercent(memory)}.`,
+                recommendation: "Check process memory growth and reduce large in-memory payloads in report/metrics handlers."
+            });
+        }
+
+        if (disk >= 80) {
+            insights.push({
+                id: "infra-disk-high",
+                severity: disk >= 90 ? "critical" : "high",
+                area: "Infrastructure",
+                finding: `Disk usage is ${formatPercent(disk)}.`,
+                recommendation: "Purge old report exports/import artifacts and enforce bucket retention lifecycle policies."
+            });
+        }
+
+        if (network >= 80) {
+            insights.push({
+                id: "infra-network-medium",
+                severity: network >= 95 ? "high" : "medium",
+                area: "Infrastructure",
+                finding: `Network throughput is ${formatNumber(network, 2)} Mbps.`,
+                recommendation: "Compress large responses and reduce polling frequency on high-churn dashboards."
+            });
+        }
+    }
+
+    if (tenantTraffic.length) {
+        const totalRequests = tenantTraffic.reduce((sum, row) => sum + Number(row.request_count || 0), 0);
+        const topTrafficTenant = [...tenantTraffic].sort((a, b) => b.request_count - a.request_count)[0];
+        const topErrorTenant = [...tenantTraffic]
+            .filter((row) => row.request_count > 0 && row.error_count > 0)
+            .sort((a, b) => (b.error_count / Math.max(b.request_count, 1)) - (a.error_count / Math.max(a.request_count, 1)))[0];
+        const topLatencyTenant = [...tenantTraffic].sort((a, b) => b.avg_latency_ms - a.avg_latency_ms)[0];
+
+        if (topTrafficTenant && totalRequests > 0) {
+            const share = topTrafficTenant.request_count / totalRequests;
+            if (share >= 0.45 && topTrafficTenant.request_count >= 100) {
+                insights.push({
+                    id: "tenant-traffic-concentration",
+                    severity: "medium",
+                    area: "Tenant Traffic Mix",
+                    finding: `${topTrafficTenant.tenant_name} drives ${formatRatioPercent(topTrafficTenant.request_count, totalRequests)} of monitored traffic.`,
+                    recommendation: "Consider per-tenant throttling/caching to prevent noisy-tenant impact on global latency."
+                });
+            }
+        }
+
+        if (topErrorTenant) {
+            const errorRatio = (topErrorTenant.error_count / Math.max(topErrorTenant.request_count, 1)) * 100;
+            if (errorRatio >= 2 && topErrorTenant.error_count >= 5) {
+                insights.push({
+                    id: "tenant-error-hotspot",
+                    severity: "high",
+                    area: "Tenant Reliability",
+                    finding: `${topErrorTenant.tenant_name} has ${formatPercent(errorRatio)} error ratio (${topErrorTenant.error_count.toLocaleString()} errors).`,
+                    recommendation: "Review this tenant’s recent failing endpoints and fix tenant-specific data/config hotspots."
+                });
+            }
+        }
+
+        if (topLatencyTenant && topLatencyTenant.avg_latency_ms >= 800 && topLatencyTenant.request_count >= 30) {
+            insights.push({
+                id: "tenant-latency-hotspot",
+                severity: "high",
+                area: "Tenant Performance",
+                finding: `${topLatencyTenant.tenant_name} average latency is ${formatLatency(topLatencyTenant.avg_latency_ms)}.`,
+                recommendation: "Inspect expensive tenant queries and branch/member list joins; add targeted DB indexes."
+            });
+        }
+    }
+
+    if (slowEndpoints.length) {
+        const slowest = slowEndpoints[0];
+        if (slowest && slowest.avg_latency_ms >= 700 && slowest.calls >= 20) {
+            insights.push({
+                id: "endpoint-slowest",
+                severity: slowest.avg_latency_ms >= 1200 ? "critical" : "high",
+                area: "Endpoint Hotspot",
+                finding: `${slowest.endpoint} averages ${formatLatency(slowest.avg_latency_ms)} across ${slowest.calls.toLocaleString()} calls.`,
+                recommendation: "Optimize this endpoint first (query plan, pagination strategy, precomputed aggregates, cache)."
+            });
+        }
+    }
+
+    if (errors.length) {
+        const endpointCounts = new Map<string, number>();
+        errors.forEach((row) => {
+            const key = `${row.endpoint}|${row.status_code}`;
+            endpointCounts.set(key, (endpointCounts.get(key) || 0) + 1);
+        });
+
+        const frequent = [...endpointCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (frequent && frequent[1] >= 3) {
+            const [endpoint, statusCode] = frequent[0].split("|");
+            insights.push({
+                id: "repeated-incident",
+                severity: "high",
+                area: "Incident Pattern",
+                finding: `${endpoint} returned ${statusCode} ${frequent[1]} times in recent incidents.`,
+                recommendation: "Create a focused fix ticket for this endpoint and add alerting threshold to catch recurrence early."
+            });
+        }
+    }
+
+    return insights
+        .sort((left, right) => {
+            if (SEVERITY_RANK[left.severity] !== SEVERITY_RANK[right.severity]) {
+                return SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity];
+            }
+            return left.area.localeCompare(right.area);
+        })
+        .slice(0, 8);
+}
+
+function calculateOptimizationScore(insights: OptimizationInsight[]) {
+    if (!insights.length) {
+        return 100;
+    }
+
+    const penaltyMap: Record<InsightSeverity, number> = {
+        critical: 20,
+        high: 12,
+        medium: 6,
+        low: 3
+    };
+
+    const totalPenalty = insights.reduce(
+        (sum, item) => sum + penaltyMap[item.severity],
+        0
+    );
+
+    return Math.max(0, 100 - totalPenalty);
+}
+
 function buildGaugeData(value: number, max: number, color: string) {
     const safeMax = Math.max(max, 1);
     const ratio = Math.min(Math.max(value / safeMax, 0), 1);
@@ -159,6 +414,7 @@ export function PlatformOperationsPage() {
     const [sortBy, setSortBy] = useState<SortBy>("traffic");
     const [sortDir, setSortDir] = useState<SortDir>("desc");
     const [loading, setLoading] = useState(true);
+    const [exporting, setExporting] = useState(false);
 
     const [systemMetrics, setSystemMetrics] = useState<PlatformSystemMetrics | null>(null);
     const [tenantTraffic, setTenantTraffic] = useState<PlatformTenantTrafficRow[]>([]);
@@ -410,231 +666,21 @@ export function PlatformOperationsPage() {
 
     const selectedTenantName = tenantOptions.find((tenant) => tenant.id === monitoredTenantId)?.name || "-";
 
-    const optimizationInsights = useMemo<OptimizationInsight[]>(() => {
-        const insights: OptimizationInsight[] = [];
+    const optimizationInsights = useMemo(
+        () => buildOptimizationInsights({
+            systemMetrics,
+            infrastructure,
+            tenantTraffic,
+            slowEndpoints,
+            errors
+        }),
+        [errors, infrastructure, slowEndpoints, systemMetrics, tenantTraffic]
+    );
 
-        if (systemMetrics) {
-            const errorRate = Number(systemMetrics.error_rate_pct || 0);
-            if (errorRate >= 2) {
-                insights.push({
-                    id: "system-error-rate-critical",
-                    severity: "critical",
-                    area: "API Reliability",
-                    finding: `Error rate is ${formatPercent(errorRate)} in the current window.`,
-                    recommendation: "Inspect recent 5xx errors by endpoint and tenant, then fix top failing route before scaling traffic."
-                });
-            } else if (errorRate >= 1) {
-                insights.push({
-                    id: "system-error-rate-high",
-                    severity: "high",
-                    area: "API Reliability",
-                    finding: `Error rate is ${formatPercent(errorRate)} in the current window.`,
-                    recommendation: "Prioritize the most frequent failing endpoint and add defensive retries/timeouts around upstream calls."
-                });
-            }
-
-            const p95 = Number(systemMetrics.p95_latency_ms || 0);
-            if (p95 >= 1200) {
-                insights.push({
-                    id: "system-latency-critical",
-                    severity: "critical",
-                    area: "API Performance",
-                    finding: `System p95 latency is ${formatLatency(p95)}.`,
-                    recommendation: "Profile slow DB queries and add shared cache (Redis) for hot platform endpoints across backend replicas."
-                });
-            } else if (p95 >= 700) {
-                insights.push({
-                    id: "system-latency-high",
-                    severity: "high",
-                    area: "API Performance",
-                    finding: `System p95 latency is ${formatLatency(p95)}.`,
-                    recommendation: "Optimize the top slow endpoints first and review query plans/index coverage."
-                });
-            } else if (p95 >= 450) {
-                insights.push({
-                    id: "system-latency-medium",
-                    severity: "medium",
-                    area: "API Performance",
-                    finding: `System p95 latency is ${formatLatency(p95)}.`,
-                    recommendation: "Tune endpoint-level caching and reduce payload size for large list endpoints."
-                });
-            }
-
-            const smsTotal = Number(systemMetrics.sms_total_count || 0);
-            const smsDeliveryRate = Number(systemMetrics.sms_delivery_rate_pct || 0);
-            if (smsTotal >= 20 && smsDeliveryRate < 90) {
-                insights.push({
-                    id: "sms-delivery-high",
-                    severity: "high",
-                    area: "SMS Delivery",
-                    finding: `SMS delivery rate is ${formatPercent(smsDeliveryRate)} (${Number(systemMetrics.sms_failed_count || 0).toLocaleString()} failed).`,
-                    recommendation: "Review provider response codes and retry policy; alert tenants with failing sender IDs/templates."
-                });
-            } else if (smsTotal >= 20 && smsDeliveryRate < 97) {
-                insights.push({
-                    id: "sms-delivery-medium",
-                    severity: "medium",
-                    area: "SMS Delivery",
-                    finding: `SMS delivery rate is ${formatPercent(smsDeliveryRate)}.`,
-                    recommendation: "Investigate top tenants with failed SMS and verify channel configuration."
-                });
-            }
-        }
-
-        if (infrastructure) {
-            const cpu = Number(infrastructure.cpu_pct || 0);
-            const memory = Number(infrastructure.memory_pct || 0);
-            const disk = Number(infrastructure.disk_pct || 0);
-            const network = Number(infrastructure.network_mbps || 0);
-
-            if (cpu >= 85) {
-                insights.push({
-                    id: "infra-cpu-high",
-                    severity: cpu >= 92 ? "critical" : "high",
-                    area: "Infrastructure",
-                    finding: `CPU usage is ${formatPercent(cpu)}.`,
-                    recommendation: "Scale backend replicas and profile CPU-heavy routes/background jobs."
-                });
-            }
-
-            if (memory >= 85) {
-                insights.push({
-                    id: "infra-memory-high",
-                    severity: memory >= 92 ? "critical" : "high",
-                    area: "Infrastructure",
-                    finding: `RAM usage is ${formatPercent(memory)}.`,
-                    recommendation: "Check process memory growth and reduce large in-memory payloads in report/metrics handlers."
-                });
-            }
-
-            if (disk >= 80) {
-                insights.push({
-                    id: "infra-disk-high",
-                    severity: disk >= 90 ? "critical" : "high",
-                    area: "Infrastructure",
-                    finding: `Disk usage is ${formatPercent(disk)}.`,
-                    recommendation: "Purge old report exports/import artifacts and enforce bucket retention lifecycle policies."
-                });
-            }
-
-            if (network >= 80) {
-                insights.push({
-                    id: "infra-network-medium",
-                    severity: network >= 95 ? "high" : "medium",
-                    area: "Infrastructure",
-                    finding: `Network throughput is ${formatNumber(network, 2)} Mbps.`,
-                    recommendation: "Compress large responses and reduce polling frequency on high-churn dashboards."
-                });
-            }
-        }
-
-        if (tenantTraffic.length) {
-            const totalRequests = tenantTraffic.reduce((sum, row) => sum + Number(row.request_count || 0), 0);
-            const topTrafficTenant = [...tenantTraffic].sort((a, b) => b.request_count - a.request_count)[0];
-            const topErrorTenant = [...tenantTraffic]
-                .filter((row) => row.request_count > 0 && row.error_count > 0)
-                .sort((a, b) => (b.error_count / Math.max(b.request_count, 1)) - (a.error_count / Math.max(a.request_count, 1)))[0];
-            const topLatencyTenant = [...tenantTraffic].sort((a, b) => b.avg_latency_ms - a.avg_latency_ms)[0];
-
-            if (topTrafficTenant && totalRequests > 0) {
-                const share = topTrafficTenant.request_count / totalRequests;
-                if (share >= 0.45 && topTrafficTenant.request_count >= 100) {
-                    insights.push({
-                        id: "tenant-traffic-concentration",
-                        severity: "medium",
-                        area: "Tenant Traffic Mix",
-                        finding: `${topTrafficTenant.tenant_name} drives ${formatRatioPercent(topTrafficTenant.request_count, totalRequests)} of monitored traffic.`,
-                        recommendation: "Consider per-tenant throttling/caching to prevent noisy-tenant impact on global latency."
-                    });
-                }
-            }
-
-            if (topErrorTenant) {
-                const errorRatio = (topErrorTenant.error_count / Math.max(topErrorTenant.request_count, 1)) * 100;
-                if (errorRatio >= 2 && topErrorTenant.error_count >= 5) {
-                    insights.push({
-                        id: "tenant-error-hotspot",
-                        severity: "high",
-                        area: "Tenant Reliability",
-                        finding: `${topErrorTenant.tenant_name} has ${formatPercent(errorRatio)} error ratio (${topErrorTenant.error_count.toLocaleString()} errors).`,
-                        recommendation: "Review this tenant’s recent failing endpoints and fix tenant-specific data/config hotspots."
-                    });
-                }
-            }
-
-            if (topLatencyTenant && topLatencyTenant.avg_latency_ms >= 800 && topLatencyTenant.request_count >= 30) {
-                insights.push({
-                    id: "tenant-latency-hotspot",
-                    severity: "high",
-                    area: "Tenant Performance",
-                    finding: `${topLatencyTenant.tenant_name} average latency is ${formatLatency(topLatencyTenant.avg_latency_ms)}.`,
-                    recommendation: "Inspect expensive tenant queries and branch/member list joins; add targeted DB indexes."
-                });
-            }
-        }
-
-        if (slowEndpoints.length) {
-            const slowest = slowEndpoints[0];
-            if (slowest && slowest.avg_latency_ms >= 700 && slowest.calls >= 20) {
-                insights.push({
-                    id: "endpoint-slowest",
-                    severity: slowest.avg_latency_ms >= 1200 ? "critical" : "high",
-                    area: "Endpoint Hotspot",
-                    finding: `${slowest.endpoint} averages ${formatLatency(slowest.avg_latency_ms)} across ${slowest.calls.toLocaleString()} calls.`,
-                    recommendation: "Optimize this endpoint first (query plan, pagination strategy, precomputed aggregates, cache)."
-                });
-            }
-        }
-
-        if (errors.length) {
-            const endpointCounts = new Map<string, number>();
-            errors.forEach((row) => {
-                const key = `${row.endpoint}|${row.status_code}`;
-                endpointCounts.set(key, (endpointCounts.get(key) || 0) + 1);
-            });
-
-            const frequent = [...endpointCounts.entries()].sort((a, b) => b[1] - a[1])[0];
-            if (frequent && frequent[1] >= 3) {
-                const [endpoint, statusCode] = frequent[0].split("|");
-                insights.push({
-                    id: "repeated-incident",
-                    severity: "high",
-                    area: "Incident Pattern",
-                    finding: `${endpoint} returned ${statusCode} ${frequent[1]} times in recent incidents.`,
-                    recommendation: "Create a focused fix ticket for this endpoint and add alerting threshold to catch recurrence early."
-                });
-            }
-        }
-
-        return insights
-            .sort((left, right) => {
-                if (SEVERITY_RANK[left.severity] !== SEVERITY_RANK[right.severity]) {
-                    return SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity];
-                }
-                return left.area.localeCompare(right.area);
-            })
-            .slice(0, 8);
-    }, [errors, infrastructure, slowEndpoints, systemMetrics, tenantTraffic]);
-
-    const optimizationScore = useMemo(() => {
-        if (!optimizationInsights.length) {
-            return 100;
-        }
-
-        const penaltyMap: Record<InsightSeverity, number> = {
-            critical: 20,
-            high: 12,
-            medium: 6,
-            low: 3
-        };
-
-        const totalPenalty = optimizationInsights.reduce(
-            (sum, item) => sum + penaltyMap[item.severity],
-            0
-        );
-
-        return Math.max(0, 100 - totalPenalty);
-    }, [optimizationInsights]);
+    const optimizationScore = useMemo(
+        () => calculateOptimizationScore(optimizationInsights),
+        [optimizationInsights]
+    );
 
     const optimizationStatus = useMemo(() => {
         if (optimizationScore >= 85) {
@@ -663,6 +709,258 @@ export function PlatformOperationsPage() {
         { key: "finding", header: "Finding", render: (row) => row.finding },
         { key: "recommendation", header: "Recommended Action", render: (row) => row.recommendation }
     ];
+
+    const exportWeeklyOptimizationReport = useCallback(async () => {
+        if (scope === "tenant" && !monitoredTenantId) {
+            pushToast({
+                type: "error",
+                title: "No tenant selected",
+                message: "Select a tenant first when exporting in tenant scope."
+            });
+            return;
+        }
+
+        setExporting(true);
+        try {
+            const windowMinutes = 7 * 24 * 60;
+            const weeklyScopedTenantId = scope === "tenant" ? monitoredTenantId : undefined;
+            const sharedParams = {
+                tenant_id: weeklyScopedTenantId,
+                window_minutes: windowMinutes
+            };
+
+            const [systemResponse, tenantResponse, infraResponse, errorResponse, slowResponse] = await Promise.all([
+                api.get<PlatformSystemMetricsResponse>(endpoints.platform.metricsSystem(), {
+                    params: sharedParams
+                }),
+                api.get<PlatformTenantTrafficResponse>(endpoints.platform.metricsTenants(), {
+                    params: {
+                        ...sharedParams,
+                        sort_by: "traffic",
+                        sort_dir: "desc"
+                    }
+                }),
+                api.get<PlatformInfrastructureMetricsResponse>(endpoints.platform.metricsInfrastructure(), {
+                    params: {
+                        tenant_id: weeklyScopedTenantId,
+                        window_minutes: 60
+                    }
+                }),
+                api.get<PlatformErrorsResponse>(endpoints.platform.errors(), {
+                    params: {
+                        tenant_id: weeklyScopedTenantId,
+                        page: 1,
+                        limit: 100
+                    }
+                }),
+                api.get<PlatformSlowEndpointsResponse>(endpoints.platform.metricsSlowEndpoints(), {
+                    params: {
+                        tenant_id: weeklyScopedTenantId,
+                        window_minutes: windowMinutes,
+                        limit: 20
+                    }
+                })
+            ]);
+
+            const weeklySystem = systemResponse.data.data;
+            const weeklyTenants = tenantResponse.data.data || [];
+            const weeklyInfra = infraResponse.data.data;
+            const weeklyErrors = errorResponse.data.data || [];
+            const weeklySlow = slowResponse.data.data || [];
+            const weeklyInsights = buildOptimizationInsights({
+                systemMetrics: weeklySystem,
+                infrastructure: weeklyInfra,
+                tenantTraffic: weeklyTenants,
+                slowEndpoints: weeklySlow,
+                errors: weeklyErrors
+            });
+            const weeklyScore = calculateOptimizationScore(weeklyInsights);
+            const generatedAt = new Date().toISOString();
+            const scopeLabel = scope === "system" ? "System-wide" : `Tenant: ${selectedTenantName}`;
+            const reportBaseName = `platform-optimization-weekly-${generatedAt.slice(0, 10)}`;
+
+            const csvLines: string[] = [];
+            csvLines.push(csvRow(["Platform Weekly Optimization Report"]));
+            csvLines.push(csvRow(["Generated At", generatedAt]));
+            csvLines.push(csvRow(["Scope", scopeLabel]));
+            csvLines.push(csvRow(["Window (minutes)", windowMinutes]));
+            csvLines.push(csvRow(["Optimization Score", weeklyScore]));
+            csvLines.push("");
+
+            csvLines.push(csvRow(["System Summary"]));
+            csvLines.push(csvRow(["Requests/sec", "P95 Latency (ms)", "Error Rate (%)", "Active Users", "Active Tenants", "SMS Sent", "SMS Total", "SMS Delivery Rate (%)"]));
+            csvLines.push(csvRow([
+                weeklySystem?.requests_per_sec ?? 0,
+                weeklySystem?.p95_latency_ms ?? 0,
+                weeklySystem?.error_rate_pct ?? 0,
+                weeklySystem?.active_users ?? 0,
+                weeklySystem?.active_tenants ?? 0,
+                weeklySystem?.sms_sent_count ?? 0,
+                weeklySystem?.sms_total_count ?? 0,
+                weeklySystem?.sms_delivery_rate_pct ?? 0
+            ]));
+            csvLines.push("");
+
+            csvLines.push(csvRow(["Optimization Priorities"]));
+            csvLines.push(csvRow(["Priority", "Area", "Finding", "Recommended Action"]));
+            weeklyInsights.forEach((insight) => {
+                csvLines.push(csvRow([
+                    insight.severity.toUpperCase(),
+                    insight.area,
+                    insight.finding,
+                    insight.recommendation
+                ]));
+            });
+            csvLines.push("");
+
+            csvLines.push(csvRow(["Slow Endpoints"]));
+            csvLines.push(csvRow(["Endpoint", "Avg Latency (ms)", "Calls"]));
+            weeklySlow.forEach((row) => {
+                csvLines.push(csvRow([row.endpoint, row.avg_latency_ms, row.calls]));
+            });
+            csvLines.push("");
+
+            csvLines.push(csvRow(["Tenant Traffic"]));
+            csvLines.push(csvRow(["Tenant", "Tenant ID", "Requests", "Errors", "Avg Latency (ms)", "Active Users", "SMS Sent", "SMS Total", "SMS Failed"]));
+            weeklyTenants.forEach((row) => {
+                csvLines.push(csvRow([
+                    row.tenant_name,
+                    row.tenant_id,
+                    row.request_count,
+                    row.error_count,
+                    row.avg_latency_ms,
+                    row.active_users,
+                    row.sms_sent_count || 0,
+                    row.sms_total_count || 0,
+                    row.sms_failed_count || 0
+                ]));
+            });
+            csvLines.push("");
+
+            csvLines.push(csvRow(["Recent Errors"]));
+            csvLines.push(csvRow(["Time", "Endpoint", "Status", "Tenant", "Message"]));
+            weeklyErrors.forEach((row) => {
+                csvLines.push(csvRow([
+                    row.timestamp,
+                    row.endpoint,
+                    row.status_code,
+                    row.tenant_name || row.tenant_id || "System",
+                    row.message
+                ]));
+            });
+
+            const csvBlob = new Blob([csvLines.join("\n")], { type: "text/csv;charset=utf-8;" });
+            downloadFile(csvBlob, `${reportBaseName}.csv`);
+
+            const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(15);
+            doc.text("Platform Weekly Optimization Report", 40, 36);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            doc.text(`Generated: ${formatDate(generatedAt)}  |  Scope: ${scopeLabel}  |  Window: 7 days`, 40, 54);
+            doc.text(`Optimization Score: ${weeklyScore}/100`, 40, 68);
+
+            autoTable(doc, {
+                startY: 84,
+                head: [["Requests/sec", "P95 Latency (ms)", "Error Rate (%)", "Active Users", "Active Tenants", "SMS Sent", "SMS Total", "SMS Delivery Rate (%)"]],
+                body: [[
+                    formatNumber(weeklySystem?.requests_per_sec, 2),
+                    formatNumber(weeklySystem?.p95_latency_ms, 1),
+                    formatNumber(weeklySystem?.error_rate_pct, 2),
+                    String(weeklySystem?.active_users || 0),
+                    String(weeklySystem?.active_tenants || 0),
+                    String(weeklySystem?.sms_sent_count || 0),
+                    String(weeklySystem?.sms_total_count || 0),
+                    formatNumber(weeklySystem?.sms_delivery_rate_pct, 2)
+                ]],
+                theme: "grid",
+                headStyles: { fillColor: [15, 23, 42] },
+                styles: { fontSize: 8.5 }
+            });
+
+            const pdfAnyDoc = doc as jsPDF & { lastAutoTable?: { finalY?: number } };
+            autoTable(doc, {
+                startY: (pdfAnyDoc.lastAutoTable?.finalY || 84) + 16,
+                head: [["Priority", "Area", "Finding", "Recommended Action"]],
+                body: (weeklyInsights.length ? weeklyInsights : [{
+                    severity: "low",
+                    area: "General",
+                    finding: "No major optimization issues were detected.",
+                    recommendation: "Maintain monitoring cadence and keep thresholds under review."
+                }]).map((insight) => [
+                    insight.severity.toUpperCase(),
+                    insight.area,
+                    insight.finding,
+                    insight.recommendation
+                ]),
+                theme: "grid",
+                headStyles: { fillColor: [30, 64, 175] },
+                styles: { fontSize: 8 },
+                columnStyles: {
+                    0: { cellWidth: 70 },
+                    1: { cellWidth: 120 },
+                    2: { cellWidth: 230 },
+                    3: { cellWidth: 300 }
+                }
+            });
+
+            doc.addPage();
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(12);
+            doc.text("Slow Endpoints", 40, 36);
+            autoTable(doc, {
+                startY: 46,
+                head: [["Endpoint", "Avg Latency (ms)", "Calls"]],
+                body: weeklySlow.map((row) => [
+                    row.endpoint,
+                    formatNumber(row.avg_latency_ms, 1),
+                    String(row.calls)
+                ]),
+                theme: "grid",
+                headStyles: { fillColor: [124, 58, 237] },
+                styles: { fontSize: 8.5 }
+            });
+
+            const slowFinalY = (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || 46;
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(12);
+            doc.text("Tenant Traffic", 40, slowFinalY + 24);
+            autoTable(doc, {
+                startY: slowFinalY + 34,
+                head: [["Tenant", "Requests", "Errors", "Avg Latency (ms)", "Users", "SMS Sent", "SMS Total", "SMS Failed"]],
+                body: weeklyTenants.slice(0, 20).map((row) => [
+                    row.tenant_name,
+                    String(row.request_count),
+                    String(row.error_count),
+                    formatNumber(row.avg_latency_ms, 1),
+                    String(row.active_users),
+                    String(row.sms_sent_count || 0),
+                    String(row.sms_total_count || 0),
+                    String(row.sms_failed_count || 0)
+                ]),
+                theme: "grid",
+                headStyles: { fillColor: [15, 118, 110] },
+                styles: { fontSize: 8 }
+            });
+
+            doc.save(`${reportBaseName}.pdf`);
+
+            pushToast({
+                type: "success",
+                title: "Weekly optimization report exported",
+                message: "CSV and PDF reports have been downloaded."
+            });
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Export failed",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setExporting(false);
+        }
+    }, [monitoredTenantId, pushToast, scope, selectedTenantName]);
 
     if (loading && !systemMetrics) {
         return <AppLoader fullscreen={false} minHeight={420} message="Loading platform operations dashboard..." />;
@@ -704,6 +1002,15 @@ export function PlatformOperationsPage() {
                                     <MenuItem key={tenant.id} value={tenant.id}>{tenant.name}</MenuItem>
                                 ))}
                             </TextField>
+                            <Button
+                                variant="contained"
+                                color="primary"
+                                startIcon={<FileDownloadRoundedIcon />}
+                                onClick={() => void exportWeeklyOptimizationReport()}
+                                disabled={exporting || (scope === "tenant" && !monitoredTenantId)}
+                            >
+                                {exporting ? "Exporting..." : "Export Weekly Report (CSV/PDF)"}
+                            </Button>
                         </Stack>
                     </Stack>
                     <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
