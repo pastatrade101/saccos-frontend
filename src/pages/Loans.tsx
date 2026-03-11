@@ -381,7 +381,7 @@ export function LoansPage() {
 
     const role = profile?.role || "loan_officer";
     const canCreateApplications = ["branch_manager", "loan_officer", "teller"].includes(role);
-    const canAppraise = role === "loan_officer" || role === "branch_manager";
+    const canAppraise = role === "loan_officer";
     const canApprove = role === "branch_manager";
     const canDisburse = role === "loan_officer" || role === "teller";
     const canRepay = role === "loan_officer" || role === "teller";
@@ -2119,7 +2119,7 @@ export function LoansPage() {
                                             Members and staff originate applications. Drafts or rejected applications must be submitted before they can be appraised.
                                         </Alert>
                                             <Alert severity="warning" variant="outlined">
-                                                Loan officers and branch managers can appraise. Branch managers approve. The maker cannot approve the same application.
+                                                Loan officers appraise first. Branch managers then approve or reject. The maker cannot approve the same application.
                                             </Alert>
                                             <Alert severity="success" variant="outlined">
                                                 Teller or loan officer disbursement is the only step that triggers the double-entry loan posting procedure.
