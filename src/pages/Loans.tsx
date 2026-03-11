@@ -381,7 +381,7 @@ export function LoansPage() {
 
     const role = profile?.role || "loan_officer";
     const canCreateApplications = ["branch_manager", "loan_officer", "teller"].includes(role);
-    const canAppraise = role === "loan_officer";
+    const canAppraise = role === "loan_officer" || role === "branch_manager";
     const canApprove = role === "branch_manager";
     const canDisburse = role === "loan_officer" || role === "teller";
     const canRepay = role === "loan_officer" || role === "teller";
@@ -1179,8 +1179,21 @@ export function LoansPage() {
         }
     });
 
+    const getUnresolvedGuarantorConsents = (application: LoanApplication | null | undefined) =>
+        (application?.loan_guarantors || []).filter((guarantor) => guarantor.consent_status !== "accepted");
+
     const saveApproval = approveForm.handleSubmit(async (values) => {
         if (!approvalTarget) {
+            return;
+        }
+
+        const unresolvedGuarantors = getUnresolvedGuarantorConsents(approvalTarget);
+        if (unresolvedGuarantors.length) {
+            pushToast({
+                type: "error",
+                title: "Guarantor consent pending",
+                message: "All listed guarantors must accept before approval can proceed."
+            });
             return;
         }
 
@@ -1259,6 +1272,17 @@ export function LoansPage() {
         if (!disbursementTarget) {
             return;
         }
+
+        const unresolvedGuarantors = getUnresolvedGuarantorConsents(disbursementTarget);
+        if (unresolvedGuarantors.length) {
+            pushToast({
+                type: "error",
+                title: "Guarantor consent pending",
+                message: "Loan disbursement is blocked until all guarantors accept."
+            });
+            return;
+        }
+
         setPendingMoneyAction({ type: "disburse", application: disbursementTarget, values });
     });
 
@@ -1441,6 +1465,20 @@ export function LoansPage() {
             render: (row) => `${row.approval_count}/${row.required_approval_count}`
         },
         {
+            key: "guarantor_consent",
+            header: "Guarantor Consent",
+            render: (row) => {
+                const guarantors = row.loan_guarantors || [];
+                if (!guarantors.length) {
+                    return "Not required";
+                }
+
+                const accepted = guarantors.filter((item) => item.consent_status === "accepted").length;
+                const pending = guarantors.filter((item) => item.consent_status !== "accepted").length;
+                return pending ? `${accepted}/${guarantors.length} accepted` : "All accepted";
+            }
+        },
+        {
             key: "actions",
             header: "Actions",
             render: (row) => (
@@ -1471,6 +1509,15 @@ export function LoansPage() {
                                 size="small"
                                 variant="contained"
                                 onClick={() => {
+                                    const unresolvedGuarantors = getUnresolvedGuarantorConsents(row);
+                                    if (unresolvedGuarantors.length) {
+                                        pushToast({
+                                            type: "error",
+                                            title: "Guarantor consent pending",
+                                            message: "All listed guarantors must accept before approval can proceed."
+                                        });
+                                        return;
+                                    }
                                     setApprovalTarget(row);
                                     approveForm.reset({ notes: "" });
                                 }}
@@ -1498,6 +1545,15 @@ export function LoansPage() {
                             variant="contained"
                             color="success"
                             onClick={() => {
+                                const unresolvedGuarantors = getUnresolvedGuarantorConsents(row);
+                                if (unresolvedGuarantors.length) {
+                                    pushToast({
+                                        type: "error",
+                                        title: "Guarantor consent pending",
+                                        message: "Loan disbursement is blocked until all guarantors accept."
+                                    });
+                                    return;
+                                }
                                 setDisbursementTarget(row);
                                 disburseForm.reset({
                                     reference: row.external_reference || "",
@@ -2063,7 +2119,7 @@ export function LoansPage() {
                                             Members and staff originate applications. Drafts or rejected applications must be submitted before they can be appraised.
                                         </Alert>
                                             <Alert severity="warning" variant="outlined">
-                                                Loan officers appraise. Branch managers approve. The maker cannot approve the same application.
+                                                Loan officers and branch managers can appraise. Branch managers approve. The maker cannot approve the same application.
                                             </Alert>
                                             <Alert severity="success" variant="outlined">
                                                 Teller or loan officer disbursement is the only step that triggers the double-entry loan posting procedure.

@@ -135,7 +135,9 @@ const routeMap = {
         appraise: (applicationId: string) => `/loan-applications/${applicationId}/appraise`,
         approve: (applicationId: string) => `/loan-applications/${applicationId}/approve`,
         reject: (applicationId: string) => `/loan-applications/${applicationId}/reject`,
-        disburse: (applicationId: string) => `/loan-applications/${applicationId}/disburse`
+        disburse: (applicationId: string) => `/loan-applications/${applicationId}/disburse`,
+        guarantorRequests: "/loan-applications/guarantor-requests",
+        guarantorConsent: (applicationId: string) => `/loan-applications/${applicationId}/guarantor-consent`
     },
     imports: {
         members: "/imports/members",
@@ -288,7 +290,9 @@ export const endpoints = {
         appraise: (applicationId: string) => routeMap.loanApplications.appraise(applicationId),
         approve: (applicationId: string) => routeMap.loanApplications.approve(applicationId),
         reject: (applicationId: string) => routeMap.loanApplications.reject(applicationId),
-        disburse: (applicationId: string) => routeMap.loanApplications.disburse(applicationId)
+        disburse: (applicationId: string) => routeMap.loanApplications.disburse(applicationId),
+        guarantorRequests: () => routeMap.loanApplications.guarantorRequests,
+        guarantorConsent: (applicationId: string) => routeMap.loanApplications.guarantorConsent(applicationId)
     },
     imports: {
         members: () => routeMap.imports.members,
@@ -634,6 +638,7 @@ export type LoanApplicationResponse = ApiEnvelope<LoanApplication>;
 export type LoanApplicationsResponse = ApiEnvelope<LoanApplication[]>;
 export type LoanSchedulesResponse = ApiEnvelope<LoanSchedule[]>;
 export type LoanTransactionsResponse = ApiEnvelope<LoanTransaction[]>;
+export type GuarantorRequestsResponse = ApiEnvelope<GuarantorRequestItem[]>;
 export type TellerSessionsResponse = ApiEnvelope<TellerSession[]>;
 export type TellerSessionResponse = ApiEnvelope<TellerSession | null>;
 export type ReceiptPolicyResponse = ApiEnvelope<ReceiptPolicy>;
@@ -688,6 +693,31 @@ export interface DisburseApprovedLoanRequest {
     description?: string | null;
     approval_request_id?: string;
     receipt_ids?: string[];
+}
+
+export interface GuarantorConsentRequest {
+    tenant_id?: string;
+    decision: "accepted" | "rejected";
+    notes?: string | null;
+}
+
+export interface GuarantorRequestItem {
+    id: string;
+    application_id: string;
+    tenant_id: string;
+    member_id: string;
+    guaranteed_amount: number;
+    consent_status: "pending" | "accepted" | "rejected";
+    consented_at?: string | null;
+    notes?: string | null;
+    created_at: string;
+    borrower?: Pick<Member, "id" | "full_name" | "member_no"> | null;
+    loan_application?: {
+        id: string;
+        status: LoanApplication["status"];
+        purpose: string;
+        requested_amount: number;
+    } | null;
 }
 
 export interface CloseTellerSessionRequest {

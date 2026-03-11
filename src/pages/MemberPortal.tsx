@@ -87,7 +87,10 @@ import {
     type LoanSchedulesResponse,
     type MemberAccountsResponse,
     type MembersResponse,
-    type StatementsResponse
+    type StatementsResponse,
+    type GuarantorConsentRequest,
+    type GuarantorRequestItem,
+    type GuarantorRequestsResponse
 } from "../lib/endpoints";
 import { brandColors, darkThemeColors } from "../theme/colors";
 import { useUI } from "../ui/UIProvider";
@@ -437,6 +440,8 @@ export function MemberPortalPage() {
     const [loanSchedules, setLoanSchedules] = useState<LoanSchedule[]>([]);
     const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
     const [loanApplications, setLoanApplications] = useState<LoanApplication[]>([]);
+    const [guarantorRequests, setGuarantorRequests] = useState<GuarantorRequestItem[]>([]);
+    const [processingGuarantorRequestId, setProcessingGuarantorRequestId] = useState<string | null>(null);
     const [statements, setStatements] = useState<StatementRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -542,6 +547,7 @@ export function MemberPortalPage() {
                     setLoanSchedules([]);
                     setLoanProducts([]);
                     setLoanApplications([]);
+                    setGuarantorRequests([]);
                     setStatements([]);
                     return;
                 }
@@ -577,12 +583,19 @@ export function MemberPortalPage() {
                             limit: 100
                         }
                     }),
+                    api.get<GuarantorRequestsResponse>(endpoints.loanApplications.guarantorRequests(), {
+                        params: {
+                            tenant_id: profile.tenant_id,
+                            page: 1,
+                            limit: 100
+                        }
+                    }),
                     api.get<StatementsResponse>(endpoints.finance.statements(), {
                         params: { tenant_id: profile.tenant_id, member_id: memberRecord.id, page: 1, limit: 100 }
                     })
                 ]);
 
-                const [accountsResult, loansResult, schedulesResult, productsResult, applicationsResult, statementsResult] = results;
+                const [accountsResult, loansResult, schedulesResult, productsResult, applicationsResult, guarantorRequestsResult, statementsResult] = results;
                 const issues: string[] = [];
 
                 if (accountsResult.status === "fulfilled") {
@@ -618,6 +631,13 @@ export function MemberPortalPage() {
                 } else {
                     setLoanApplications([]);
                     issues.push(getApiErrorMessage(applicationsResult.reason, "Loan applications unavailable."));
+                }
+
+                if (guarantorRequestsResult.status === "fulfilled") {
+                    setGuarantorRequests(guarantorRequestsResult.value.data.data || []);
+                } else {
+                    setGuarantorRequests([]);
+                    issues.push(getApiErrorMessage(guarantorRequestsResult.reason, "Guarantor requests unavailable."));
                 }
 
                 if (statementsResult.status === "fulfilled") {
@@ -705,6 +725,10 @@ export function MemberPortalPage() {
     const pendingLoanApplications = useMemo(
         () => loanApplications.filter((application) => !["rejected", "cancelled", "disbursed"].includes(application.status)),
         [loanApplications]
+    );
+    const pendingGuarantorRequests = useMemo(
+        () => guarantorRequests.filter((request) => request.consent_status === "pending"),
+        [guarantorRequests]
     );
     const transactionCount = statements.length;
     const balanceTrend = groupBalances(statements);
@@ -1259,6 +1283,57 @@ export function MemberPortalPage() {
         }
     ];
 
+    const guarantorRequestColumns: Column<GuarantorRequestItem>[] = [
+        {
+            key: "borrower",
+            header: "Borrower",
+            render: (row) => row.borrower?.full_name || row.loan_application?.id || "Unknown"
+        },
+        {
+            key: "amount",
+            header: "Guaranteed Amount",
+            render: (row) => formatCurrency(row.guaranteed_amount)
+        },
+        {
+            key: "application_status",
+            header: "Application",
+            render: (row) => row.loan_application?.status?.replace(/_/g, " ") || "Unknown"
+        },
+        {
+            key: "consent_status",
+            header: "Your Consent",
+            render: (row) => row.consent_status.replace(/_/g, " ")
+        },
+        {
+            key: "actions",
+            header: "Actions",
+            render: (row) =>
+                row.consent_status === "pending" ? (
+                    <Stack direction="row" spacing={1}>
+                        <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => void respondGuarantorRequest(row, "accepted")}
+                            disabled={processingGuarantorRequestId === row.id}
+                        >
+                            Accept
+                        </Button>
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            onClick={() => void respondGuarantorRequest(row, "rejected")}
+                            disabled={processingGuarantorRequestId === row.id}
+                        >
+                            Reject
+                        </Button>
+                    </Stack>
+                ) : (
+                    <Chip size="small" label={row.consent_status.toUpperCase()} />
+                )
+        }
+    ];
+
     const getApplicationTone = (status: LoanApplication["status"]) => {
         if (status === "approved") {
             return {
@@ -1357,6 +1432,53 @@ export function MemberPortalPage() {
             setSubmittingApplication(false);
         }
     });
+
+    const respondGuarantorRequest = async (request: GuarantorRequestItem, decision: "accepted" | "rejected") => {
+        if (!profile) {
+            return;
+        }
+
+        setProcessingGuarantorRequestId(request.id);
+        try {
+            const payload: GuarantorConsentRequest = {
+                tenant_id: profile.tenant_id,
+                decision
+            };
+
+            await api.post<LoanApplicationResponse>(
+                endpoints.loanApplications.guarantorConsent(request.application_id),
+                payload
+            );
+
+            setGuarantorRequests((prev) =>
+                prev.map((item) =>
+                    item.id === request.id
+                        ? {
+                            ...item,
+                            consent_status: decision,
+                            consented_at: new Date().toISOString()
+                        }
+                        : item
+                )
+            );
+
+            pushToast({
+                type: "success",
+                title: decision === "accepted" ? "Guarantor request accepted" : "Guarantor request rejected",
+                message: decision === "accepted"
+                    ? "Branch loan officers can now continue processing this application once all guarantors accept."
+                    : "The application team has been notified that you rejected this guarantee request."
+            });
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Unable to update guarantor response",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setProcessingGuarantorRequestId(null);
+        }
+    };
 
     const handleSectionSelect = (sectionId: PortalSectionId) => {
         setActiveSection(sectionId);
@@ -2016,6 +2138,27 @@ export function MemberPortalPage() {
                     Loan applications are disabled on your current subscription plan.
                 </Alert>
             )}
+
+            {guarantorRequests.length ? (
+                <MotionCard variant="outlined" sx={contentCardSx}>
+                    <CardContent>
+                        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
+                            <Box>
+                                <Typography variant="h6">Guarantor Requests</Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Respond to guarantee requests before borrower loan processing can continue.
+                                </Typography>
+                            </Box>
+                            <Chip label={`${pendingGuarantorRequests.length} pending`} color={pendingGuarantorRequests.length ? "warning" : "default"} variant="outlined" />
+                        </Stack>
+                        <DataTable
+                            rows={guarantorRequests}
+                            columns={guarantorRequestColumns}
+                            emptyMessage="No guarantor requests assigned to your member profile."
+                        />
+                    </CardContent>
+                </MotionCard>
+            ) : null}
 
             <MotionCard variant="outlined" sx={contentCardSx}>
                 <CardContent>
