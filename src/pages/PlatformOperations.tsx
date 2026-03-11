@@ -41,6 +41,7 @@ import { formatDate } from "../utils/format";
 type Scope = "system" | "tenant";
 type SortBy = "traffic" | "errors" | "latency" | "sms";
 type SortDir = "asc" | "desc";
+type InsightSeverity = "critical" | "high" | "medium" | "low";
 
 interface TenantOption {
     id: string;
@@ -55,6 +56,28 @@ interface ErrorRow {
     tenant_name?: string;
     message: string;
 }
+
+interface OptimizationInsight {
+    id: string;
+    severity: InsightSeverity;
+    area: string;
+    finding: string;
+    recommendation: string;
+}
+
+const SEVERITY_RANK: Record<InsightSeverity, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3
+};
+
+const SEVERITY_COLOR: Record<InsightSeverity, "error" | "warning" | "info" | "default"> = {
+    critical: "error",
+    high: "warning",
+    medium: "info",
+    low: "default"
+};
 
 function MetricCard({
     label,
@@ -99,6 +122,13 @@ function formatPercent(value?: number | null) {
 
 function formatLatency(value?: number | null) {
     return `${formatNumber(value, 1)} ms`;
+}
+
+function formatRatioPercent(part: number, total: number) {
+    if (!Number.isFinite(part) || !Number.isFinite(total) || total <= 0) {
+        return "0.00%";
+    }
+    return `${((part / total) * 100).toFixed(2)}%`;
 }
 
 function buildGaugeData(value: number, max: number, color: string) {
@@ -380,6 +410,260 @@ export function PlatformOperationsPage() {
 
     const selectedTenantName = tenantOptions.find((tenant) => tenant.id === monitoredTenantId)?.name || "-";
 
+    const optimizationInsights = useMemo<OptimizationInsight[]>(() => {
+        const insights: OptimizationInsight[] = [];
+
+        if (systemMetrics) {
+            const errorRate = Number(systemMetrics.error_rate_pct || 0);
+            if (errorRate >= 2) {
+                insights.push({
+                    id: "system-error-rate-critical",
+                    severity: "critical",
+                    area: "API Reliability",
+                    finding: `Error rate is ${formatPercent(errorRate)} in the current window.`,
+                    recommendation: "Inspect recent 5xx errors by endpoint and tenant, then fix top failing route before scaling traffic."
+                });
+            } else if (errorRate >= 1) {
+                insights.push({
+                    id: "system-error-rate-high",
+                    severity: "high",
+                    area: "API Reliability",
+                    finding: `Error rate is ${formatPercent(errorRate)} in the current window.`,
+                    recommendation: "Prioritize the most frequent failing endpoint and add defensive retries/timeouts around upstream calls."
+                });
+            }
+
+            const p95 = Number(systemMetrics.p95_latency_ms || 0);
+            if (p95 >= 1200) {
+                insights.push({
+                    id: "system-latency-critical",
+                    severity: "critical",
+                    area: "API Performance",
+                    finding: `System p95 latency is ${formatLatency(p95)}.`,
+                    recommendation: "Profile slow DB queries and add shared cache (Redis) for hot platform endpoints across backend replicas."
+                });
+            } else if (p95 >= 700) {
+                insights.push({
+                    id: "system-latency-high",
+                    severity: "high",
+                    area: "API Performance",
+                    finding: `System p95 latency is ${formatLatency(p95)}.`,
+                    recommendation: "Optimize the top slow endpoints first and review query plans/index coverage."
+                });
+            } else if (p95 >= 450) {
+                insights.push({
+                    id: "system-latency-medium",
+                    severity: "medium",
+                    area: "API Performance",
+                    finding: `System p95 latency is ${formatLatency(p95)}.`,
+                    recommendation: "Tune endpoint-level caching and reduce payload size for large list endpoints."
+                });
+            }
+
+            const smsTotal = Number(systemMetrics.sms_total_count || 0);
+            const smsDeliveryRate = Number(systemMetrics.sms_delivery_rate_pct || 0);
+            if (smsTotal >= 20 && smsDeliveryRate < 90) {
+                insights.push({
+                    id: "sms-delivery-high",
+                    severity: "high",
+                    area: "SMS Delivery",
+                    finding: `SMS delivery rate is ${formatPercent(smsDeliveryRate)} (${Number(systemMetrics.sms_failed_count || 0).toLocaleString()} failed).`,
+                    recommendation: "Review provider response codes and retry policy; alert tenants with failing sender IDs/templates."
+                });
+            } else if (smsTotal >= 20 && smsDeliveryRate < 97) {
+                insights.push({
+                    id: "sms-delivery-medium",
+                    severity: "medium",
+                    area: "SMS Delivery",
+                    finding: `SMS delivery rate is ${formatPercent(smsDeliveryRate)}.`,
+                    recommendation: "Investigate top tenants with failed SMS and verify channel configuration."
+                });
+            }
+        }
+
+        if (infrastructure) {
+            const cpu = Number(infrastructure.cpu_pct || 0);
+            const memory = Number(infrastructure.memory_pct || 0);
+            const disk = Number(infrastructure.disk_pct || 0);
+            const network = Number(infrastructure.network_mbps || 0);
+
+            if (cpu >= 85) {
+                insights.push({
+                    id: "infra-cpu-high",
+                    severity: cpu >= 92 ? "critical" : "high",
+                    area: "Infrastructure",
+                    finding: `CPU usage is ${formatPercent(cpu)}.`,
+                    recommendation: "Scale backend replicas and profile CPU-heavy routes/background jobs."
+                });
+            }
+
+            if (memory >= 85) {
+                insights.push({
+                    id: "infra-memory-high",
+                    severity: memory >= 92 ? "critical" : "high",
+                    area: "Infrastructure",
+                    finding: `RAM usage is ${formatPercent(memory)}.`,
+                    recommendation: "Check process memory growth and reduce large in-memory payloads in report/metrics handlers."
+                });
+            }
+
+            if (disk >= 80) {
+                insights.push({
+                    id: "infra-disk-high",
+                    severity: disk >= 90 ? "critical" : "high",
+                    area: "Infrastructure",
+                    finding: `Disk usage is ${formatPercent(disk)}.`,
+                    recommendation: "Purge old report exports/import artifacts and enforce bucket retention lifecycle policies."
+                });
+            }
+
+            if (network >= 80) {
+                insights.push({
+                    id: "infra-network-medium",
+                    severity: network >= 95 ? "high" : "medium",
+                    area: "Infrastructure",
+                    finding: `Network throughput is ${formatNumber(network, 2)} Mbps.`,
+                    recommendation: "Compress large responses and reduce polling frequency on high-churn dashboards."
+                });
+            }
+        }
+
+        if (tenantTraffic.length) {
+            const totalRequests = tenantTraffic.reduce((sum, row) => sum + Number(row.request_count || 0), 0);
+            const topTrafficTenant = [...tenantTraffic].sort((a, b) => b.request_count - a.request_count)[0];
+            const topErrorTenant = [...tenantTraffic]
+                .filter((row) => row.request_count > 0 && row.error_count > 0)
+                .sort((a, b) => (b.error_count / Math.max(b.request_count, 1)) - (a.error_count / Math.max(a.request_count, 1)))[0];
+            const topLatencyTenant = [...tenantTraffic].sort((a, b) => b.avg_latency_ms - a.avg_latency_ms)[0];
+
+            if (topTrafficTenant && totalRequests > 0) {
+                const share = topTrafficTenant.request_count / totalRequests;
+                if (share >= 0.45 && topTrafficTenant.request_count >= 100) {
+                    insights.push({
+                        id: "tenant-traffic-concentration",
+                        severity: "medium",
+                        area: "Tenant Traffic Mix",
+                        finding: `${topTrafficTenant.tenant_name} drives ${formatRatioPercent(topTrafficTenant.request_count, totalRequests)} of monitored traffic.`,
+                        recommendation: "Consider per-tenant throttling/caching to prevent noisy-tenant impact on global latency."
+                    });
+                }
+            }
+
+            if (topErrorTenant) {
+                const errorRatio = (topErrorTenant.error_count / Math.max(topErrorTenant.request_count, 1)) * 100;
+                if (errorRatio >= 2 && topErrorTenant.error_count >= 5) {
+                    insights.push({
+                        id: "tenant-error-hotspot",
+                        severity: "high",
+                        area: "Tenant Reliability",
+                        finding: `${topErrorTenant.tenant_name} has ${formatPercent(errorRatio)} error ratio (${topErrorTenant.error_count.toLocaleString()} errors).`,
+                        recommendation: "Review this tenant’s recent failing endpoints and fix tenant-specific data/config hotspots."
+                    });
+                }
+            }
+
+            if (topLatencyTenant && topLatencyTenant.avg_latency_ms >= 800 && topLatencyTenant.request_count >= 30) {
+                insights.push({
+                    id: "tenant-latency-hotspot",
+                    severity: "high",
+                    area: "Tenant Performance",
+                    finding: `${topLatencyTenant.tenant_name} average latency is ${formatLatency(topLatencyTenant.avg_latency_ms)}.`,
+                    recommendation: "Inspect expensive tenant queries and branch/member list joins; add targeted DB indexes."
+                });
+            }
+        }
+
+        if (slowEndpoints.length) {
+            const slowest = slowEndpoints[0];
+            if (slowest && slowest.avg_latency_ms >= 700 && slowest.calls >= 20) {
+                insights.push({
+                    id: "endpoint-slowest",
+                    severity: slowest.avg_latency_ms >= 1200 ? "critical" : "high",
+                    area: "Endpoint Hotspot",
+                    finding: `${slowest.endpoint} averages ${formatLatency(slowest.avg_latency_ms)} across ${slowest.calls.toLocaleString()} calls.`,
+                    recommendation: "Optimize this endpoint first (query plan, pagination strategy, precomputed aggregates, cache)."
+                });
+            }
+        }
+
+        if (errors.length) {
+            const endpointCounts = new Map<string, number>();
+            errors.forEach((row) => {
+                const key = `${row.endpoint}|${row.status_code}`;
+                endpointCounts.set(key, (endpointCounts.get(key) || 0) + 1);
+            });
+
+            const frequent = [...endpointCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+            if (frequent && frequent[1] >= 3) {
+                const [endpoint, statusCode] = frequent[0].split("|");
+                insights.push({
+                    id: "repeated-incident",
+                    severity: "high",
+                    area: "Incident Pattern",
+                    finding: `${endpoint} returned ${statusCode} ${frequent[1]} times in recent incidents.`,
+                    recommendation: "Create a focused fix ticket for this endpoint and add alerting threshold to catch recurrence early."
+                });
+            }
+        }
+
+        return insights
+            .sort((left, right) => {
+                if (SEVERITY_RANK[left.severity] !== SEVERITY_RANK[right.severity]) {
+                    return SEVERITY_RANK[left.severity] - SEVERITY_RANK[right.severity];
+                }
+                return left.area.localeCompare(right.area);
+            })
+            .slice(0, 8);
+    }, [errors, infrastructure, slowEndpoints, systemMetrics, tenantTraffic]);
+
+    const optimizationScore = useMemo(() => {
+        if (!optimizationInsights.length) {
+            return 100;
+        }
+
+        const penaltyMap: Record<InsightSeverity, number> = {
+            critical: 20,
+            high: 12,
+            medium: 6,
+            low: 3
+        };
+
+        const totalPenalty = optimizationInsights.reduce(
+            (sum, item) => sum + penaltyMap[item.severity],
+            0
+        );
+
+        return Math.max(0, 100 - totalPenalty);
+    }, [optimizationInsights]);
+
+    const optimizationStatus = useMemo(() => {
+        if (optimizationScore >= 85) {
+            return { label: "Healthy", color: "success" as const };
+        }
+        if (optimizationScore >= 70) {
+            return { label: "Watch", color: "warning" as const };
+        }
+        return { label: "Needs Action", color: "error" as const };
+    }, [optimizationScore]);
+
+    const insightColumns: Column<OptimizationInsight>[] = [
+        {
+            key: "severity",
+            header: "Priority",
+            render: (row) => (
+                <Chip
+                    size="small"
+                    label={row.severity.toUpperCase()}
+                    color={SEVERITY_COLOR[row.severity]}
+                    variant="outlined"
+                />
+            )
+        },
+        { key: "area", header: "Area", render: (row) => row.area },
+        { key: "finding", header: "Finding", render: (row) => row.finding },
+        { key: "recommendation", header: "Recommended Action", render: (row) => row.recommendation }
+    ];
+
     if (loading && !systemMetrics) {
         return <AppLoader fullscreen={false} minHeight={420} message="Loading platform operations dashboard..." />;
     }
@@ -483,6 +767,43 @@ export function PlatformOperationsPage() {
                         helper={`${Number(systemMetrics?.sms_failed_count || 0).toLocaleString()} failed SMS in current window`}
                         icon={<SmsRoundedIcon />}
                     />
+                </Grid>
+            </Grid>
+
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, lg: 4 }}>
+                    <MotionCard variant="outlined" sx={{ height: "100%" }}>
+                        <CardContent>
+                            <Stack spacing={1.25}>
+                                <Typography variant="h6">Optimization Score</Typography>
+                                <Stack direction="row" alignItems="center" spacing={1}>
+                                    <Typography variant="h3">{optimizationScore}</Typography>
+                                    <Typography variant="body2" color="text.secondary">/100</Typography>
+                                </Stack>
+                                <Chip
+                                    size="small"
+                                    color={optimizationStatus.color}
+                                    label={optimizationStatus.label}
+                                    sx={{ width: "fit-content" }}
+                                />
+                                <Typography variant="body2" color="text.secondary">
+                                    Score is derived from current reliability, latency, infra pressure, and repeated incident hotspots.
+                                </Typography>
+                            </Stack>
+                        </CardContent>
+                    </MotionCard>
+                </Grid>
+                <Grid size={{ xs: 12, lg: 8 }}>
+                    <MotionCard variant="outlined" sx={{ height: "100%" }}>
+                        <CardContent>
+                            <Typography variant="h6" sx={{ mb: 1.5 }}>Top Optimization Priorities</Typography>
+                            <DataTable
+                                rows={optimizationInsights}
+                                columns={insightColumns}
+                                emptyMessage="No optimization risks detected in the selected window."
+                            />
+                        </CardContent>
+                    </MotionCard>
                 </Grid>
             </Grid>
 
