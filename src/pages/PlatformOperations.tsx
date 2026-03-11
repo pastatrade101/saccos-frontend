@@ -280,6 +280,7 @@ function buildOptimizationInsights({
 
     if (tenantTraffic.length) {
         const totalRequests = tenantTraffic.reduce((sum, row) => sum + Number(row.request_count || 0), 0);
+        const activeTenantCount = tenantTraffic.filter((row) => Number(row.request_count || 0) > 0).length;
         const topTrafficTenant = [...tenantTraffic].sort((a, b) => b.request_count - a.request_count)[0];
         const topErrorTenant = [...tenantTraffic]
             .filter((row) => row.request_count > 0 && row.error_count > 0)
@@ -288,7 +289,7 @@ function buildOptimizationInsights({
 
         if (topTrafficTenant && totalRequests > 0) {
             const share = topTrafficTenant.request_count / totalRequests;
-            if (share >= 0.45 && topTrafficTenant.request_count >= 100) {
+            if (activeTenantCount >= 3 && share >= 0.45 && topTrafficTenant.request_count >= 100) {
                 insights.push({
                     id: "tenant-traffic-concentration",
                     severity: "medium",
@@ -339,6 +340,9 @@ function buildOptimizationInsights({
     if (errors.length) {
         const endpointCounts = new Map<string, number>();
         errors.forEach((row) => {
+            if (Number(row.status_code || 0) < 500) {
+                return;
+            }
             const key = `${row.endpoint}|${row.status_code}`;
             endpointCounts.set(key, (endpointCounts.get(key) || 0) + 1);
         });
