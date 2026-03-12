@@ -1,4 +1,5 @@
 import {
+    useCallback,
     createContext,
     useContext,
     useEffect,
@@ -72,22 +73,40 @@ export function UIProvider({ children }: PropsWithChildren) {
         localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed));
     }, [sidebarCollapsed]);
 
+    const toggleTheme = useCallback(() => {
+        setTheme((current) => (current === "dark" ? "light" : "dark"));
+    }, []);
+
+    const toggleSidebar = useCallback(() => {
+        if (isDesktop) {
+            setSidebarCollapsed((current) => !current);
+            return;
+        }
+
+        setMobileSidebarOpen((current) => !current);
+    }, [isDesktop]);
+
+    const closeMobileSidebar = useCallback(() => {
+        setMobileSidebarOpen(false);
+    }, []);
+
     const value = useMemo<UIContextValue>(() => ({
         theme,
         isDesktop,
         sidebarCollapsed,
         mobileSidebarOpen,
-        toggleTheme: () => setTheme((current) => (current === "dark" ? "light" : "dark")),
-        toggleSidebar: () => {
-            if (isDesktop) {
-                setSidebarCollapsed((current) => !current);
-                return;
-            }
-
-            setMobileSidebarOpen((current) => !current);
-        },
-        closeMobileSidebar: () => setMobileSidebarOpen(false)
-    }), [isDesktop, mobileSidebarOpen, sidebarCollapsed, theme]);
+        toggleTheme,
+        toggleSidebar,
+        closeMobileSidebar
+    }), [
+        closeMobileSidebar,
+        isDesktop,
+        mobileSidebarOpen,
+        sidebarCollapsed,
+        theme,
+        toggleSidebar,
+        toggleTheme
+    ]);
 
     return <UIContext.Provider value={value}>{children}</UIContext.Provider>;
 }

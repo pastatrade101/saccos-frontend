@@ -307,6 +307,12 @@ export function AppLayout() {
             });
     }, [isInternalOps]);
 
+    useEffect(() => {
+        if (!isDesktop) {
+            closeMobileSidebar();
+        }
+    }, [closeMobileSidebar, isDesktop, location.pathname]);
+
     const displayRole = isInternalOps && !profile ? "Internal Ops" : profile ? formatRole(profile.role) : "Setup pending";
     const displayPlatformRole = formatPlatformRole(platformRole);
     const branchLabel = selectedBranchName || selectedBranchId || "All branches";
