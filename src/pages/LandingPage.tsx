@@ -45,217 +45,217 @@ import { useUI } from "../ui/UIProvider";
 const planCards = [
     {
         code: "Starter",
-        description: "For smaller SACCOS building digital member operations and controlled cash workflows.",
+        description: "Perfect for small SACCOS starting digital operations.",
         highlight: false,
         features: [
-            "Member onboarding and records",
-            "Cash desk foundation",
-            "Operational controls and role setup",
-            "Structured branch launch readiness"
+            "Member registration and profiles",
+            "Daily cash desk transactions",
+            "Role-based staff access",
+            "Basic reports for management"
         ]
     },
     {
         code: "Growth",
-        description: "For active SACCOS running savings, lending, contributions, dividends, and stronger reporting.",
+        description: "Best for growing SACCOS handling loans and dividends every day.",
         highlight: true,
         features: [
-            "Loans and repayment operations",
-            "Share contributions and dividend workflows",
-            "Maker-checker controls",
-            "Richer reports and operational dashboards"
+            "Loan applications, appraisal, and tracking",
+            "Share contributions and dividends",
+            "Approval workflow for sensitive actions",
+            "Branch dashboards and richer reports"
         ]
     },
     {
         code: "Enterprise",
-        description: "For governance-heavy institutions that need scale, approvals, and cross-functional oversight.",
+        description: "For large institutions that need stronger controls and multi-branch visibility.",
         highlight: false,
         features: [
-            "Higher operating scale",
-            "Advanced compliance posture",
-            "Multi-approval support",
-            "Broader leadership and audit visibility"
+            "Multi-branch operations at scale",
+            "Advanced approval chains",
+            "Audit-friendly logs and evidence",
+            "Priority rollout support"
         ]
     }
 ] as const;
 
 const productModules = [
     {
-        title: "Member and Account Operations",
-        copy: "Onboard members, provision savings and share capital accounts, and maintain clean member records.",
+        title: "Members",
+        copy: "Register members quickly, keep records clean, and track account details in one place.",
         icon: <PeopleAltRoundedIcon />
     },
     {
-        title: "Cash Desk and Branch Execution",
-        copy: "Process deposits, withdrawals, and contributions with role controls, confirmations, and journal posting.",
+        title: "Cash Desk",
+        copy: "Handle deposits, withdrawals, and contributions with a simple, guided flow.",
         icon: <PaidRoundedIcon />
     },
     {
-        title: "Loan Lifecycle Control",
-        copy: "Disburse, repay, track schedules, and monitor the quality of the loan book with structured views.",
+        title: "Loans",
+        copy: "Manage loan requests, approvals, disbursement, and repayment without losing track.",
         icon: <AutoGraphRoundedIcon />
     },
     {
-        title: "Contributions and Dividends",
-        copy: "Track member capital growth, run dividend cycles, freeze allocations, and preserve auditability.",
+        title: "Shares and Dividends",
+        copy: "Track share growth and run dividend cycles with clear records for every member.",
         icon: <PieChartRoundedIcon />
     },
     {
-        title: "Audit and Compliance Oversight",
-        copy: "Give auditors read-only exception views, journal inspection, and traceable audit logs without posting rights.",
+        title: "Audit Trail",
+        copy: "Every key action is logged so managers and auditors can review with confidence.",
         icon: <GavelRoundedIcon />
     },
     {
-        title: "Platform SaaS Management",
-        copy: "Manage multiple SACCOS tenants, assign plans, and keep each tenant isolated with subscription controls.",
+        title: "Tenant Management",
+        copy: "Run one or many SACCOS workspaces with separate data and simple plan control.",
         icon: <LanRoundedIcon />
     }
 ] as const;
 
 const buyerValuePillars = [
     {
-        title: "Financial Safety",
-        copy: "Protects real-money operations with controlled posting paths, role enforcement, and auditable transaction trails.",
+        title: "Safer Money Movement",
+        copy: "Built-in checks help prevent risky mistakes before money is posted.",
         icon: <HealthAndSafetyRoundedIcon />
     },
     {
-        title: "Operational Efficiency",
-        copy: "Reduces manual work by unifying member onboarding, cash desk, loan workflow, dividends, and reporting.",
+        title: "Faster Daily Work",
+        copy: "Your team handles members, cash, loans, and reports from one dashboard.",
         icon: <AutoGraphRoundedIcon />
     },
     {
-        title: "Member Transparency",
-        copy: "Improves trust through clearer statements, receipts, member portal visibility, and consistent decision workflows.",
+        title: "Better Member Service",
+        copy: "Give members clearer records, faster responses, and more trust in your process.",
         icon: <PeopleAltRoundedIcon />
     },
     {
-        title: "Growth Capability",
-        copy: "Scales from small cooperatives to larger institutions with plan upgrades, limits, and governance-ready controls.",
+        title: "Ready to Scale",
+        copy: "Start small today and expand branches and users without changing systems.",
         icon: <LanRoundedIcon />
     }
 ] as const;
 
 const whyDifferentPoints = [
-    "Requires the correct role before sensitive actions execute.",
-    "Logs and traces each high-risk operational event end-to-end.",
-    "Produces balanced accounting entries for financial actions.",
-    "Blocks execution when required approvals are missing.",
-    "Enforces controls at backend level, not only the UI layer."
+    "Only the right person can approve sensitive actions.",
+    "Important actions leave a clear, searchable history.",
+    "Loan and cash workflows follow clear approval steps.",
+    "The system blocks high-risk actions until checks are complete.",
+    "Controls are enforced by the backend, not just the screen."
 ] as const;
 
 const onboardingSteps = [
     {
         step: "01",
-        title: "Client contacts the system owner",
-        description: "A prospect requests the service, shares operating size, and gets guided to the right plan."
+        title: "Book a quick demo",
+        description: "Tell us your branch size and goals so we can guide you."
     },
     {
         step: "02",
-        title: "Owner assigns the right plan",
-        description: "Starter, Growth, or Enterprise is attached based on the SACCOS operating needs and controls."
+        title: "Choose your plan",
+        description: "Pick Starter, Growth, or Enterprise based on your needs."
     },
     {
         step: "03",
-        title: "Tenant is provisioned",
-        description: "The system owner creates the tenant, applies subscription settings, and prepares the workspace."
+        title: "We set up your workspace",
+        description: "Your tenant, roles, and access are prepared for your team."
     },
     {
         step: "04",
-        title: "Super admin launches operations",
-        description: "The tenant super admin logs in, creates the branch manager, and operations begin in a controlled flow."
+        title: "Start operations",
+        description: "Your team signs in and starts serving members immediately."
     }
 ] as const;
 
 const demoStorySteps = [
     {
         step: "01",
-        title: "A new SACCOS starts digitally",
-        description: "A cooperative decides to replace manual records with a governed operating platform."
+        title: "Register a member",
+        description: "Your officer adds member details once and keeps records clean."
     },
     {
         step: "02",
-        title: "Owner provisions tenant in minutes",
-        description: "The platform owner creates tenant workspace, assigns plan, and activates subscription."
+        title: "Member requests a loan",
+        description: "The application enters one clear workflow."
     },
     {
         step: "03",
-        title: "Team begins onboarding members",
-        description: "Operational staff starts controlled member onboarding and relationship setup."
+        title: "Loan officer appraises",
+        description: "The officer reviews terms and updates the appraisal."
     },
     {
         step: "04",
-        title: "Member submits loan request",
-        description: "The request enters a tracked workflow with branch and role context."
+        title: "Branch manager decides",
+        description: "The manager approves or rejects based on policy."
     },
     {
         step: "05",
-        title: "Loan officer appraises",
-        description: "Terms and risk are assessed before the request can move to approval."
+        title: "Teller disburses",
+        description: "Funds are released and recorded with receipt evidence."
     },
     {
         step: "06",
-        title: "Branch manager approves",
-        description: "Maker-checker is enforced before money can be disbursed."
+        title: "Repayments are tracked",
+        description: "Installments and balances update in real time."
     },
     {
         step: "07",
-        title: "Teller disburses with receipt",
-        description: "Funds are released through controlled posting with evidence capture."
+        title: "Reports update automatically",
+        description: "Leadership sees performance without manual spreadsheets."
     },
     {
         step: "08",
-        title: "Auditor reviews lifecycle",
-        description: "Auditor can inspect the full chain from request to journal evidence in read-only mode."
+        title: "Auditor reviews history",
+        description: "Every step can be traced from request to final posting."
     }
 ] as const;
 
 const enterpriseReadinessPhases = [
     {
-        phase: "Phase 0",
-        priority: "Critical",
-        title: "Scope Lock and Control Blueprint",
-        copy: "Policy definitions, approval thresholds, regulatory report scope, and DR objectives are locked before scale execution."
+        phase: "Step 1",
+        priority: "Now",
+        title: "Map your process",
+        copy: "We align your member, loan, and cash workflow to how your team works today."
     },
     {
-        phase: "Phase 1",
-        priority: "Critical",
-        title: "Credit Risk Controls",
-        copy: "Default lifecycle, collections workflow, guarantor exposure enforcement, and guarantor claims are implemented end-to-end."
+        phase: "Step 2",
+        priority: "Now",
+        title: "Set access and approvals",
+        copy: "We set user roles and approval rules so sensitive actions are controlled."
     },
     {
-        phase: "Phase 2",
-        priority: "Critical",
-        title: "Enterprise Maker-Checker",
-        copy: "High-risk operations are approval-gated with policy thresholds, checker queue visibility, and auditable decisions."
+        phase: "Step 3",
+        priority: "Now",
+        title: "Load your starting data",
+        copy: "Members and opening balances are prepared so your team can start cleanly."
     },
     {
-        phase: "Phase 3",
-        priority: "Important",
-        title: "Financial Statements and Period Governance",
-        copy: "Balance sheet and income statement exports are supported with closed-period guardrails and reporting traceability."
+        phase: "Step 4",
+        priority: "Next",
+        title: "Train your staff",
+        copy: "Your team learns the daily flow in plain, practical sessions."
     },
     {
-        phase: "Phase 4",
-        priority: "Important",
-        title: "Notification Orchestration",
-        copy: "Operational events are prepared for event-driven alerts across approvals, repayments, and transaction confirmations."
+        phase: "Step 5",
+        priority: "Next",
+        title: "Go live branch by branch",
+        copy: "You can launch one branch first and expand when the team is ready."
     },
     {
-        phase: "Phase 5",
-        priority: "Important",
-        title: "Regulatory and Audit Hardening",
-        copy: "Compliance evidence quality is strengthened with reproducible report runs and stronger approval/reversal traceability."
+        phase: "Step 6",
+        priority: "Next",
+        title: "Track daily performance",
+        copy: "Managers monitor loans, cash, and member activity from dashboards."
     },
     {
-        phase: "Phase 6",
-        priority: "Important",
-        title: "Disaster Recovery Validation",
-        copy: "Backup verification and restore-drill evidence align resilience operations with defined RPO and RTO commitments."
+        phase: "Step 7",
+        priority: "Grow",
+        title: "Strengthen audits and reports",
+        copy: "Use built-in logs and reports to simplify compliance and reviews."
     },
     {
-        phase: "Phase 7",
-        priority: "Important",
-        title: "100-Tenant Readiness Gate",
-        copy: "Mixed-workload and soak testing validate service reliability, control integrity, and operational readiness at target scale."
+        phase: "Step 8",
+        priority: "Grow",
+        title: "Scale with confidence",
+        copy: "Add more users and branches while keeping the same simple workflow."
     }
 ] as const;
 
@@ -362,7 +362,7 @@ export function LandingPage() {
                                     color="text.secondary"
                                     sx={{ display: { xs: "none", sm: "block" }, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}
                                 >
-                                    Multi-tenant SACCOS operating platform
+                                    Simple software to run your SACCOS
                                 </Typography>
                             </Box>
                         </Stack>
@@ -376,7 +376,7 @@ export function LandingPage() {
                                 Solutions
                             </Button>
                             <Button component="a" href="#readiness" color="inherit">
-                                Readiness
+                                Go Live Steps
                             </Button>
                             <Button component="a" href="#why-different" color="inherit">
                                 Why Different
@@ -415,7 +415,7 @@ export function LandingPage() {
                                         : {})
                                 }}
                             >
-                                Contact owner
+                                Book demo
                             </Button>
                             <IconButton
                                 color="inherit"
@@ -446,7 +446,7 @@ export function LandingPage() {
                     <List disablePadding>
                         {[
                             { label: "Solutions", href: "#solutions" },
-                            { label: "Readiness", href: "#readiness" },
+                            { label: "Go Live Steps", href: "#readiness" },
                             { label: "Why Different", href: "#why-different" },
                             { label: "Plans", href: "#plans" },
                             { label: "How It Works", href: "#how-it-works" },
@@ -501,7 +501,7 @@ export function LandingPage() {
                                     : undefined
                             }
                         >
-                            Contact owner
+                            Book demo
                         </Button>
                     </Stack>
                 </Box>
@@ -555,7 +555,7 @@ export function LandingPage() {
                         <Stack spacing={3}>
                             <Chip
                                 icon={<VerifiedRoundedIcon />}
-                                label="Roadmap-led enterprise SACCOS platform"
+                                label="Simple, guided SACCOS platform"
                                 sx={{
                                     alignSelf: "flex-start",
                                     bgcolor: alpha("#ffffff", 0.12),
@@ -574,7 +574,7 @@ export function LandingPage() {
                                     maxWidth: 820
                                 }}
                             >
-                                Operate your SACCOS with institutional-grade controls, transparency, and growth readiness.
+                                Run your SACCOS from one simple system.
                             </Typography>
                             <Typography
                                 variant="h6"
@@ -585,8 +585,8 @@ export function LandingPage() {
                                     color: alpha("#ffffff", 0.86)
                                 }}
                             >
-                                Built on a phased remediation model from control blueprint through 100-tenant readiness,
-                                this platform gives cooperatives a practical path from startup operations to enterprise governance.
+                                Manage members, loans, cash, approvals, and reports in one place.
+                                Your team follows clear steps, so daily operations are faster and safer.
                             </Typography>
                             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                                 <Button
@@ -601,7 +601,7 @@ export function LandingPage() {
                                         "&:hover": { bgcolor: alpha("#ffffff", 0.92) }
                                     }}
                                 >
-                                    Request onboarding
+                                    Book a demo
                                 </Button>
                                 <Button
                                     component="a"
@@ -621,19 +621,19 @@ export function LandingPage() {
                                 <Stack direction="row" spacing={1.5} alignItems="center">
                                     <SecurityRoundedIcon sx={{ color: "#ffffff" }} />
                                     <Typography variant="body1" sx={{ color: alpha("#ffffff", 0.82) }}>
-                                        Tenant-isolated architecture
+                                        Separate workspace per SACCOS
                                     </Typography>
                                 </Stack>
                                 <Stack direction="row" spacing={1.5} alignItems="center">
                                     <HealthAndSafetyRoundedIcon sx={{ color: "#ffffff" }} />
                                     <Typography variant="body1" sx={{ color: alpha("#ffffff", 0.82) }}>
-                                        Double-entry financial integrity
+                                        Clear records for every transaction
                                     </Typography>
                                 </Stack>
                                     <Stack direction="row" spacing={1.5} alignItems="center">
                                         <InsightsRoundedIcon sx={{ color: "#ffffff" }} />
                                         <Typography variant="body1" sx={{ color: alpha("#ffffff", 0.82) }}>
-                                        Scale-ready operations roadmap
+                                        Easy to scale branch by branch
                                         </Typography>
                                     </Stack>
                                 </Stack>
@@ -658,12 +658,12 @@ export function LandingPage() {
                                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                                     <Box>
                                         <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                                            Client onboarding path
+                                            Start here
                                         </Typography>
-                                        <Typography variant="h5">Contact-led deployment</Typography>
+                                        <Typography variant="h5">Go live in 4 simple steps</Typography>
                                     </Box>
                                     <Chip
-                                        label="Owner managed"
+                                        label="Guided setup"
                                         variant="outlined"
                                         sx={{
                                             borderColor: alpha(accentColor, isDark ? 0.66 : 0.48),
@@ -702,9 +702,9 @@ export function LandingPage() {
 
                                 <Stack spacing={1.25}>
                                     {[
-                                        "The system owner selects the plan and provisions the tenant",
-                                        "The tenant super admin gets a separate login with their own credentials",
-                                        "Operational roles are onboarded inside the tenant, not by public self-signup"
+                                        "We help you choose the right plan for your size",
+                                        "Your workspace is set up with secure staff logins",
+                                        "Your team starts with a clear day-to-day workflow"
                                     ].map((item) => (
                                         <Stack key={item} direction="row" spacing={1.25} alignItems="flex-start">
                                             <CheckCircleRoundedIcon color="success" fontSize="small" sx={{ mt: 0.2 }} />
@@ -722,9 +722,9 @@ export function LandingPage() {
 
                 <Grid container spacing={2} sx={{ mt: { xs: 4, md: 5 } }}>
                     {[
-                        { value: "8", label: "Enterprise readiness phases", caption: "from control blueprint to 100-tenant scale gate" },
-                        { value: "Critical", label: "Control-first sequencing", caption: "safety and governance controls are prioritized before expansion" },
-                        { value: "100", label: "Tenant target path", caption: "mixed-workload scale validation is designed around your growth goal" }
+                        { value: "4", label: "Steps to go live", caption: "from first demo to team access" },
+                        { value: "1", label: "Platform for all teams", caption: "members, loans, cash, approvals, and reports" },
+                        { value: "0", label: "Paper chasing", caption: "replace manual follow-up with clear workflows" }
                     ].map((stat) => (
                         <Grid key={stat.label} size={{ xs: 12, md: 4 }}>
                             <Paper sx={{ ...sectionCardSx, p: 3 }}>
@@ -747,14 +747,13 @@ export function LandingPage() {
                 <Container maxWidth="xl">
                     <Stack spacing={1} sx={{ mb: 4 }}>
                         <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                            Enterprise readiness roadmap
+                            Go-live checklist
                         </Typography>
                         <Typography variant="h3" sx={{ maxWidth: 860 }}>
-                            A phase-based execution model that sells confidence to boards, regulators, and growth partners.
+                            A simple plan to move from setup to daily operations.
                         </Typography>
                         <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 860 }}>
-                            Your SACCOS platform is positioned with a professional remediation path: critical controls first, then compliance depth,
-                            resilience evidence, and final scale validation. This converts technical work into business-grade assurance.
+                            We guide setup, access, training, and rollout so your team can start quickly and operate with confidence.
                         </Typography>
                     </Stack>
 
@@ -804,14 +803,13 @@ export function LandingPage() {
                 <Container maxWidth="xl">
                     <Stack spacing={1} sx={{ mb: 4 }}>
                         <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                            What the platform offers
+                            What you get
                         </Typography>
                         <Typography variant="h3" sx={{ maxWidth: 760 }}>
-                            Built for real-money safety, operational speed, and member trust.
+                            Everything your SACCOS team needs in one place.
                         </Typography>
                         <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 760 }}>
-                            Buyers get practical outcomes: safer financial execution, reduced manual work, better
-                            transparency to members, and a clear path to scale.
+                            Use one system for daily work, leadership visibility, and better member service.
                         </Typography>
                     </Stack>
 
@@ -835,14 +833,13 @@ export function LandingPage() {
 
                     <Stack spacing={1} sx={{ mb: 3 }}>
                         <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                            Product modules
+                            Core features
                         </Typography>
                         <Typography variant="h4" sx={{ maxWidth: 760 }}>
-                            A complete operating system for SACCOS teams, leadership, and compliance.
+                            Tools your team can understand on day one.
                         </Typography>
                         <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 760 }}>
-                            Every workspace is structured around member-based finance realities: operational control,
-                            accounting integrity, execution quality, and audit visibility.
+                            Each section is built for real branch work, with fewer clicks and clearer steps.
                         </Typography>
                     </Stack>
 
@@ -891,14 +888,13 @@ export function LandingPage() {
                         <Grid size={{ xs: 12, lg: 6 }}>
                             <Paper sx={{ ...sectionCardSx, p: { xs: 3, md: 4 }, height: "100%" }}>
                                 <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                                    Why this platform is different
+                                    Why teams choose this platform
                                 </Typography>
                                 <Typography variant="h4" sx={{ mt: 1, mb: 1.5 }}>
-                                    Governance is enforced by the system, not by policy documents alone.
+                                    Rules are built in, so mistakes are reduced.
                                 </Typography>
                                 <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 620 }}>
-                                    Unlike tools that act like spreadsheets with dashboards, this platform applies
-                                    control rules to each sensitive action before money moves.
+                                    Instead of relying on manual follow-up, the system guides each step and blocks risky actions.
                                 </Typography>
 
                                 <Stack spacing={1.75}>
@@ -917,10 +913,10 @@ export function LandingPage() {
                         <Grid size={{ xs: 12, lg: 6 }}>
                             <Paper sx={{ ...sectionCardSx, p: { xs: 3, md: 4 }, height: "100%" }}>
                                 <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                                    Governance outcomes
+                                    What this means for your SACCOS
                                 </Typography>
                                 <Typography variant="h4" sx={{ mt: 1, mb: 3 }}>
-                                    The cooperative operates with institutional-grade control confidence.
+                                    Safer operations and clearer accountability every day.
                                 </Typography>
 
                                 <Grid container spacing={2}>
@@ -932,7 +928,7 @@ export function LandingPage() {
                                         },
                                         {
                                             title: "Traceable operation chain",
-                                            copy: "Financial and governance steps remain auditable from request to posting outcome.",
+                                            copy: "Each key step can be reviewed from request to final posting.",
                                             icon: <InsightsRoundedIcon sx={{ color: accentColor }} />
                                         },
                                         {
@@ -973,10 +969,9 @@ export function LandingPage() {
                         <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
                             Plans
                         </Typography>
-                        <Typography variant="h3">Choose the right operating depth for the SACCOS.</Typography>
+                        <Typography variant="h3">Choose the plan that fits your SACCOS today.</Typography>
                         <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 760 }}>
-                            Prospects do not self-provision. They contact the platform owner, discuss fit, then get
-                            assigned the plan that matches their operating scale and governance needs.
+                            We guide plan selection based on your branch size, workflows, and growth goals.
                         </Typography>
                     </Stack>
 
@@ -1038,15 +1033,13 @@ export function LandingPage() {
                         <Grid container spacing={4}>
                             <Grid size={{ xs: 12, lg: 5 }}>
                                 <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                                    Demo story
+                                    How it works
                                 </Typography>
                                 <Typography variant="h3" sx={{ mt: 1.25 }}>
-                                    Controlled money movement in one narrative.
+                                    See one loan journey step by step.
                                 </Typography>
                                 <Typography variant="body1" color="text.secondary" sx={{ mt: 2 }}>
-                                    A new SACCOS starts digital operations. The platform owner provisions the tenant,
-                                    teams onboard members, loan workflow approvals run by role, teller executes
-                                    disbursement with receipt capture, and the auditor can trace the full lifecycle.
+                                    From member registration to loan disbursement and reporting, every step is clear and traceable.
                                 </Typography>
                                 <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 3 }}>
                                     <Button
@@ -1063,7 +1056,7 @@ export function LandingPage() {
                                                 : undefined
                                         }
                                     >
-                                        Contact owner
+                                        Book demo
                                     </Button>
                                     {whatsappHref ? (
                                         <Button
@@ -1131,14 +1124,13 @@ export function LandingPage() {
                     <Grid container spacing={3} alignItems="center">
                         <Grid size={{ xs: 12, lg: 8 }}>
                             <Typography variant="overline" sx={{ color: alpha("#ffffff", 0.76), fontWeight: 800 }}>
-                                Ready to launch
+                                Ready to get started?
                             </Typography>
                             <Typography variant="h3" sx={{ mt: 1 }}>
-                                Talk to the system owner to choose the right plan for your SACCOS.
+                                Talk to us and choose the best plan for your SACCOS.
                             </Typography>
                             <Typography variant="body1" sx={{ mt: 1.5, color: alpha("#ffffff", 0.82), maxWidth: 780 }}>
-                                The owner selects the plan, provisions the tenant, and creates the first super admin.
-                                From there, the tenant team launches operations inside a controlled workspace.
+                                We help you choose a plan, set up your workspace, and onboard your first team members.
                             </Typography>
                         </Grid>
                         <Grid size={{ xs: 12, lg: 4 }}>
@@ -1207,8 +1199,7 @@ export function LandingPage() {
                                 <Typography variant="h6">{ownerCompany}</Typography>
                             </Stack>
                             <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 520 }}>
-                                Enterprise-grade SACCOS operations across members, cash, loans, contributions,
-                                dividends, reports, and auditor oversight.
+                                One simple platform for members, loans, cash, approvals, and reports.
                             </Typography>
                         </Grid>
 
@@ -1221,7 +1212,7 @@ export function LandingPage() {
                                     Solutions
                                 </Typography>
                                 <Typography component="a" href="#readiness" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
-                                    Readiness roadmap
+                                    Go live steps
                                 </Typography>
                                 <Typography component="a" href="#why-different" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
                                     Why different
@@ -1230,10 +1221,10 @@ export function LandingPage() {
                                     Plans
                                 </Typography>
                                 <Typography component="a" href="#how-it-works" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
-                                    Demo story
+                                    How it works
                                 </Typography>
                                 <Typography component={RouterLink} to="/signin" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
-                                    Client sign in
+                                    Sign in
                                 </Typography>
                             </Stack>
                         </Grid>
