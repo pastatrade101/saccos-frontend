@@ -84,6 +84,30 @@
   line-height: 1.55;
 }
 
+.authVisualAssistRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.15rem;
+}
+
+.authVisualAssistLabel {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.authVisualAssistLink {
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.authVisualAssistLink:hover {
+  color: rgba(255, 255, 255, 0.86);
+}
+
 .authVisualMetrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -479,6 +479,12 @@ export function SignInPage() {
                         <p className={pageStyles.authVisualCopy}>
                             Built for operational discipline, auditability, and fast branch execution with your existing brand system.
                         </p>
+                        <div className={pageStyles.authVisualAssistRow}>
+                            <span className={pageStyles.authVisualAssistLabel}>Need product overview?</span>
+                            <RouterLink className={pageStyles.authVisualAssistLink} to="/">
+                                Go to home page
+                            </RouterLink>
+                        </div>
                         <div className={pageStyles.authVisualMetrics}>
                             <div className={pageStyles.authVisualMetric}>
                                 <strong>Multi-tenant</strong>
