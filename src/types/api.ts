@@ -191,6 +191,8 @@ export interface MemberLoginProvisionResult {
         email?: string;
     };
     temporary_password?: string | null;
+    invite_delivery?: "email" | "sms_link" | "password";
+    destination_hint?: string | null;
 }
 
 export interface TemporaryCredential {

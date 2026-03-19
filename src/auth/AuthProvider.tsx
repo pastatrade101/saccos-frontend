@@ -61,6 +61,7 @@ interface AuthContextValue {
     ) => Promise<OtpChallengeResponse>;
     signOut: () => Promise<void>;
     refreshProfile: (tenantOverride?: string | null) => Promise<void>;
+    markPasswordChanged: () => void;
     setSelectedTenantId: (value: string | null, name?: string | null) => void;
     setSelectedBranchId: (value: string | null) => void;
     clearSubscriptionWarning: () => void;
@@ -404,6 +405,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setBackendUnavailable(false);
     }, [clearAuthState]);
 
+    const markPasswordChanged = useCallback(() => {
+        const changedAt = new Date().toISOString();
+        setProfile((current) => current
+            ? {
+                ...current,
+                must_change_password: false,
+                first_login_at: current.first_login_at || changedAt
+            }
+            : current);
+    }, []);
+
     const setSelectedTenantId = useCallback((value: string | null, name?: string | null) => {
         setSelectedTenantIdState(value);
 
@@ -460,6 +472,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         requestOtp,
         signOut,
         refreshProfile,
+        markPasswordChanged,
         setSelectedTenantId,
         setSelectedBranchId,
         clearSubscriptionWarning: () => setSubscriptionInactive(false),
@@ -474,6 +487,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         lastApiError,
         loading,
         profile,
+        markPasswordChanged,
         refreshProfile,
         selectedBranchId,
         selectedTenantId,

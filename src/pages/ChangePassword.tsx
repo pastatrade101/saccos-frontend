@@ -35,7 +35,7 @@ type FormValues = z.infer<typeof schema>;
 
 export function ChangePasswordPage() {
     const navigate = useNavigate();
-    const { profile, session, refreshProfile } = useAuth();
+    const { profile, session, refreshProfile, markPasswordChanged } = useAuth();
     const { pushToast } = useToast();
     const [submitting, setSubmitting] = useState(false);
 
@@ -68,7 +68,8 @@ export function ChangePasswordPage() {
             }
 
             await api.post(endpoints.users.passwordChanged());
-            await refreshProfile();
+            markPasswordChanged();
+            void refreshProfile();
             pushToast({
                 type: "success",
                 title: "Password updated",

@@ -688,20 +688,11 @@ export function MemberPortalPage() {
         handleProfileMenuClose();
     };
 
-    const openContributionDialog = () => {
-        setPaymentFlowPurpose("share_contribution");
-        if (latestSharePaymentOrder && ["pending", "paid"].includes(latestSharePaymentOrder.status)) {
-            setActiveContributionOrderId(latestSharePaymentOrder.id);
-        } else {
-            setActiveContributionOrderId(null);
-        }
-        setShowContributionDialog(true);
-    };
-
-    const openSavingsDialog = () => {
-        setPaymentFlowPurpose("savings_deposit");
-        if (latestSavingsPaymentOrder && ["pending", "paid"].includes(latestSavingsPaymentOrder.status)) {
-            setActiveContributionOrderId(latestSavingsPaymentOrder.id);
+    const openDepositDialog = (purpose: MemberPaymentPurpose = "share_contribution") => {
+        setPaymentFlowPurpose(purpose);
+        const latestOrder = purpose === "savings_deposit" ? latestSavingsPaymentOrder : latestSharePaymentOrder;
+        if (latestOrder && ["pending", "paid"].includes(latestOrder.status)) {
+            setActiveContributionOrderId(latestOrder.id);
         } else {
             setActiveContributionOrderId(null);
         }
@@ -1069,6 +1060,21 @@ export function MemberPortalPage() {
         () => paymentTargetAccounts.find((account) => account.id === selectedContributionAccountId) || paymentTargetAccounts[0] || null,
         [paymentTargetAccounts, selectedContributionAccountId]
     );
+
+    useEffect(() => {
+        if (contributionFlowState) {
+            return;
+        }
+
+        const currentAccountId = contributionPaymentForm.getValues("account_id");
+        const hasCurrentAccount = paymentTargetAccounts.some((account) => account.id === currentAccountId);
+
+        if (hasCurrentAccount) {
+            return;
+        }
+
+        contributionPaymentForm.setValue("account_id", paymentTargetAccounts[0]?.id || "", { shouldValidate: true });
+    }, [contributionFlowState, contributionPaymentForm, paymentFlowPurpose, paymentTargetAccounts]);
     const filteredPaymentOrders = useMemo(
         () =>
             normalizedPaymentOrders.filter((order) => {
@@ -2306,17 +2312,25 @@ export function MemberPortalPage() {
                         <Grid size={{ xs: 12, md: 7 }}>
                             <Stack spacing={1.15}>
                                 <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: 1.4 }}>
-                                    Azam Pay Savings
+                                    Azam Pay Deposit
                                 </Typography>
                                 <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
-                                    Deposit straight into your savings account from the portal.
+                                    Deposit into savings or contributions from one portal flow.
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary">
-                                    Start a mobile money savings deposit, approve it on your phone, and the backend will post it automatically once Azam Pay confirms success.
+                                    Start one Azam Pay deposit request, choose whether it goes to savings or share contributions, approve it on your phone, and the backend will post it automatically after confirmation.
                                 </Typography>
                                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                                     <Chip label={`${savingsAccounts.length} savings account(s)`} variant="outlined" />
-                                    <Chip label={latestSavingsPaymentOrder ? `Latest order ${latestSavingsPaymentOrder.status.replace(/_/g, " ")}` : "No active savings payment"} variant="outlined" />
+                                    <Chip label={`${shareAccounts.length} share account(s)`} variant="outlined" />
+                                    <Chip
+                                        label={
+                                            latestSavingsPaymentOrder || latestSharePaymentOrder
+                                                ? `Latest activity ${(latestSavingsPaymentOrder || latestSharePaymentOrder)?.status.replace(/_/g, " ")}`
+                                                : "No active deposit"
+                                        }
+                                        variant="outlined"
+                                    />
                                 </Stack>
                             </Stack>
                         </Grid>
@@ -2324,15 +2338,15 @@ export function MemberPortalPage() {
                             <Stack spacing={1.1} alignItems={{ xs: "stretch", md: "flex-end" }}>
                                 <Button
                                     variant="contained"
-                                    onClick={openSavingsDialog}
-                                    disabled={!savingsAccounts.length || submittingContribution}
+                                    onClick={() => openDepositDialog("savings_deposit")}
+                                    disabled={(!savingsAccounts.length && !shareAccounts.length) || submittingContribution}
                                     sx={
                                         isDarkMode
                                             ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
                                             : undefined
                                     }
                                 >
-                                    Add Savings
+                                    Make Deposit
                                 </Button>
                                 {latestSavingsPaymentOrder?.status === "paid" && !latestSavingsPaymentOrder.posted_at ? (
                                     <Button
@@ -2346,9 +2360,9 @@ export function MemberPortalPage() {
                             </Stack>
                         </Grid>
                     </Grid>
-                    {!savingsAccounts.length ? (
+                    {!savingsAccounts.length && !shareAccounts.length ? (
                         <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
-                            No savings account is linked to this portal login yet. A branch manager must provision a savings account before members can deposit from the portal.
+                            A branch manager must provision at least one savings or share account before this portal can start member deposits.
                         </Alert>
                     ) : null}
                     {latestSavingsPaymentOrder ? (
@@ -3340,17 +3354,25 @@ export function MemberPortalPage() {
                             <Grid size={{ xs: 12, md: 7 }}>
                                 <Stack spacing={1.15}>
                                     <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: 1.4 }}>
-                                        Azam Pay Contributions
+                                        Azam Pay Deposits
                                     </Typography>
                                     <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
-                                        Pay your share contribution from the member portal.
+                                        Use one deposit flow for contributions and savings.
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary">
-                                        Start a mobile money contribution, approve it on your phone, and the backend will post it automatically once Azam Pay confirms success.
+                                        Choose whether the money should land in your share contribution account or your savings account, approve on your phone, and let the backend post it automatically after Azam Pay confirms success.
                                     </Typography>
                                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                                         <Chip label={`${shareAccounts.length} share account(s)`} variant="outlined" />
-                                        <Chip label={latestSharePaymentOrder ? `Latest order ${latestSharePaymentOrder.status.replace(/_/g, " ")}` : "No active payment order"} variant="outlined" />
+                                        <Chip label={`${savingsAccounts.length} savings account(s)`} variant="outlined" />
+                                        <Chip
+                                            label={
+                                                latestSharePaymentOrder || latestSavingsPaymentOrder
+                                                    ? `Latest order ${(latestSharePaymentOrder || latestSavingsPaymentOrder)?.status.replace(/_/g, " ")}`
+                                                    : "No active deposit order"
+                                            }
+                                            variant="outlined"
+                                        />
                                     </Stack>
                                 </Stack>
                             </Grid>
@@ -3358,15 +3380,15 @@ export function MemberPortalPage() {
                                 <Stack spacing={1.1} alignItems={{ xs: "stretch", md: "flex-end" }}>
                                     <Button
                                         variant="contained"
-                                        onClick={openContributionDialog}
-                                        disabled={!shareAccounts.length || submittingContribution}
+                                        onClick={() => openDepositDialog("share_contribution")}
+                                        disabled={(!shareAccounts.length && !savingsAccounts.length) || submittingContribution}
                                         sx={
                                             isDarkMode
                                                 ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
                                                 : undefined
                                         }
                                     >
-                                        Make Contribution
+                                        Open Deposit
                                     </Button>
                                     {latestSharePaymentOrder?.status === "paid" && !latestSharePaymentOrder.posted_at ? (
                                         <Button
@@ -4506,7 +4528,7 @@ export function MemberPortalPage() {
             </Box>
 
             <MotionModal open={showContributionDialog} onClose={submittingContribution ? undefined : () => setShowContributionDialog(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>{contributionFlowState ? `${activePaymentCopy.title} Payment Progress` : `Make ${activePaymentCopy.title}`}</DialogTitle>
+                <DialogTitle>{contributionFlowState ? `${activePaymentCopy.title} Payment Progress` : "Make Deposit"}</DialogTitle>
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
                         <Alert severity={contributionFlowTone} variant="outlined">
@@ -4559,6 +4581,20 @@ export function MemberPortalPage() {
                             </Stack>
                         ) : (
                             <Box component="form" id="member-contribution-form" onSubmit={submitContributionPayment} sx={{ display: "grid", gap: 2 }}>
+                                <TextField
+                                    select
+                                    label="Deposit Type"
+                                    fullWidth
+                                    value={paymentFlowPurpose}
+                                    onChange={(event) => {
+                                        setPaymentFlowPurpose(event.target.value as MemberPaymentPurpose);
+                                        setActiveContributionOrderId(null);
+                                    }}
+                                    helperText="Choose whether this mobile money deposit goes to savings or share contributions."
+                                >
+                                    <MenuItem value="share_contribution">Contribution</MenuItem>
+                                    <MenuItem value="savings_deposit">Savings</MenuItem>
+                                </TextField>
                                 <Box>
                                     <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
                                         {activePaymentCopy.accountLabel}
@@ -4591,7 +4627,7 @@ export function MemberPortalPage() {
                                 <Grid container spacing={2}>
                                     <Grid size={{ xs: 12, md: 6 }}>
                                         <TextField
-                                            label="Contribution Amount"
+                                            label="Deposit Amount"
                                             type="number"
                                             fullWidth
                                             {...contributionPaymentForm.register("amount")}
@@ -4672,7 +4708,7 @@ export function MemberPortalPage() {
                                         : undefined
                                 }
                             >
-                                {submittingContribution ? "Starting..." : "Start Azam Pay"}
+                                {submittingContribution ? "Starting..." : "Start Deposit"}
                             </Button>
                         </>
                     )}

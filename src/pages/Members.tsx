@@ -581,7 +581,9 @@ export function MembersPage() {
                 title: "Member created",
                 message: data.data.login
                     ? values.send_invite
-                        ? `${data.data.member.full_name} was created, savings and share accounts were provisioned, and an invite was sent.`
+                        ? (data.data.login.destination_hint
+                            ? `${data.data.member.full_name} was created, savings and share accounts were provisioned, and an SMS setup link was sent to ${data.data.login.destination_hint}.`
+                            : `${data.data.member.full_name} was created, savings and share accounts were provisioned, and an SMS setup link was sent.`)
                         : values.password
                             ? `${data.data.member.full_name} was created with a login plus savings and share accounts provisioned.`
                             : `${data.data.member.full_name} was created with a generated temporary password plus savings and share accounts provisioned.`
@@ -645,7 +647,9 @@ export function MembersPage() {
                 type: "success",
                 title: "Member login created",
                 message: values.send_invite
-                    ? `Invite sent to ${data.data.user.email || values.email}.`
+                    ? (data.data.destination_hint
+                        ? `SMS setup link sent to ${data.data.destination_hint}.`
+                        : "SMS setup link sent to the member phone.")
                     : values.password
                         ? `Login created for ${data.data.user.email || values.email}.`
                         : `Temporary password generated for ${data.data.user.email || values.email}.`
@@ -1768,9 +1772,9 @@ export function MembersPage() {
                                                                 memberLoginForm.setValue("password", "", { shouldValidate: true });
                                                             }
                                                         }}
-                                                        helperText="Invite mode is preferred for live users."
+                                                        helperText="Invite mode sends the first-time password setup link by SMS to the member phone on file."
                                                     >
-                                                        <MenuItem value="invite">Send Invite</MenuItem>
+                                                        <MenuItem value="invite">Send SMS Setup Link</MenuItem>
                                                         <MenuItem value="password">Create with Temporary Password</MenuItem>
                                                     </TextField>
                                                     <TextField
@@ -1996,7 +2000,7 @@ export function MembersPage() {
                         <Alert severity={createLoginNow ? "info" : "success"} variant="outlined">
                             {createLoginNow
                                 ? onboardingInviteMode
-                                    ? "The member will be created with a linked login and invite flow."
+                                    ? "The member will be created with a linked login and receive a first-time password setup link by SMS."
                                     : "The member will be created with a linked login and either your password or a generated temporary password."
                                 : "The member will be created without a login. Access can be provisioned later from the details panel."}
                         </Alert>
@@ -2124,9 +2128,9 @@ export function MembersPage() {
                                                         form.setValue("password", "", { shouldValidate: true });
                                                     }
                                                 }}
-                                                helperText="Invite mode is preferred for real users."
+                                                helperText="Invite mode sends the first-time password setup link by SMS to the member phone."
                                             >
-                                                <MenuItem value="invite">Send Invite</MenuItem>
+                                                <MenuItem value="invite">Send SMS Setup Link</MenuItem>
                                                 <MenuItem value="password">Create with Temporary Password</MenuItem>
                                             </TextField>
                                         </Grid>
