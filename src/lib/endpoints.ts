@@ -45,7 +45,9 @@ import type {
     ApprovalOperationKey,
     ApprovalRequestStatus,
     SmsTriggerEventType,
-    SmsTriggerSetting
+    SmsTriggerSetting,
+    PaymentOrder,
+    MobileMoneyProvider
 } from "../types/api";
 
 const routeMap = {
@@ -160,6 +162,13 @@ const routeMap = {
         loanDisburse: "/loan/disburse",
         loanRepay: "/loan/repay",
         statements: "/statements"
+    },
+    memberPayments: {
+        initiateContribution: "/member-payments/contributions/initiate",
+        initiateSavings: "/member-payments/savings/initiate",
+        listOrders: "/member-payments/orders",
+        orderStatus: (orderId: string) => `/member-payments/orders/${orderId}/status`,
+        reconcile: (orderId: string) => `/member-payments/orders/${orderId}/reconcile`
     },
     dividends: {
         options: "/dividends/options",
@@ -320,6 +329,13 @@ export const endpoints = {
         loanDisburse: () => routeMap.finance.loanDisburse,
         loanRepay: () => routeMap.finance.loanRepay,
         statements: () => routeMap.finance.statements
+    },
+    memberPayments: {
+        initiateContribution: () => routeMap.memberPayments.initiateContribution,
+        initiateSavings: () => routeMap.memberPayments.initiateSavings,
+        listOrders: () => routeMap.memberPayments.listOrders,
+        orderStatus: (orderId: string) => routeMap.memberPayments.orderStatus(orderId),
+        reconcile: (orderId: string) => routeMap.memberPayments.reconcile(orderId)
     },
     dividends: {
         options: () => routeMap.dividends.options,
@@ -809,6 +825,38 @@ export type ShareContributionRequest = CashRequest;
 export type ShareContributionResponse = CashResponse;
 export type DividendAllocationRequest = CashRequest;
 export type DividendAllocationResponse = CashResponse;
+
+export interface InitiateContributionPaymentRequest {
+    tenant_id?: string;
+    account_id: string;
+    amount: number;
+    provider: MobileMoneyProvider;
+    msisdn: string;
+    description?: string | null;
+}
+
+export interface InitiateContributionPaymentResponseData {
+    order: PaymentOrder;
+    gateway: {
+        provider_ref: string | null;
+        response: Record<string, unknown>;
+    };
+    processing_state?: "pending_confirmation";
+}
+
+export type InitiateContributionPaymentResponse = ApiEnvelope<InitiateContributionPaymentResponseData>;
+export interface PaymentOrderListQuery {
+    tenant_id?: string;
+    branch_id?: string;
+    member_id?: string;
+    purpose?: "share_contribution" | "savings_deposit";
+    status?: "created" | "pending" | "paid" | "failed" | "expired" | "posted";
+    page?: number;
+    limit?: number;
+}
+export type PaymentOrdersResponse = ApiEnvelope<PaginatedResult<PaymentOrder>>;
+export type PaymentOrderStatusResponse = ApiEnvelope<{ order: PaymentOrder }>;
+export type ReconcilePaymentOrderResponse = ApiEnvelope<{ reconciled: boolean; order: PaymentOrder }>;
 
 export interface DividendComponentInput {
     type: "share_dividend" | "savings_interest_bonus" | "patronage_refund";

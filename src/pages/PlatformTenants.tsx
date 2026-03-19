@@ -72,7 +72,7 @@ function MetricCard({
 }
 
 function getTenantSubscription(tenant: Tenant) {
-    return tenant.subscription || tenant.subscriptions?.[0] || null;
+    return tenant.subscription || null;
 }
 
 const planOptions = [

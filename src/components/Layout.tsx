@@ -90,6 +90,7 @@ const navItems: NavItem[] = [
     { to: "/auditor/journals", label: "Journals", roles: ["auditor"], section: "workspace", icon: RuleFolderRoundedIcon },
     { to: "/auditor/audit-logs", label: "Audit Logs", roles: ["auditor"], section: "workspace", icon: PolicyRoundedIcon },
     { to: "/contributions", label: "Contributions", roles: ["branch_manager"], section: "finance", icon: PieChartRoundedIcon },
+    { to: "/payments", label: "Payments", roles: ["branch_manager"], section: "finance", icon: PaidRoundedIcon },
     { to: "/dividends", label: "Dividends", roles: ["super_admin", "branch_manager"], section: "finance", icon: EventRepeatRoundedIcon },
     { to: "/approvals", label: "Approvals", roles: ["super_admin", "branch_manager", "loan_officer", "teller"], section: "finance", icon: PendingActionsRoundedIcon },
     { to: "/cash", label: "Cash Desk", roles: ["teller"], section: "finance", icon: PaidRoundedIcon },
@@ -121,6 +122,7 @@ const searchKeywords: Partial<Record<NavItem["to"], string[]>> = {
     "/auditor/audit-logs": ["audit logs", "trail", "changes"],
     "/auditor/reports": ["audit reports", "exports", "compliance"],
     "/contributions": ["shares", "share capital", "dividends", "capital"],
+    "/payments": ["member payments", "azam pay", "mobile money", "failed payments", "receipts", "reconcile"],
     "/dividends": ["dividend cycle", "allocations", "approvals"],
     "/approvals": ["maker checker", "approval queue", "high risk controls", "checker decisions"],
     "/cash": ["deposit", "withdraw", "teller", "cash desk"],
@@ -196,6 +198,10 @@ function getPageSubtitle(pathname: string) {
 
     if (pathname.startsWith("/contributions")) {
         return "Review member share capital growth, contribution patterns, and dividend credits.";
+    }
+
+    if (pathname.startsWith("/payments")) {
+        return "Follow member mobile-money requests, investigate failures, and reconcile paid orders at branch level.";
     }
 
     if (pathname.startsWith("/dividends")) {
@@ -288,9 +294,7 @@ export function AppLayout() {
         return item.roles.includes(profile.role);
     });
 
-    if (profile?.role === "member") {
-        return <Navigate to="/portal" replace />;
-    }
+    const shouldRedirectToMemberPortal = profile?.role === "member";
 
     useEffect(() => {
         if (!isInternalOps) {
@@ -356,6 +360,10 @@ export function AppLayout() {
             closeMobileSidebar();
         }
     };
+
+    if (shouldRedirectToMemberPortal) {
+        return <Navigate to="/portal" replace />;
+    }
 
     const sidebar = (
         <Box sx={{ p: 2, height: "100%", display: "flex", flexDirection: "column", gap: 2 }}>

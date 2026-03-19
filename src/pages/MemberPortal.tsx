@@ -90,11 +90,16 @@ import {
     type StatementsResponse,
     type GuarantorConsentRequest,
     type GuarantorRequestItem,
-    type GuarantorRequestsResponse
+    type GuarantorRequestsResponse,
+    type InitiateContributionPaymentRequest,
+    type InitiateContributionPaymentResponse,
+    type PaymentOrdersResponse,
+    type PaymentOrderStatusResponse,
+    type ReconcilePaymentOrderResponse
 } from "../lib/endpoints";
 import { brandColors, darkThemeColors } from "../theme/colors";
 import { useUI } from "../ui/UIProvider";
-import type { Loan, LoanApplication, LoanProduct, LoanSchedule, Member, MemberAccount, StatementRow } from "../types/api";
+import type { Loan, LoanApplication, LoanProduct, LoanSchedule, Member, MemberAccount, PaymentOrder, StatementRow } from "../types/api";
 import { downloadMemberStatementPdf } from "../utils/memberStatementPdf";
 import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
@@ -109,6 +114,17 @@ const loanApplicationSchema = z.object({
 });
 
 type LoanApplicationValues = z.infer<typeof loanApplicationSchema>;
+
+const contributionPaymentSchema = z.object({
+    account_id: z.string().uuid("Select an account."),
+    amount: z.coerce.number().positive("Enter a contribution amount.").multipleOf(0.01, "Use up to two decimal places."),
+    provider: z.enum(["airtel", "vodacom", "tigo", "halopesa"]),
+    msisdn: z.string().trim().min(9, "Phone number is required.").max(20, "Phone number is too long."),
+    description: z.string().trim().max(255).optional().or(z.literal(""))
+});
+
+type ContributionPaymentValues = z.infer<typeof contributionPaymentSchema>;
+type MemberPaymentPurpose = "share_contribution" | "savings_deposit";
 type DateRangePreset = "month" | "quarter" | "year" | "custom";
 
 interface DateRangeState {
@@ -226,6 +242,14 @@ function formatTxType(type: string) {
     return type.replace(/_/g, " ");
 }
 
+function formatPaymentPurpose(purpose: string) {
+    return purpose === "savings_deposit" ? "Savings deposit" : purpose === "share_contribution" ? "Share contribution" : purpose.replace(/_/g, " ");
+}
+
+function formatPaymentStatus(status: string) {
+    return status.replace(/_/g, " ");
+}
+
 function getAuditReference(row: StatementRow) {
     return row.reference || `AUD-${row.transaction_id.slice(0, 8).toUpperCase()}`;
 }
@@ -238,6 +262,13 @@ function estimatePenaltyForSchedule(schedule: LoanSchedule) {
     const outstanding = Math.max(schedule.principal_due - schedule.principal_paid, 0) + Math.max(schedule.interest_due - schedule.interest_paid, 0);
     return outstanding * 0.02;
 }
+
+const contributionProviderOptions: Array<{ value: ContributionPaymentValues["provider"]; label: string; helper: string }> = [
+    { value: "vodacom", label: "Vodacom M-Pesa", helper: "Best for members paying with M-Pesa." },
+    { value: "airtel", label: "Airtel Money", helper: "Use Airtel Money on the registered phone number." },
+    { value: "tigo", label: "Tigo Pesa", helper: "Send a contribution request through Tigo Pesa." },
+    { value: "halopesa", label: "HaloPesa", helper: "Use HaloPesa when your phone is registered there." }
+];
 
 const portalSections = [
     {
@@ -269,6 +300,12 @@ const portalSections = [
         label: "Contributions",
         subtitle: "Monitor share contributions and dividend allocations credited to you.",
         icon: AccountBalanceWalletRoundedIcon
+    },
+    {
+        id: "member-payments",
+        label: "Payments",
+        subtitle: "Track Azam Pay requests, failures, and posted mobile money receipts.",
+        icon: WorkspacesRoundedIcon
     }
 ] as const;
 
@@ -436,6 +473,7 @@ export function MemberPortalPage() {
     const { pushToast } = useToast();
     const { theme: themeMode, toggleTheme } = useUI();
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
+    const [memberId, setMemberId] = useState("");
     const [loans, setLoans] = useState<Loan[]>([]);
     const [loanSchedules, setLoanSchedules] = useState<LoanSchedule[]>([]);
     const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
@@ -447,7 +485,16 @@ export function MemberPortalPage() {
     const [error, setError] = useState<string | null>(null);
     const [warning, setWarning] = useState<string | null>(null);
     const [showApplyDialog, setShowApplyDialog] = useState(false);
+    const [showContributionDialog, setShowContributionDialog] = useState(false);
     const [submittingApplication, setSubmittingApplication] = useState(false);
+    const [submittingContribution, setSubmittingContribution] = useState(false);
+    const [reconcilingPayment, setReconcilingPayment] = useState(false);
+    const [paymentFlowPurpose, setPaymentFlowPurpose] = useState<MemberPaymentPurpose>("share_contribution");
+    const [paymentOrder, setPaymentOrder] = useState<PaymentOrder | null>(null);
+    const [paymentOrders, setPaymentOrders] = useState<PaymentOrder[]>([]);
+    const [lastPaymentToastStatus, setLastPaymentToastStatus] = useState<PaymentOrder["status"] | null>(null);
+    const [activeContributionOrderId, setActiveContributionOrderId] = useState<string | null>(null);
+    const [selectedPaymentReceipt, setSelectedPaymentReceipt] = useState<PaymentOrder | null>(null);
     const [activeSection, setActiveSection] = useState<PortalSectionId>(portalSections[0].id);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -463,6 +510,10 @@ export function MemberPortalPage() {
     const [transactionsRowsPerPage, setTransactionsRowsPerPage] = useState(10);
     const [contributionsPage, setContributionsPage] = useState(0);
     const [contributionsRowsPerPage, setContributionsRowsPerPage] = useState(10);
+    const [paymentsPage, setPaymentsPage] = useState(0);
+    const [paymentsRowsPerPage, setPaymentsRowsPerPage] = useState(10);
+    const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("all");
+    const [paymentPurposeFilter, setPaymentPurposeFilter] = useState<string>("all");
     const [accountsPage, setAccountsPage] = useState(0);
     const [accountsRowsPerPage, setAccountsRowsPerPage] = useState(10);
     const [loanSchedulePage, setLoanSchedulePage] = useState(0);
@@ -480,6 +531,16 @@ export function MemberPortalPage() {
             external_reference: ""
         }
     });
+    const contributionPaymentForm = useForm<ContributionPaymentValues>({
+        resolver: zodResolver(contributionPaymentSchema),
+        defaultValues: {
+            account_id: "",
+            amount: 0,
+            provider: "vodacom",
+            msisdn: profile?.phone || "",
+            description: ""
+        }
+    });
 
     const getSupabaseErrorMessage = (value: unknown, fallback: string) => {
         if (value && typeof value === "object" && "message" in value && typeof value.message === "string") {
@@ -488,6 +549,111 @@ export function MemberPortalPage() {
 
         return fallback;
     };
+
+    const normalizeContributionOrder = (order: PaymentOrder) => {
+        if ((order.posted_at || order.journal_id) && order.status !== "posted") {
+            return {
+                ...order,
+                status: "posted" as const
+            };
+        }
+
+        return order;
+    };
+
+    const mergePaymentOrder = (nextOrder: PaymentOrder, markAsLatest = true) => {
+        const normalizedOrder = normalizeContributionOrder(nextOrder);
+        setPaymentOrders((current) => {
+            const next = [normalizedOrder, ...current.filter((entry) => entry.id !== normalizedOrder.id)];
+            next.sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
+            return next;
+        });
+        if (markAsLatest) {
+            setPaymentOrder(normalizedOrder);
+        } else {
+            setPaymentOrder((current) => (current?.id === normalizedOrder.id ? normalizedOrder : current));
+        }
+        setSelectedPaymentReceipt((current) => (current?.id === normalizedOrder.id ? normalizedOrder : current));
+        return normalizedOrder;
+    };
+
+    const normalizedPaymentOrder = paymentOrder ? normalizeContributionOrder(paymentOrder) : null;
+    const normalizedPaymentOrders = useMemo(() => paymentOrders.map((order) => normalizeContributionOrder(order)), [paymentOrders]);
+    const latestSharePaymentOrder = normalizedPaymentOrders.find((order) => order.purpose === "share_contribution") || null;
+    const latestSavingsPaymentOrder = normalizedPaymentOrders.find((order) => order.purpose === "savings_deposit") || null;
+    const trackedContributionOrder = activeContributionOrderId && normalizedPaymentOrder?.id === activeContributionOrderId
+        ? normalizedPaymentOrder
+        : null;
+    const activePaymentPurpose = trackedContributionOrder?.purpose === "savings_deposit" ? "savings_deposit" : paymentFlowPurpose;
+    const activePaymentCopy = activePaymentPurpose === "savings_deposit"
+        ? {
+            noun: "savings deposit",
+            title: "Savings Deposit",
+            accountLabel: "Savings Account",
+            emptyAccountMessage: "No savings account is currently available for this member profile."
+        }
+        : {
+            noun: "share contribution",
+            title: "Share Contribution",
+            accountLabel: "Share Account",
+            emptyAccountMessage: "No share account is currently available for this member profile."
+        };
+    const contributionFlowState = submittingContribution ? "initiating" : trackedContributionOrder?.status || null;
+    const gatewayStillConfirming = contributionFlowState === "pending" && trackedContributionOrder?.error_code === "AZAMPAY_TIMEOUT";
+    const contributionFlowProgress = contributionFlowState === "initiating"
+        ? 18
+        : contributionFlowState === "pending"
+            ? 48
+            : contributionFlowState === "paid"
+                ? 78
+                : contributionFlowState === "posted"
+                    ? 100
+                    : contributionFlowState === "failed" || contributionFlowState === "expired"
+                        ? 100
+                        : 0;
+    const contributionFlowTone = contributionFlowState === "posted"
+        ? "success"
+        : contributionFlowState === "failed"
+            ? "error"
+            : contributionFlowState === "expired"
+                ? "warning"
+                : "info";
+    const contributionFlowTitle = contributionFlowState === "initiating"
+        ? "Contacting Azam Pay"
+        : contributionFlowState === "pending"
+            ? gatewayStillConfirming
+                ? "Gateway still confirming"
+                : "Waiting for phone approval"
+            : contributionFlowState === "paid"
+                ? "Payment received"
+                : contributionFlowState === "posted"
+                    ? activePaymentPurpose === "savings_deposit"
+                        ? "Savings posted"
+                        : "Contribution posted"
+                    : contributionFlowState === "failed"
+                        ? "Payment failed"
+                        : contributionFlowState === "expired"
+                            ? "Payment expired"
+                            : `Make ${activePaymentCopy.title}`;
+    const contributionFlowMessage = contributionFlowState === "initiating"
+        ? "The portal is creating the Azam Pay request and waiting for the gateway to acknowledge it."
+        : contributionFlowState === "pending"
+            ? gatewayStillConfirming
+                ? "Azam Pay did not answer before the timeout, but the order is still open and being tracked. If you already approved on your phone, keep this dialog open while callback confirmation arrives."
+                : "Approve the mobile money prompt on your phone. The request has been sent to Azam Pay."
+            : contributionFlowState === "paid"
+                ? activePaymentPurpose === "savings_deposit"
+                    ? "Azam Pay confirmed the payment. The backend is now posting the savings deposit into your account."
+                    : "Azam Pay confirmed the payment. The backend is now posting the contribution into your share account."
+                : contributionFlowState === "posted"
+                    ? activePaymentPurpose === "savings_deposit"
+                        ? "The savings deposit is now reflected in your account and statement history."
+                        : "The contribution is now reflected in your account and statement history."
+                    : contributionFlowState === "failed"
+                        ? trackedContributionOrder?.error_message || "Azam Pay reported a payment failure."
+                        : contributionFlowState === "expired"
+                            ? trackedContributionOrder?.error_message || "The mobile money request expired before approval."
+                            : `Start a ${activePaymentCopy.noun} request and follow the progress here.`;
 
     const profileMenuOpen = Boolean(profileMenuAnchor);
     const m3MenuTokens = useMemo(() => {
@@ -522,6 +688,177 @@ export function MemberPortalPage() {
         handleProfileMenuClose();
     };
 
+    const openContributionDialog = () => {
+        setPaymentFlowPurpose("share_contribution");
+        if (latestSharePaymentOrder && ["pending", "paid"].includes(latestSharePaymentOrder.status)) {
+            setActiveContributionOrderId(latestSharePaymentOrder.id);
+        } else {
+            setActiveContributionOrderId(null);
+        }
+        setShowContributionDialog(true);
+    };
+
+    const openSavingsDialog = () => {
+        setPaymentFlowPurpose("savings_deposit");
+        if (latestSavingsPaymentOrder && ["pending", "paid"].includes(latestSavingsPaymentOrder.status)) {
+            setActiveContributionOrderId(latestSavingsPaymentOrder.id);
+        } else {
+            setActiveContributionOrderId(null);
+        }
+        setShowContributionDialog(true);
+    };
+
+    const prepareAnotherContribution = () => {
+        setActiveContributionOrderId(null);
+        contributionPaymentForm.reset({
+            account_id: contributionPaymentForm.getValues("account_id"),
+            amount: 0,
+            provider: contributionPaymentForm.getValues("provider") || "vodacom",
+            msisdn: contributionPaymentForm.getValues("msisdn") || profile?.phone || "",
+            description: ""
+        });
+    };
+
+    const refreshMemberContributionData = async (targetMemberId = memberId) => {
+        if (!profile?.tenant_id || !targetMemberId) {
+            return;
+        }
+
+        const [accountsResult, statementsResult] = await Promise.allSettled([
+            api.get<MemberAccountsResponse>(endpoints.members.accounts(), {
+                params: {
+                    tenant_id: profile.tenant_id,
+                    page: 1,
+                    limit: 100
+                }
+            }),
+            api.get<StatementsResponse>(endpoints.finance.statements(), {
+                params: {
+                    tenant_id: profile.tenant_id,
+                    member_id: targetMemberId,
+                    page: 1,
+                    limit: 100
+                }
+            })
+        ]);
+
+        if (accountsResult.status === "fulfilled") {
+            setAccounts(accountsResult.value.data.data || []);
+        }
+
+        if (statementsResult.status === "fulfilled") {
+            setStatements(statementsResult.value.data.data || []);
+        }
+    };
+
+    const handleReconcilePaymentOrder = async () => {
+        if (!paymentOrder) {
+            return;
+        }
+
+        setReconcilingPayment(true);
+        try {
+            const { data } = await api.post<ReconcilePaymentOrderResponse>(
+                endpoints.memberPayments.reconcile(paymentOrder.id)
+            );
+            const nextOrder = mergePaymentOrder(data.data.order);
+
+            if (data.data.reconciled && nextOrder.status === "posted") {
+                setLastPaymentToastStatus("posted");
+                await refreshMemberContributionData(nextOrder.member_id);
+                pushToast({
+                    title: nextOrder.purpose === "savings_deposit" ? "Savings posted" : "Contribution posted",
+                    message: nextOrder.purpose === "savings_deposit"
+                        ? "The paid Azam Pay order has been posted into your savings account."
+                        : "The paid Azam Pay order has been posted into your share account.",
+                    type: "success"
+                });
+                return;
+            }
+
+            pushToast({
+                title: "No new posting yet",
+                message:
+                    nextOrder.status === "paid"
+                        ? "The order is paid but could not be posted yet. Try again shortly."
+                        : `This order is currently ${nextOrder.status.replace(/_/g, " ")}.`,
+                type: nextOrder.status === "failed" ? "error" : "success"
+            });
+        } catch (error) {
+            pushToast({
+                title: "Reconcile failed",
+                message: getApiErrorMessage(error, "Unable to reconcile this payment order."),
+                type: "error"
+            });
+        } finally {
+            setReconcilingPayment(false);
+        }
+    };
+
+    const submitContributionPayment = contributionPaymentForm.handleSubmit(async (values) => {
+        if (!profile?.tenant_id) {
+            pushToast({
+                title: "Tenant missing",
+                message: "Select a tenant before initiating a contribution payment.",
+                type: "error"
+            });
+            return;
+        }
+
+        setSubmittingContribution(true);
+        try {
+            const payload: InitiateContributionPaymentRequest = {
+                tenant_id: profile.tenant_id,
+                account_id: values.account_id,
+                amount: Number(values.amount),
+                provider: values.provider,
+                msisdn: values.msisdn.trim(),
+                description: values.description?.trim() || undefined
+            };
+
+            const { data } = await api.post<InitiateContributionPaymentResponse>(
+                paymentFlowPurpose === "savings_deposit"
+                    ? endpoints.memberPayments.initiateSavings()
+                    : endpoints.memberPayments.initiateContribution(),
+                payload,
+                { timeout: 70000 }
+            );
+            const nextOrder = mergePaymentOrder(data.data.order);
+            const pendingConfirmation = data.data.processing_state === "pending_confirmation";
+            setActiveContributionOrderId(nextOrder.id);
+            setLastPaymentToastStatus(nextOrder.status);
+            contributionPaymentForm.reset({
+                account_id: values.account_id,
+                amount: 0,
+                provider: values.provider,
+                msisdn: values.msisdn,
+                description: ""
+            });
+            pushToast({
+                title: pendingConfirmation ? "Azam Pay still processing" : paymentFlowPurpose === "savings_deposit" ? "Savings payment initiated" : "Payment initiated",
+                message: pendingConfirmation
+                    ? "Azam Pay did not respond in time, but the order is still being tracked. Keep the dialog open while callback confirmation arrives."
+                    : paymentFlowPurpose === "savings_deposit"
+                        ? "Approve the Azam Pay prompt on your phone. The savings deposit will post automatically after confirmation."
+                        : "Approve the Azam Pay prompt on your phone. The contribution will post automatically after confirmation.",
+                type: "success"
+            });
+        } catch (error) {
+            pushToast({
+                title: paymentFlowPurpose === "savings_deposit" ? "Savings payment failed" : "Payment initiation failed",
+                message: getApiErrorMessage(
+                    error,
+                    paymentFlowPurpose === "savings_deposit"
+                        ? "Unable to start the Azam Pay savings deposit."
+                        : "Unable to start the Azam Pay contribution."
+                ),
+                type: "error"
+            });
+        } finally {
+            setSubmittingContribution(false);
+        }
+    });
+
     useEffect(() => {
         const loadPortal = async () => {
             if (!profile) {
@@ -542,6 +879,7 @@ export function MemberPortalPage() {
                     membersResponse.data?.[0];
 
                 if (!memberRecord?.id) {
+                    setMemberId("");
                     setAccounts([]);
                     setLoans([]);
                     setLoanSchedules([]);
@@ -549,8 +887,12 @@ export function MemberPortalPage() {
                     setLoanApplications([]);
                     setGuarantorRequests([]);
                     setStatements([]);
+                    setPaymentOrders([]);
+                    setPaymentOrder(null);
                     return;
                 }
+
+                setMemberId(memberRecord.id);
 
                 const results = await Promise.allSettled([
                     api.get<MemberAccountsResponse>(endpoints.members.accounts(), {
@@ -592,10 +934,13 @@ export function MemberPortalPage() {
                     }),
                     api.get<StatementsResponse>(endpoints.finance.statements(), {
                         params: { tenant_id: profile.tenant_id, member_id: memberRecord.id, page: 1, limit: 100 }
+                    }),
+                    api.get<PaymentOrdersResponse>(endpoints.memberPayments.listOrders(), {
+                        params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
                     })
                 ]);
 
-                const [accountsResult, loansResult, schedulesResult, productsResult, applicationsResult, guarantorRequestsResult, statementsResult] = results;
+                const [accountsResult, loansResult, schedulesResult, productsResult, applicationsResult, guarantorRequestsResult, statementsResult, paymentOrdersResult] = results;
                 const issues: string[] = [];
 
                 if (accountsResult.status === "fulfilled") {
@@ -647,6 +992,20 @@ export function MemberPortalPage() {
                     issues.push(getApiErrorMessage(statementsResult.reason, "Transactions unavailable."));
                 }
 
+                if (paymentOrdersResult.status === "fulfilled") {
+                    const nextPaymentOrders = (paymentOrdersResult.value.data.data?.data || []).map((order) => normalizeContributionOrder(order));
+                    setPaymentOrders(nextPaymentOrders);
+                    setPaymentOrder((current) => {
+                        if (current) {
+                            return nextPaymentOrders.find((order) => order.id === current.id) || current;
+                        }
+                        return nextPaymentOrders[0] || null;
+                    });
+                } else {
+                    setPaymentOrders([]);
+                    issues.push(getApiErrorMessage(paymentOrdersResult.reason, "Payment history unavailable."));
+                }
+
                 if (issues.length) {
                     setWarning(issues[0]);
                 }
@@ -668,6 +1027,12 @@ export function MemberPortalPage() {
         }
     }, [isDesktop]);
 
+    useEffect(() => {
+        if (profile?.phone && !contributionPaymentForm.getValues("msisdn")) {
+            contributionPaymentForm.setValue("msisdn", profile.phone);
+        }
+    }, [profile?.phone]);
+
     const savingsAccounts = useMemo(() => accounts.filter((account) => account.product_type === "savings"), [accounts]);
     const totalSavings = useMemo(
         () => savingsAccounts.reduce((sum, account) => sum + account.available_balance + account.locked_balance, 0),
@@ -687,6 +1052,57 @@ export function MemberPortalPage() {
                 .filter((account) => account.product_type === "shares")
                 .reduce((sum, account) => sum + account.available_balance + account.locked_balance, 0),
         [accounts]
+    );
+    const shareAccounts = useMemo(() => accounts.filter((account) => account.product_type === "shares"), [accounts]);
+    const paymentTargetAccounts = paymentFlowPurpose === "savings_deposit" ? savingsAccounts : shareAccounts;
+    const paymentAccountOptions = useMemo(
+        () =>
+            paymentTargetAccounts.map((account) => ({
+                value: account.id,
+                label: account.account_name || account.account_number,
+                secondary: `${account.account_number} · Balance ${formatCurrency(account.available_balance + account.locked_balance)}`
+            })),
+        [paymentTargetAccounts]
+    );
+    const selectedContributionAccountId = contributionPaymentForm.watch("account_id");
+    const selectedContributionAccount = useMemo(
+        () => paymentTargetAccounts.find((account) => account.id === selectedContributionAccountId) || paymentTargetAccounts[0] || null,
+        [paymentTargetAccounts, selectedContributionAccountId]
+    );
+    const filteredPaymentOrders = useMemo(
+        () =>
+            normalizedPaymentOrders.filter((order) => {
+                if (paymentStatusFilter !== "all" && order.status !== paymentStatusFilter) {
+                    return false;
+                }
+
+                if (paymentPurposeFilter !== "all" && order.purpose !== paymentPurposeFilter) {
+                    return false;
+                }
+
+                return true;
+            }),
+        [normalizedPaymentOrders, paymentPurposeFilter, paymentStatusFilter]
+    );
+    const paginatedPaymentOrders = useMemo(
+        () => filteredPaymentOrders.slice(paymentsPage * paymentsRowsPerPage, paymentsPage * paymentsRowsPerPage + paymentsRowsPerPage),
+        [filteredPaymentOrders, paymentsPage, paymentsRowsPerPage]
+    );
+    const successfulPaymentCount = useMemo(
+        () => normalizedPaymentOrders.filter((order) => order.status === "posted").length,
+        [normalizedPaymentOrders]
+    );
+    const pendingPaymentCount = useMemo(
+        () => normalizedPaymentOrders.filter((order) => ["pending", "paid"].includes(order.status)).length,
+        [normalizedPaymentOrders]
+    );
+    const failedPaymentCount = useMemo(
+        () => normalizedPaymentOrders.filter((order) => ["failed", "expired"].includes(order.status)).length,
+        [normalizedPaymentOrders]
+    );
+    const totalMobileMoneyAmount = useMemo(
+        () => normalizedPaymentOrders.reduce((sum, order) => sum + order.amount, 0),
+        [normalizedPaymentOrders]
     );
     const totalDividends = useMemo(
         () =>
@@ -1097,12 +1513,82 @@ export function MemberPortalPage() {
     const latestFilteredTransaction = filteredTransactions[0] || null;
 
     useEffect(() => {
+        if (paymentTargetAccounts.length && !paymentTargetAccounts.some((account) => account.id === contributionPaymentForm.getValues("account_id"))) {
+            contributionPaymentForm.setValue("account_id", paymentTargetAccounts[0].id, { shouldValidate: true });
+        }
+    }, [paymentTargetAccounts]);
+
+    useEffect(() => {
+        if (!paymentOrder?.id || !["pending", "paid"].includes(paymentOrder.status)) {
+            return undefined;
+        }
+
+        const timeoutId = window.setTimeout(async () => {
+            try {
+                const { data } = await api.get<PaymentOrderStatusResponse>(
+                    endpoints.memberPayments.orderStatus(paymentOrder.id)
+                );
+                const nextOrder = mergePaymentOrder(data.data.order, false);
+
+                if (nextOrder.status === "paid" && lastPaymentToastStatus !== "paid") {
+                    setLastPaymentToastStatus("paid");
+                    pushToast({
+                        title: "Payment confirmed",
+                        message: nextOrder.purpose === "savings_deposit"
+                            ? "Azam Pay marked the order as paid. The system is now posting it into your savings account."
+                            : "Azam Pay marked the order as paid. The system is now posting it into your share account.",
+                        type: "success"
+                    });
+                }
+
+                if (nextOrder.status === "posted" && lastPaymentToastStatus !== "posted") {
+                    setLastPaymentToastStatus("posted");
+                    await refreshMemberContributionData(nextOrder.member_id);
+                    pushToast({
+                        title: nextOrder.purpose === "savings_deposit" ? "Savings posted" : "Contribution posted",
+                        message: nextOrder.purpose === "savings_deposit"
+                            ? "Your mobile money savings deposit is now reflected in the system."
+                            : "Your mobile money contribution is now reflected in the system.",
+                        type: "success"
+                    });
+                }
+
+                if (nextOrder.status === "failed" && lastPaymentToastStatus !== "failed") {
+                    setLastPaymentToastStatus("failed");
+                    pushToast({
+                        title: "Payment failed",
+                        message: nextOrder.error_message || "Azam Pay reported a payment failure.",
+                        type: "error"
+                    });
+                }
+
+                if (nextOrder.status === "expired" && lastPaymentToastStatus !== "expired") {
+                    setLastPaymentToastStatus("expired");
+                    pushToast({
+                        title: "Payment expired",
+                        message: nextOrder.error_message || "The payment session expired before completion.",
+                        type: "error"
+                    });
+                }
+            } catch (error) {
+                console.warn("[member-portal] payment status poll failed", error);
+            }
+        }, paymentOrder.status === "pending" ? 4500 : 2500);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [lastPaymentToastStatus, paymentOrder?.id, paymentOrder?.status]);
+
+    useEffect(() => {
         setTransactionsPage(0);
     }, [transactionSearch, transactionTypeFilter, transactionsRange.from, transactionsRange.to]);
 
     useEffect(() => {
         setContributionsPage(0);
     }, [contributionsRange.from, contributionsRange.to]);
+
+    useEffect(() => {
+        setPaymentsPage(0);
+    }, [paymentPurposeFilter, paymentStatusFilter]);
 
     useEffect(() => {
         setAccountsPage(0);
@@ -1247,6 +1733,64 @@ export function MemberPortalPage() {
                     }
                 >
                     {disputedTransactionIds.includes(row.transaction_id) ? "Flagged" : "Flag"}
+                </Button>
+            )
+        }
+    ];
+
+    const paymentOrderColumns: Column<PaymentOrder>[] = [
+        {
+            key: "purpose",
+            header: "Payment",
+            render: (row) => (
+                <Stack spacing={0.35}>
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        {formatPaymentPurpose(row.purpose)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                        {row.account_name || row.account_number || row.account_id}
+                    </Typography>
+                </Stack>
+            )
+        },
+        {
+            key: "amount",
+            header: "Amount",
+            render: (row) => formatCurrency(row.amount)
+        },
+        {
+            key: "provider",
+            header: "Channel",
+            render: (row) => row.provider.toUpperCase()
+        },
+        {
+            key: "status",
+            header: "Status",
+            render: (row) => (
+                <Chip
+                    size="small"
+                    label={formatPaymentStatus(row.status)}
+                    color={row.status === "posted" ? "success" : row.status === "failed" ? "error" : row.status === "expired" ? "warning" : "info"}
+                    variant={row.status === "posted" ? "filled" : "outlined"}
+                />
+            )
+        },
+        {
+            key: "date",
+            header: "Initiated",
+            render: (row) => formatDate(row.created_at)
+        },
+        {
+            key: "reference",
+            header: "Reference",
+            render: (row) => row.provider_ref || row.external_id
+        },
+        {
+            key: "receipt",
+            header: "Receipt",
+            render: (row) => (
+                <Button size="small" variant="outlined" onClick={() => setSelectedPaymentReceipt(row)}>
+                    View Receipt
                 </Button>
             )
         }
@@ -1755,6 +2299,100 @@ export function MemberPortalPage() {
                     />
                 </Grid>
             </Grid>
+
+            <MotionCard variant="outlined" sx={contentCardSx}>
+                <CardContent sx={{ p: { xs: 2.25, md: 2.75 } }}>
+                    <Grid container spacing={2.5} alignItems="center">
+                        <Grid size={{ xs: 12, md: 7 }}>
+                            <Stack spacing={1.15}>
+                                <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: 1.4 }}>
+                                    Azam Pay Savings
+                                </Typography>
+                                <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
+                                    Deposit straight into your savings account from the portal.
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Start a mobile money savings deposit, approve it on your phone, and the backend will post it automatically once Azam Pay confirms success.
+                                </Typography>
+                                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                    <Chip label={`${savingsAccounts.length} savings account(s)`} variant="outlined" />
+                                    <Chip label={latestSavingsPaymentOrder ? `Latest order ${latestSavingsPaymentOrder.status.replace(/_/g, " ")}` : "No active savings payment"} variant="outlined" />
+                                </Stack>
+                            </Stack>
+                        </Grid>
+                        <Grid size={{ xs: 12, md: 5 }}>
+                            <Stack spacing={1.1} alignItems={{ xs: "stretch", md: "flex-end" }}>
+                                <Button
+                                    variant="contained"
+                                    onClick={openSavingsDialog}
+                                    disabled={!savingsAccounts.length || submittingContribution}
+                                    sx={
+                                        isDarkMode
+                                            ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                            : undefined
+                                    }
+                                >
+                                    Add Savings
+                                </Button>
+                                {latestSavingsPaymentOrder?.status === "paid" && !latestSavingsPaymentOrder.posted_at ? (
+                                    <Button
+                                        variant="outlined"
+                                        onClick={() => void handleReconcilePaymentOrder()}
+                                        disabled={reconcilingPayment}
+                                    >
+                                        {reconcilingPayment ? "Reconciling..." : "Reconcile Payment"}
+                                    </Button>
+                                ) : null}
+                            </Stack>
+                        </Grid>
+                    </Grid>
+                    {!savingsAccounts.length ? (
+                        <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
+                            No savings account is linked to this portal login yet. A branch manager must provision a savings account before members can deposit from the portal.
+                        </Alert>
+                    ) : null}
+                    {latestSavingsPaymentOrder ? (
+                        <Alert
+                            severity={
+                                latestSavingsPaymentOrder.status === "posted"
+                                    ? "success"
+                                    : latestSavingsPaymentOrder.status === "failed"
+                                        ? "error"
+                                        : latestSavingsPaymentOrder.status === "expired"
+                                            ? "warning"
+                                            : "info"
+                            }
+                            variant="outlined"
+                            sx={{ mt: 2, alignItems: "flex-start" }}
+                        >
+                            <Stack spacing={0.5}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                    {latestSavingsPaymentOrder.status === "posted"
+                                        ? "Savings deposit completed"
+                                        : latestSavingsPaymentOrder.status === "paid"
+                                            ? "Payment received, posting in progress"
+                                            : latestSavingsPaymentOrder.status === "pending"
+                                                ? "Awaiting member approval"
+                                                : latestSavingsPaymentOrder.status === "failed"
+                                                    ? "Payment failed"
+                                                    : latestSavingsPaymentOrder.status === "expired"
+                                                        ? "Payment expired"
+                                                        : `Order ${latestSavingsPaymentOrder.status.replace(/_/g, " ")}`}
+                                </Typography>
+                                <Typography variant="body2">
+                                    {formatCurrency(latestSavingsPaymentOrder.amount)} via {latestSavingsPaymentOrder.provider.toUpperCase()} · Ref {latestSavingsPaymentOrder.provider_ref || latestSavingsPaymentOrder.external_id}
+                                </Typography>
+                                {latestSavingsPaymentOrder.journal_id ? (
+                                    <Typography variant="body2">Journal posted: {latestSavingsPaymentOrder.journal_id}</Typography>
+                                ) : null}
+                                {latestSavingsPaymentOrder.error_message ? (
+                                    <Typography variant="body2">{latestSavingsPaymentOrder.error_message}</Typography>
+                                ) : null}
+                            </Stack>
+                        </Alert>
+                    ) : null}
+                </CardContent>
+            </MotionCard>
 
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
@@ -2696,6 +3334,100 @@ export function MemberPortalPage() {
                     </CardContent>
                 </MotionCard>
 
+                <MotionCard variant="outlined" sx={contentCardSx}>
+                    <CardContent sx={{ p: { xs: 2.25, md: 2.75 } }}>
+                        <Grid container spacing={2.5} alignItems="center">
+                            <Grid size={{ xs: 12, md: 7 }}>
+                                <Stack spacing={1.15}>
+                                    <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: 1.4 }}>
+                                        Azam Pay Contributions
+                                    </Typography>
+                                    <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
+                                        Pay your share contribution from the member portal.
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Start a mobile money contribution, approve it on your phone, and the backend will post it automatically once Azam Pay confirms success.
+                                    </Typography>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                        <Chip label={`${shareAccounts.length} share account(s)`} variant="outlined" />
+                                        <Chip label={latestSharePaymentOrder ? `Latest order ${latestSharePaymentOrder.status.replace(/_/g, " ")}` : "No active payment order"} variant="outlined" />
+                                    </Stack>
+                                </Stack>
+                            </Grid>
+                            <Grid size={{ xs: 12, md: 5 }}>
+                                <Stack spacing={1.1} alignItems={{ xs: "stretch", md: "flex-end" }}>
+                                    <Button
+                                        variant="contained"
+                                        onClick={openContributionDialog}
+                                        disabled={!shareAccounts.length || submittingContribution}
+                                        sx={
+                                            isDarkMode
+                                                ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                                : undefined
+                                        }
+                                    >
+                                        Make Contribution
+                                    </Button>
+                                    {latestSharePaymentOrder?.status === "paid" && !latestSharePaymentOrder.posted_at ? (
+                                        <Button
+                                            variant="outlined"
+                                            onClick={() => void handleReconcilePaymentOrder()}
+                                            disabled={reconcilingPayment}
+                                        >
+                                            {reconcilingPayment ? "Reconciling..." : "Reconcile Payment"}
+                                        </Button>
+                                    ) : null}
+                                </Stack>
+                            </Grid>
+                        </Grid>
+                        {!shareAccounts.length ? (
+                            <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
+                                No share account is linked to this portal login yet. A branch manager must provision a share account before members can contribute from the portal.
+                            </Alert>
+                        ) : null}
+                        {latestSharePaymentOrder ? (
+                            <Alert
+                                severity={
+                                    latestSharePaymentOrder.status === "posted"
+                                        ? "success"
+                                        : latestSharePaymentOrder.status === "failed"
+                                            ? "error"
+                                            : latestSharePaymentOrder.status === "expired"
+                                                ? "warning"
+                                                : "info"
+                                }
+                                variant="outlined"
+                                sx={{ mt: 2, alignItems: "flex-start" }}
+                            >
+                                <Stack spacing={0.5}>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                        {latestSharePaymentOrder.status === "posted"
+                                            ? "Contribution completed"
+                                            : latestSharePaymentOrder.status === "paid"
+                                                ? "Payment received, posting in progress"
+                                                : latestSharePaymentOrder.status === "pending"
+                                                    ? "Awaiting member approval"
+                                                    : latestSharePaymentOrder.status === "failed"
+                                                        ? "Payment failed"
+                                                        : latestSharePaymentOrder.status === "expired"
+                                                            ? "Payment expired"
+                                                            : `Order ${latestSharePaymentOrder.status.replace(/_/g, " ")}`}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                        {formatCurrency(latestSharePaymentOrder.amount)} via {latestSharePaymentOrder.provider.toUpperCase()} · Ref {latestSharePaymentOrder.provider_ref || latestSharePaymentOrder.external_id}
+                                    </Typography>
+                                    {latestSharePaymentOrder.journal_id ? (
+                                        <Typography variant="body2">Journal posted: {latestSharePaymentOrder.journal_id}</Typography>
+                                    ) : null}
+                                    {latestSharePaymentOrder.error_message ? (
+                                        <Typography variant="body2">{latestSharePaymentOrder.error_message}</Typography>
+                                    ) : null}
+                                </Stack>
+                            </Alert>
+                        ) : null}
+                    </CardContent>
+                </MotionCard>
+
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                         <AccountSummaryCard
@@ -3005,6 +3737,141 @@ export function MemberPortalPage() {
         );
     };
 
+    const renderPaymentsView = () => (
+        <Stack spacing={3}>
+            <MotionCard
+                variant="outlined"
+                sx={{
+                    ...contentCardSx,
+                    background: theme.palette.mode === "dark"
+                        ? `linear-gradient(135deg, ${alpha(memberAccentStrong, 0.4)}, ${alpha("#0B5E55", 0.28)})`
+                        : `linear-gradient(135deg, ${alpha(brandColors.primary[900], 0.96)}, ${alpha(brandColors.success, 0.82)})`,
+                    color: "#fff",
+                    borderColor: "transparent"
+                }}
+            >
+                <CardContent sx={{ p: { xs: 2.5, md: 3.25 } }}>
+                    <Stack spacing={1.2}>
+                        <Typography variant="overline" sx={{ color: alpha("#FFFFFF", 0.74), letterSpacing: 1.4 }}>
+                            Member payment history
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08, maxWidth: 760 }}>
+                            Review every Azam Pay request like a receipt ledger, including failed and expired attempts.
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: alpha("#FFFFFF", 0.84), maxWidth: 780 }}>
+                            Track initiated amounts, approval outcomes, posted journals, timeout cases, and payment references in one member-facing timeline.
+                        </Typography>
+                    </Stack>
+                </CardContent>
+            </MotionCard>
+
+            <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <AccountSummaryCard
+                        icon={WalletRoundedIcon}
+                        label="Total Attempts"
+                        value={normalizedPaymentOrders.length}
+                        helper="All mobile money payment requests."
+                        tone="primary"
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <AccountSummaryCard
+                        icon={TaskAltRoundedIcon}
+                        label="Posted"
+                        value={successfulPaymentCount}
+                        helper="Payments fully posted into the ledger."
+                        tone="success"
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <AccountSummaryCard
+                        icon={HourglassTopRoundedIcon}
+                        label="In Progress"
+                        value={pendingPaymentCount}
+                        helper="Still waiting for approval or posting."
+                        tone="warning"
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <AccountSummaryCard
+                        icon={HighlightOffRoundedIcon}
+                        label="Failed / Expired"
+                        value={failedPaymentCount}
+                        helper={`Tracked amount ${formatCurrency(totalMobileMoneyAmount)}.`}
+                        tone="danger"
+                    />
+                </Grid>
+            </Grid>
+
+            <MotionCard variant="outlined" sx={contentCardSx}>
+                <CardContent>
+                    <Stack spacing={2}>
+                        <Stack
+                            direction={{ xs: "column", md: "row" }}
+                            spacing={1.5}
+                            justifyContent="space-between"
+                            alignItems={{ xs: "stretch", md: "center" }}
+                        >
+                            <Box>
+                                <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                                    Payment Receipts
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Every mobile money attempt is visible here, whether it posted successfully or not.
+                                </Typography>
+                            </Box>
+                            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
+                                <TextField
+                                    select
+                                    label="Purpose"
+                                    value={paymentPurposeFilter}
+                                    onChange={(event) => setPaymentPurposeFilter(event.target.value)}
+                                    sx={{ minWidth: 180 }}
+                                >
+                                    <MenuItem value="all">All payments</MenuItem>
+                                    <MenuItem value="share_contribution">Share contributions</MenuItem>
+                                    <MenuItem value="savings_deposit">Savings deposits</MenuItem>
+                                </TextField>
+                                <TextField
+                                    select
+                                    label="Status"
+                                    value={paymentStatusFilter}
+                                    onChange={(event) => setPaymentStatusFilter(event.target.value)}
+                                    sx={{ minWidth: 180 }}
+                                >
+                                    <MenuItem value="all">All statuses</MenuItem>
+                                    <MenuItem value="posted">Posted</MenuItem>
+                                    <MenuItem value="pending">Pending</MenuItem>
+                                    <MenuItem value="paid">Paid</MenuItem>
+                                    <MenuItem value="failed">Failed</MenuItem>
+                                    <MenuItem value="expired">Expired</MenuItem>
+                                </TextField>
+                            </Stack>
+                        </Stack>
+                        <DataTable
+                            rows={paginatedPaymentOrders}
+                            columns={paymentOrderColumns}
+                            emptyMessage="No payment receipts match the selected filters."
+                        />
+                        <TablePagination
+                            component="div"
+                            count={filteredPaymentOrders.length}
+                            page={paymentsPage}
+                            onPageChange={(_, value) => setPaymentsPage(value)}
+                            rowsPerPage={paymentsRowsPerPage}
+                            onRowsPerPageChange={(event) => {
+                                setPaymentsRowsPerPage(Number(event.target.value));
+                                setPaymentsPage(0);
+                            }}
+                            rowsPerPageOptions={[10, 25, 50]}
+                        />
+                    </Stack>
+                </CardContent>
+            </MotionCard>
+        </Stack>
+    );
+
     const renderActiveView = () => {
         switch (activeSection) {
             case "member-accounts":
@@ -3015,6 +3882,8 @@ export function MemberPortalPage() {
                 return renderTransactionsView();
             case "member-contributions":
                 return renderContributionsView();
+            case "member-payments":
+                return renderPaymentsView();
             default:
                 return renderOverviewView();
         }
@@ -3635,6 +4504,247 @@ export function MemberPortalPage() {
                     </Stack>
                 </Box>
             </Box>
+
+            <MotionModal open={showContributionDialog} onClose={submittingContribution ? undefined : () => setShowContributionDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>{contributionFlowState ? `${activePaymentCopy.title} Payment Progress` : `Make ${activePaymentCopy.title}`}</DialogTitle>
+                <DialogContent dividers>
+                    <Stack spacing={2} sx={{ pt: 0.5 }}>
+                        <Alert severity={contributionFlowTone} variant="outlined">
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.4 }}>
+                                {contributionFlowTitle}
+                            </Typography>
+                            <Typography variant="body2">{contributionFlowMessage}</Typography>
+                        </Alert>
+                        {!paymentTargetAccounts.length ? (
+                            <Alert severity="warning" variant="outlined">
+                                {activePaymentCopy.emptyAccountMessage}
+                            </Alert>
+                        ) : null}
+                        {contributionFlowState ? (
+                            <Stack spacing={1.5}>
+                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
+                                    <Stack spacing={1.2}>
+                                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                            <Chip label={submittingContribution ? "1. Contacting Azam" : "1. Request created"} color={submittingContribution || trackedContributionOrder ? "primary" : "default"} variant={submittingContribution || trackedContributionOrder ? "filled" : "outlined"} />
+                                            <Chip label="2. Member approves on phone" color={contributionFlowState === "pending" || contributionFlowState === "paid" || contributionFlowState === "posted" ? "primary" : "default"} variant={contributionFlowState === "pending" || contributionFlowState === "paid" || contributionFlowState === "posted" ? "filled" : "outlined"} />
+                                            <Chip label="3. System posts contribution" color={contributionFlowState === "paid" || contributionFlowState === "posted" ? "primary" : "default"} variant={contributionFlowState === "paid" || contributionFlowState === "posted" ? "filled" : "outlined"} />
+                                        </Stack>
+                                        <LinearProgress
+                                            variant={contributionFlowState === "pending" ? "indeterminate" : "determinate"}
+                                            value={contributionFlowProgress}
+                                            sx={{ height: 9, borderRadius: 999 }}
+                                        />
+                                        {trackedContributionOrder ? (
+                                            <Stack spacing={0.6}>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    Amount: {formatCurrency(trackedContributionOrder.amount)} via {trackedContributionOrder.provider.toUpperCase()}
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    Reference: {trackedContributionOrder.provider_ref || trackedContributionOrder.external_id}
+                                                </Typography>
+                                                {trackedContributionOrder.journal_id ? (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        Journal: {trackedContributionOrder.journal_id}
+                                                    </Typography>
+                                                ) : null}
+                                                {trackedContributionOrder.error_message ? (
+                                                    <Typography variant="body2" color="error.main">
+                                                        {trackedContributionOrder.error_message}
+                                                    </Typography>
+                                                ) : null}
+                                            </Stack>
+                                        ) : null}
+                                    </Stack>
+                                </Paper>
+                            </Stack>
+                        ) : (
+                            <Box component="form" id="member-contribution-form" onSubmit={submitContributionPayment} sx={{ display: "grid", gap: 2 }}>
+                                <Box>
+                                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
+                                        {activePaymentCopy.accountLabel}
+                                    </Typography>
+                                    <SearchableSelect
+                                        value={contributionPaymentForm.watch("account_id")}
+                                        options={paymentAccountOptions}
+                                        onChange={(value) => contributionPaymentForm.setValue("account_id", value, { shouldValidate: true })}
+                                        placeholder={`Search ${activePaymentCopy.accountLabel.toLowerCase()}...`}
+                                    />
+                                    {contributionPaymentForm.formState.errors.account_id ? (
+                                        <Typography variant="caption" color="error.main">
+                                            {contributionPaymentForm.formState.errors.account_id.message}
+                                        </Typography>
+                                    ) : null}
+                                </Box>
+                                {selectedContributionAccount ? (
+                                    <Paper variant="outlined" sx={{ p: 1.4, borderRadius: 1.5 }}>
+                                        <Typography variant="caption" color="text.secondary">
+                                            Selected account balance
+                                        </Typography>
+                                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                            {formatCurrency(selectedContributionAccount.available_balance + selectedContributionAccount.locked_balance)}
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary">
+                                            {selectedContributionAccount.account_name} · {selectedContributionAccount.account_number}
+                                        </Typography>
+                                    </Paper>
+                                ) : null}
+                                <Grid container spacing={2}>
+                                    <Grid size={{ xs: 12, md: 6 }}>
+                                        <TextField
+                                            label="Contribution Amount"
+                                            type="number"
+                                            fullWidth
+                                            {...contributionPaymentForm.register("amount")}
+                                            error={Boolean(contributionPaymentForm.formState.errors.amount)}
+                                            helperText={contributionPaymentForm.formState.errors.amount?.message || `Enter the amount to push to your phone for this ${activePaymentCopy.noun}.`}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, md: 6 }}>
+                                        <TextField
+                                            select
+                                            label="Mobile Provider"
+                                            fullWidth
+                                            value={contributionPaymentForm.watch("provider")}
+                                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                                contributionPaymentForm.setValue(
+                                                    "provider",
+                                                    event.target.value as ContributionPaymentValues["provider"],
+                                                    { shouldValidate: true }
+                                                )
+                                            }
+                                        >
+                                            {contributionProviderOptions.map((option) => (
+                                                <MenuItem key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </MenuItem>
+                                            ))}
+                                        </TextField>
+                                    </Grid>
+                                    <Grid size={{ xs: 12 }}>
+                                        <TextField
+                                            label="Phone Number"
+                                            fullWidth
+                                            {...contributionPaymentForm.register("msisdn")}
+                                            error={Boolean(contributionPaymentForm.formState.errors.msisdn)}
+                                            helperText={contributionPaymentForm.formState.errors.msisdn?.message || contributionProviderOptions.find((option) => option.value === contributionPaymentForm.watch("provider"))?.helper}
+                                        />
+                                    </Grid>
+                                </Grid>
+                                <TextField
+                                    label="Narration (optional)"
+                                    fullWidth
+                                    multiline
+                                    minRows={2}
+                                    {...contributionPaymentForm.register("description")}
+                                    error={Boolean(contributionPaymentForm.formState.errors.description)}
+                                    helperText={contributionPaymentForm.formState.errors.description?.message || `This appears on the posted ${activePaymentCopy.noun} when payment succeeds.`}
+                                />
+                            </Box>
+                        )}
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    {contributionFlowState ? (
+                        <>
+                            {trackedContributionOrder?.status === "paid" && !trackedContributionOrder.posted_at ? (
+                                <Button onClick={() => void handleReconcilePaymentOrder()} disabled={reconcilingPayment}>
+                                    {reconcilingPayment ? "Reconciling..." : "Reconcile Payment"}
+                                </Button>
+                            ) : null}
+                            {trackedContributionOrder && ["posted", "failed", "expired"].includes(trackedContributionOrder.status) ? (
+                                <Button onClick={prepareAnotherContribution}>Start Another</Button>
+                            ) : null}
+                            <Button onClick={() => setShowContributionDialog(false)} disabled={submittingContribution}>
+                                {trackedContributionOrder?.status === "posted" ? "Done" : "Close"}
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                                <Button onClick={() => setShowContributionDialog(false)}>Cancel</Button>
+                            <Button
+                                variant="contained"
+                                type="submit"
+                                form="member-contribution-form"
+                                disabled={submittingContribution || !paymentTargetAccounts.length}
+                                sx={
+                                    isDarkMode
+                                        ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                        : undefined
+                                }
+                            >
+                                {submittingContribution ? "Starting..." : "Start Azam Pay"}
+                            </Button>
+                        </>
+                    )}
+                </DialogActions>
+            </MotionModal>
+
+            <MotionModal open={Boolean(selectedPaymentReceipt)} onClose={() => setSelectedPaymentReceipt(null)} maxWidth="sm" fullWidth>
+                <DialogTitle>Payment Receipt</DialogTitle>
+                <DialogContent dividers>
+                    {selectedPaymentReceipt ? (
+                        <Stack spacing={2}>
+                            <Alert
+                                severity={
+                                    selectedPaymentReceipt.status === "posted"
+                                        ? "success"
+                                        : selectedPaymentReceipt.status === "failed"
+                                            ? "error"
+                                            : selectedPaymentReceipt.status === "expired"
+                                                ? "warning"
+                                                : "info"
+                                }
+                                variant="outlined"
+                            >
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.4 }}>
+                                    {formatPaymentPurpose(selectedPaymentReceipt.purpose)}
+                                </Typography>
+                                <Typography variant="body2">
+                                    Status: {formatPaymentStatus(selectedPaymentReceipt.status)}
+                                </Typography>
+                            </Alert>
+
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                                <Stack spacing={1.15}>
+                                    <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                                        {formatCurrency(selectedPaymentReceipt.amount)}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {selectedPaymentReceipt.provider.toUpperCase()} · {selectedPaymentReceipt.currency}
+                                    </Typography>
+                                    <Divider />
+                                    <Typography variant="body2"><strong>Account:</strong> {selectedPaymentReceipt.account_name || selectedPaymentReceipt.account_number || selectedPaymentReceipt.account_id}</Typography>
+                                    <Typography variant="body2"><strong>Reference:</strong> {selectedPaymentReceipt.provider_ref || selectedPaymentReceipt.external_id}</Typography>
+                                    <Typography variant="body2"><strong>Initiated:</strong> {formatDate(selectedPaymentReceipt.created_at)}</Typography>
+                                    {selectedPaymentReceipt.paid_at ? (
+                                        <Typography variant="body2"><strong>Paid:</strong> {formatDate(selectedPaymentReceipt.paid_at)}</Typography>
+                                    ) : null}
+                                    {selectedPaymentReceipt.posted_at ? (
+                                        <Typography variant="body2"><strong>Posted:</strong> {formatDate(selectedPaymentReceipt.posted_at)}</Typography>
+                                    ) : null}
+                                    {selectedPaymentReceipt.journal_id ? (
+                                        <Typography variant="body2"><strong>Journal:</strong> {selectedPaymentReceipt.journal_id}</Typography>
+                                    ) : null}
+                                    {selectedPaymentReceipt.description ? (
+                                        <Typography variant="body2"><strong>Description:</strong> {selectedPaymentReceipt.description}</Typography>
+                                    ) : null}
+                                    {selectedPaymentReceipt.error_message ? (
+                                        <Typography variant="body2" color="error.main"><strong>Issue:</strong> {selectedPaymentReceipt.error_message}</Typography>
+                                    ) : null}
+                                </Stack>
+                            </Paper>
+                        </Stack>
+                    ) : null}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => window.print()} startIcon={<PrintRoundedIcon />}>
+                        Print
+                    </Button>
+                    <Button onClick={() => setSelectedPaymentReceipt(null)}>
+                        Close
+                    </Button>
+                </DialogActions>
+            </MotionModal>
 
             <MotionModal open={showApplyDialog} onClose={submittingApplication ? undefined : () => setShowApplyDialog(false)} maxWidth="md" fullWidth>
                 <DialogTitle>Apply for Loan</DialogTitle>

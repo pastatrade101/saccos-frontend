@@ -1321,11 +1321,7 @@ export function DashboardPage() {
     const role = profile?.role;
     const showPlatformDashboard = isInternalOps;
     const platformMetrics = useMemo(() => {
-        const latestSubscriptions = platformState.tenants.map((tenant) =>
-            tenant.subscriptions?.slice().sort((left, right) =>
-                new Date(right.start_at || 0).getTime() - new Date(left.start_at || 0).getTime()
-            )[0] || null
-        );
+        const latestSubscriptions = platformState.tenants.map((tenant) => tenant.subscription || null);
 
         return {
             totalTenants: platformState.tenants.length,
@@ -1374,14 +1370,14 @@ export function DashboardPage() {
             key: "plan",
             header: "Plan",
             render: (row) => {
-                const subscription = row.subscriptions?.[0];
+                const subscription = row.subscription;
                 return (subscription?.plan || "starter").toUpperCase();
             }
         },
         {
             key: "status",
             header: "Subscription",
-            render: (row) => row.subscriptions?.[0]?.status || "missing"
+            render: (row) => row.subscription?.status || "missing"
         },
         {
             key: "branches",

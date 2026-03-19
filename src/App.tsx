@@ -25,6 +25,7 @@ import { MemberApplicationsPage } from "./pages/MemberApplications";
 import { CashPage } from "./pages/Cash";
 import { CashControlPage } from "./pages/CashControl";
 import { ContributionsPage } from "./pages/Contributions";
+import { PaymentsPage } from "./pages/Payments";
 import { DividendsPage } from "./pages/Dividends";
 import { FollowUpsPage } from "./pages/FollowUps";
 import { ApprovalsPage } from "./pages/Approvals";
@@ -271,6 +272,7 @@ export default function App() {
                         }
                     >
                         <Route path="/contributions" element={<ContributionsPage />} />
+                        <Route path="/payments" element={<PaymentsPage />} />
                     </Route>
                     <Route
                         element={

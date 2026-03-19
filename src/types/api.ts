@@ -35,7 +35,6 @@ export interface Tenant {
     status: string;
     created_at: string;
     branch_count?: number;
-    subscriptions?: Subscription[];
     subscription?: Subscription | null;
 }
 
@@ -327,6 +326,7 @@ export interface LoanApproval {
     id: string;
     application_id: string;
     tenant_id: string;
+    approval_cycle?: number;
     approver_id: string;
     approval_level: number;
     decision: "approved" | "rejected";
@@ -433,6 +433,7 @@ export interface LoanApplication {
     recommended_repayment_frequency?: "daily" | "weekly" | "monthly" | null;
     required_approval_count: number;
     approval_count: number;
+    approval_cycle?: number;
     approval_notes?: string | null;
     approved_by?: string | null;
     approved_at?: string | null;
@@ -660,6 +661,42 @@ export interface FinanceResult {
     installment_amount?: number;
     interest_component?: number;
     principal_component?: number;
+}
+
+export type MobileMoneyProvider = "airtel" | "vodacom" | "tigo" | "halopesa";
+export type PaymentOrderStatus = "created" | "pending" | "paid" | "failed" | "expired" | "posted";
+
+export interface PaymentOrder {
+    id: string;
+    tenant_id: string;
+    member_id: string;
+    member_name?: string | null;
+    member_no?: string | null;
+    branch_id?: string | null;
+    account_id: string;
+    gateway: string;
+    purpose: string;
+    provider: MobileMoneyProvider;
+    amount: number;
+    currency: string;
+    status: PaymentOrderStatus;
+    external_id: string;
+    provider_ref?: string | null;
+    description?: string | null;
+    callback_received_at?: string | null;
+    paid_at?: string | null;
+    posted_at?: string | null;
+    failed_at?: string | null;
+    expired_at?: string | null;
+    expires_at?: string | null;
+    journal_id?: string | null;
+    error_code?: string | null;
+    error_message?: string | null;
+    account_name?: string | null;
+    account_number?: string | null;
+    product_type?: "savings" | "shares" | "fixed_deposit" | null;
+    created_at: string;
+    updated_at: string;
 }
 
 export interface TellerSession {
