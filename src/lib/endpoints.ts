@@ -531,7 +531,9 @@ export interface DeleteTenantRequest {
 export interface CreateMemberRequest {
     tenant_id?: string;
     branch_id: string;
-    full_name: string;
+    first_name?: string;
+    last_name?: string;
+    full_name?: string;
     dob?: string | null;
     phone?: string | null;
     email?: string | null;

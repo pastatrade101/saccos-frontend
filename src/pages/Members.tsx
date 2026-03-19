@@ -65,7 +65,8 @@ import type { Branch, Member, MemberAccount } from "../types/api";
 import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
 const schema = z.object({
-    full_name: z.string().min(3, "Full name is required."),
+    first_name: z.string().trim().min(2, "First name is required."),
+    last_name: z.string().trim().min(2, "Last name is required."),
     phone: z
         .string()
         .trim()
@@ -133,6 +134,10 @@ interface MemberCredentialsHandoff {
 
 type MemberStatusFilter = "all" | "active" | "suspended" | "exited";
 type MemberOperationalFilter = "all" | "ready" | "needs_login" | "needs_account" | "needs_review";
+
+function composeMemberFullName(firstName: string, lastName: string) {
+    return `${firstName.trim()} ${lastName.trim()}`.replace(/\s+/g, " ").trim();
+}
 
 function isMissingDeletedAtColumnError(error: unknown) {
     const code = typeof error === "object" && error && "code" in error
@@ -258,7 +263,8 @@ export function MembersPage() {
         mode: "onChange",
         reValidateMode: "onChange",
         defaultValues: {
-            full_name: "",
+            first_name: "",
+            last_name: "",
             phone: "",
             email: "",
             national_id: "",
@@ -539,10 +545,13 @@ export function MembersPage() {
         setSubmitting(true);
 
         try {
+            const fullName = composeMemberFullName(values.first_name, values.last_name);
             const payload: CreateMemberRequest = {
                 tenant_id: selectedTenantId || undefined,
                 branch_id: values.branch_id,
-                full_name: values.full_name,
+                first_name: values.first_name.trim(),
+                last_name: values.last_name.trim(),
+                full_name: fullName,
                 phone: values.phone,
                 email: values.email || null,
                 national_id: values.national_id,
@@ -579,7 +588,8 @@ export function MembersPage() {
                     : `${data.data.member.full_name} was created and savings and share accounts were provisioned.`
             });
             form.reset({
-                full_name: "",
+                first_name: "",
+                last_name: "",
                 phone: "",
                 email: "",
                 national_id: "",
@@ -1995,12 +2005,22 @@ export function MembersPage() {
                             <Grid container spacing={2}>
                                 <Grid size={{ xs: 12, md: 6 }}>
                                     <TextField
-                                        label="Full Name"
-                                        placeholder="Jane Member"
+                                        label="First Name"
+                                        placeholder="Jane"
                                         fullWidth
-                                        {...form.register("full_name")}
-                                        error={Boolean(form.formState.errors.full_name)}
-                                        helperText={form.formState.errors.full_name?.message}
+                                        {...form.register("first_name")}
+                                        error={Boolean(form.formState.errors.first_name)}
+                                        helperText={form.formState.errors.first_name?.message}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <TextField
+                                        label="Last Name"
+                                        placeholder="Member"
+                                        fullWidth
+                                        {...form.register("last_name")}
+                                        error={Boolean(form.formState.errors.last_name)}
+                                        helperText={form.formState.errors.last_name?.message}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 6 }}>
