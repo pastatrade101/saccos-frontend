@@ -40,6 +40,7 @@ import {
     DialogContent,
     DialogTitle,
     Chip,
+    CircularProgress,
     Drawer,
     Grid,
     IconButton,
@@ -581,9 +582,16 @@ export function MemberPortalPage() {
     const normalizedPaymentOrders = useMemo(() => paymentOrders.map((order) => normalizeContributionOrder(order)), [paymentOrders]);
     const latestSharePaymentOrder = normalizedPaymentOrders.find((order) => order.purpose === "share_contribution") || null;
     const latestSavingsPaymentOrder = normalizedPaymentOrders.find((order) => order.purpose === "savings_deposit") || null;
-    const trackedContributionOrder = activeContributionOrderId && normalizedPaymentOrder?.id === activeContributionOrderId
-        ? normalizedPaymentOrder
-        : null;
+    const trackedContributionOrder = useMemo(() => {
+        if (!activeContributionOrderId) {
+            return null;
+        }
+
+        return (
+            normalizedPaymentOrders.find((order) => order.id === activeContributionOrderId) ||
+            (normalizedPaymentOrder?.id === activeContributionOrderId ? normalizedPaymentOrder : null)
+        );
+    }, [activeContributionOrderId, normalizedPaymentOrder, normalizedPaymentOrders]);
     const activePaymentPurpose = trackedContributionOrder?.purpose === "savings_deposit" ? "savings_deposit" : paymentFlowPurpose;
     const activePaymentCopy = activePaymentPurpose === "savings_deposit"
         ? {
@@ -654,6 +662,27 @@ export function MemberPortalPage() {
                         : contributionFlowState === "expired"
                             ? trackedContributionOrder?.error_message || "The mobile money request expired before approval."
                             : `Start a ${activePaymentCopy.noun} request and follow the progress here.`;
+    const contributionRequestStepState = submittingContribution
+        ? "active"
+        : trackedContributionOrder
+            ? "complete"
+            : "idle";
+    const contributionApprovalStepState = contributionFlowState === "pending"
+        ? "active"
+        : contributionFlowState === "paid" || contributionFlowState === "posted"
+            ? "complete"
+            : "idle";
+    const contributionPostingStepState = contributionFlowState === "paid"
+        ? "active"
+        : contributionFlowState === "posted"
+            ? "complete"
+            : "idle";
+    const showBackgroundActivity = contributionFlowState === "initiating" || contributionFlowState === "pending" || contributionFlowState === "paid";
+    const backgroundActivityMessage = contributionFlowState === "initiating"
+        ? "Creating the Azam Pay request..."
+        : contributionFlowState === "pending"
+            ? "Waiting for the mobile money approval and Azam callback..."
+            : "Payment is confirmed. Posting the deposit in the background...";
 
     const profileMenuOpen = Boolean(profileMenuAnchor);
     const m3MenuTokens = useMemo(() => {
@@ -1060,6 +1089,9 @@ export function MemberPortalPage() {
         () => paymentTargetAccounts.find((account) => account.id === selectedContributionAccountId) || paymentTargetAccounts[0] || null,
         [paymentTargetAccounts, selectedContributionAccountId]
     );
+    const selectedContributionProvider = contributionProviderOptions.find(
+        (option) => option.value === contributionPaymentForm.watch("provider")
+    ) || contributionProviderOptions[0];
 
     useEffect(() => {
         if (contributionFlowState) {
@@ -4527,8 +4559,19 @@ export function MemberPortalPage() {
                 </Box>
             </Box>
 
-            <MotionModal open={showContributionDialog} onClose={submittingContribution ? undefined : () => setShowContributionDialog(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>{contributionFlowState ? `${activePaymentCopy.title} Payment Progress` : "Make Deposit"}</DialogTitle>
+            <MotionModal open={showContributionDialog} onClose={submittingContribution ? undefined : () => setShowContributionDialog(false)} maxWidth="md" fullWidth>
+                <DialogTitle sx={{ pb: 1.25 }}>
+                    <Stack spacing={0.6}>
+                        <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
+                            {contributionFlowState ? `${activePaymentCopy.title} Payment Progress` : "Make Deposit"}
+                        </Typography>
+                        {!contributionFlowState ? (
+                            <Typography variant="body2" color="text.secondary">
+                                Choose where the money should land, approve the mobile money prompt, and let the system post it automatically.
+                            </Typography>
+                        ) : null}
+                    </Stack>
+                </DialogTitle>
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
                         <Alert severity={contributionFlowTone} variant="outlined">
@@ -4547,15 +4590,35 @@ export function MemberPortalPage() {
                                 <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
                                     <Stack spacing={1.2}>
                                         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                                            <Chip label={submittingContribution ? "1. Contacting Azam" : "1. Request created"} color={submittingContribution || trackedContributionOrder ? "primary" : "default"} variant={submittingContribution || trackedContributionOrder ? "filled" : "outlined"} />
-                                            <Chip label="2. Member approves on phone" color={contributionFlowState === "pending" || contributionFlowState === "paid" || contributionFlowState === "posted" ? "primary" : "default"} variant={contributionFlowState === "pending" || contributionFlowState === "paid" || contributionFlowState === "posted" ? "filled" : "outlined"} />
-                                            <Chip label="3. System posts contribution" color={contributionFlowState === "paid" || contributionFlowState === "posted" ? "primary" : "default"} variant={contributionFlowState === "paid" || contributionFlowState === "posted" ? "filled" : "outlined"} />
+                                            <Chip
+                                                label={submittingContribution ? "1. Contacting Azam" : "1. Request created"}
+                                                color={contributionRequestStepState === "complete" ? "success" : contributionRequestStepState === "active" ? "primary" : "default"}
+                                                variant={contributionRequestStepState === "idle" ? "outlined" : "filled"}
+                                            />
+                                            <Chip
+                                                label="2. Member approves on phone"
+                                                color={contributionApprovalStepState === "complete" ? "success" : contributionApprovalStepState === "active" ? "primary" : "default"}
+                                                variant={contributionApprovalStepState === "idle" ? "outlined" : "filled"}
+                                            />
+                                            <Chip
+                                                label="3. System posts deposit"
+                                                color={contributionPostingStepState === "complete" ? "success" : contributionPostingStepState === "active" ? "primary" : "default"}
+                                                variant={contributionPostingStepState === "idle" ? "outlined" : "filled"}
+                                            />
                                         </Stack>
                                         <LinearProgress
-                                            variant={contributionFlowState === "pending" ? "indeterminate" : "determinate"}
+                                            variant={contributionFlowState === "pending" || contributionFlowState === "paid" ? "indeterminate" : "determinate"}
                                             value={contributionFlowProgress}
                                             sx={{ height: 9, borderRadius: 999 }}
                                         />
+                                        {showBackgroundActivity ? (
+                                            <Stack direction="row" spacing={1} alignItems="center" sx={{ color: "text.secondary" }}>
+                                                <CircularProgress size={16} thickness={5} />
+                                                <Typography variant="body2">
+                                                    {backgroundActivityMessage}
+                                                </Typography>
+                                            </Stack>
+                                        ) : null}
                                         {trackedContributionOrder ? (
                                             <Stack spacing={0.6}>
                                                 <Typography variant="body2" color="text.secondary">
@@ -4581,61 +4644,126 @@ export function MemberPortalPage() {
                             </Stack>
                         ) : (
                             <Box component="form" id="member-contribution-form" onSubmit={submitContributionPayment} sx={{ display: "grid", gap: 2 }}>
-                                <TextField
-                                    select
-                                    label="Deposit Type"
-                                    fullWidth
-                                    value={paymentFlowPurpose}
-                                    onChange={(event) => {
-                                        setPaymentFlowPurpose(event.target.value as MemberPaymentPurpose);
-                                        setActiveContributionOrderId(null);
+                                <Paper
+                                    variant="outlined"
+                                    sx={{
+                                        p: { xs: 1.5, md: 1.75 },
+                                        borderRadius: 2,
+                                        bgcolor: alpha(memberAccent, isDarkMode ? 0.08 : 0.04),
+                                        borderColor: alpha(memberAccent, isDarkMode ? 0.3 : 0.16)
                                     }}
-                                    helperText="Choose whether this mobile money deposit goes to savings or share contributions."
                                 >
-                                    <MenuItem value="share_contribution">Contribution</MenuItem>
-                                    <MenuItem value="savings_deposit">Savings</MenuItem>
-                                </TextField>
-                                <Box>
-                                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
-                                        {activePaymentCopy.accountLabel}
-                                    </Typography>
-                                    <SearchableSelect
-                                        value={contributionPaymentForm.watch("account_id")}
-                                        options={paymentAccountOptions}
-                                        onChange={(value) => contributionPaymentForm.setValue("account_id", value, { shouldValidate: true })}
-                                        placeholder={`Search ${activePaymentCopy.accountLabel.toLowerCase()}...`}
-                                    />
-                                    {contributionPaymentForm.formState.errors.account_id ? (
-                                        <Typography variant="caption" color="error.main">
-                                            {contributionPaymentForm.formState.errors.account_id.message}
-                                        </Typography>
-                                    ) : null}
-                                </Box>
-                                {selectedContributionAccount ? (
-                                    <Paper variant="outlined" sx={{ p: 1.4, borderRadius: 1.5 }}>
-                                        <Typography variant="caption" color="text.secondary">
-                                            Selected account balance
-                                        </Typography>
-                                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                                            {formatCurrency(selectedContributionAccount.available_balance + selectedContributionAccount.locked_balance)}
-                                        </Typography>
-                                        <Typography variant="body2" color="text.secondary">
-                                            {selectedContributionAccount.account_name} · {selectedContributionAccount.account_number}
-                                        </Typography>
-                                    </Paper>
-                                ) : null}
+                                    <Grid container spacing={2} alignItems="start">
+                                        <Grid size={{ xs: 12, md: 4 }}>
+                                            <TextField
+                                                select
+                                                label="Deposit Type"
+                                                fullWidth
+                                                size="small"
+                                                value={paymentFlowPurpose}
+                                                onChange={(event) => {
+                                                    setPaymentFlowPurpose(event.target.value as MemberPaymentPurpose);
+                                                    setActiveContributionOrderId(null);
+                                                }}
+                                            >
+                                                <MenuItem value="share_contribution">Contribution</MenuItem>
+                                                <MenuItem value="savings_deposit">Savings</MenuItem>
+                                            </TextField>
+                                        </Grid>
+                                        <Grid size={{ xs: 12, md: 8 }}>
+                                            <SearchableSelect
+                                                value={contributionPaymentForm.watch("account_id")}
+                                                options={paymentAccountOptions}
+                                                onChange={(value) => contributionPaymentForm.setValue("account_id", value, { shouldValidate: true })}
+                                                label={activePaymentCopy.accountLabel}
+                                                size="small"
+                                                error={Boolean(contributionPaymentForm.formState.errors.account_id)}
+                                                helperText={contributionPaymentForm.formState.errors.account_id?.message || "Choose the exact account that should receive this deposit."}
+                                                placeholder={`Search ${activePaymentCopy.accountLabel.toLowerCase()}...`}
+                                            />
+                                        </Grid>
+                                        {selectedContributionAccount ? (
+                                            <Grid size={{ xs: 12 }}>
+                                                <Stack
+                                                    direction={{ xs: "column", sm: "row" }}
+                                                    spacing={1}
+                                                    useFlexGap
+                                                    sx={{
+                                                        mt: 0.5,
+                                                        p: 1.5,
+                                                        borderRadius: 2,
+                                                        background: isDarkMode
+                                                            ? `linear-gradient(135deg, ${alpha(DARK_MEMBER_ACCENT, 0.28)}, ${alpha(theme.palette.background.paper, 0.82)})`
+                                                            : `linear-gradient(135deg, ${alpha(memberAccent, 0.12)}, ${alpha("#ffffff", 0.95)})`,
+                                                        border: `1px solid ${alpha(memberAccent, isDarkMode ? 0.28 : 0.18)}`
+                                                    }}
+                                                >
+                                                    <Chip
+                                                        size="small"
+                                                        label={activePaymentCopy.title}
+                                                        sx={{
+                                                            fontWeight: 800,
+                                                            alignSelf: "flex-start",
+                                                            bgcolor: alpha(memberAccent, isDarkMode ? 0.2 : 0.14),
+                                                            color: memberAccentStrong
+                                                        }}
+                                                    />
+                                                    <Stack spacing={0.15} sx={{ minWidth: 0, flex: 1 }}>
+                                                        <Typography
+                                                            variant="subtitle1"
+                                                            sx={{
+                                                                fontWeight: 800,
+                                                                color: memberAccentStrong,
+                                                                lineHeight: 1.15
+                                                            }}
+                                                        >
+                                                            {selectedContributionAccount.account_name}
+                                                        </Typography>
+                                                        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+                                                            {selectedContributionAccount.account_number}
+                                                        </Typography>
+                                                    </Stack>
+                                                    <Box
+                                                        sx={{
+                                                            px: 1.4,
+                                                            py: 0.9,
+                                                            borderRadius: 1.5,
+                                                            minWidth: { xs: "100%", sm: 210 },
+                                                            bgcolor: alpha(memberAccentStrong, isDarkMode ? 0.18 : 0.1),
+                                                            border: `1px solid ${alpha(memberAccentStrong, isDarkMode ? 0.3 : 0.16)}`
+                                                        }}
+                                                    >
+                                                        <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700, letterSpacing: 0.4 }}>
+                                                            BALANCE
+                                                        </Typography>
+                                                        <Typography
+                                                            variant="h6"
+                                                            sx={{
+                                                                fontWeight: 900,
+                                                                color: memberAccentStrong,
+                                                                lineHeight: 1.1
+                                                            }}
+                                                        >
+                                                            {formatCurrency(selectedContributionAccount.available_balance + selectedContributionAccount.locked_balance)}
+                                                        </Typography>
+                                                    </Box>
+                                                </Stack>
+                                            </Grid>
+                                        ) : null}
+                                    </Grid>
+                                </Paper>
                                 <Grid container spacing={2}>
-                                    <Grid size={{ xs: 12, md: 6 }}>
+                                    <Grid size={{ xs: 12, md: 4 }}>
                                         <TextField
                                             label="Deposit Amount"
                                             type="number"
                                             fullWidth
                                             {...contributionPaymentForm.register("amount")}
                                             error={Boolean(contributionPaymentForm.formState.errors.amount)}
-                                            helperText={contributionPaymentForm.formState.errors.amount?.message || `Enter the amount to push to your phone for this ${activePaymentCopy.noun}.`}
+                                            helperText={contributionPaymentForm.formState.errors.amount?.message || "Amount to push to your phone."}
                                         />
                                     </Grid>
-                                    <Grid size={{ xs: 12, md: 6 }}>
+                                    <Grid size={{ xs: 12, md: 4 }}>
                                         <TextField
                                             select
                                             label="Mobile Provider"
@@ -4656,24 +4784,42 @@ export function MemberPortalPage() {
                                             ))}
                                         </TextField>
                                     </Grid>
-                                    <Grid size={{ xs: 12 }}>
+                                    <Grid size={{ xs: 12, md: 4 }}>
                                         <TextField
                                             label="Phone Number"
                                             fullWidth
                                             {...contributionPaymentForm.register("msisdn")}
                                             error={Boolean(contributionPaymentForm.formState.errors.msisdn)}
-                                            helperText={contributionPaymentForm.formState.errors.msisdn?.message || contributionProviderOptions.find((option) => option.value === contributionPaymentForm.watch("provider"))?.helper}
+                                            helperText={contributionPaymentForm.formState.errors.msisdn?.message || "Number that receives the payment prompt."}
                                         />
                                     </Grid>
                                 </Grid>
+                                <Paper
+                                    variant="outlined"
+                                    sx={{
+                                        p: 1.25,
+                                        borderRadius: 1.5,
+                                        bgcolor: alpha(theme.palette.info.main, isDarkMode ? 0.12 : 0.05),
+                                        borderColor: alpha(theme.palette.info.main, isDarkMode ? 0.28 : 0.14)
+                                    }}
+                                >
+                                    <Stack direction={{ xs: "column", sm: "row" }} spacing={0.8} useFlexGap>
+                                        <Typography variant="caption" sx={{ fontWeight: 800, color: "info.main", minWidth: 92 }}>
+                                            Provider note
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary">
+                                            {selectedContributionProvider.helper}
+                                        </Typography>
+                                    </Stack>
+                                </Paper>
                                 <TextField
                                     label="Narration (optional)"
                                     fullWidth
                                     multiline
-                                    minRows={2}
+                                    minRows={1}
                                     {...contributionPaymentForm.register("description")}
                                     error={Boolean(contributionPaymentForm.formState.errors.description)}
-                                    helperText={contributionPaymentForm.formState.errors.description?.message || `This appears on the posted ${activePaymentCopy.noun} when payment succeeds.`}
+                                    helperText={contributionPaymentForm.formState.errors.description?.message || `Optional note shown on the posted ${activePaymentCopy.noun}.`}
                                 />
                             </Box>
                         )}

@@ -1,4 +1,4 @@
-import { List, ListItemButton, ListItemText, Paper, TextField } from "@mui/material";
+import { List, ListItemButton, ListItemText, Paper, TextField, type TextFieldProps } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 
 export interface SearchableOption {
@@ -12,13 +12,21 @@ interface SearchableSelectProps {
     options: SearchableOption[];
     placeholder?: string;
     onChange: (value: string) => void;
+    label?: string;
+    helperText?: React.ReactNode;
+    error?: boolean;
+    size?: TextFieldProps["size"];
 }
 
 export function SearchableSelect({
     value,
     options,
     placeholder = "Search and select...",
-    onChange
+    onChange,
+    label,
+    helperText,
+    error = false,
+    size = "medium"
 }: SearchableSelectProps) {
     const selectedOption = options.find((option) => option.value === value);
     const [query, setQuery] = useState(selectedOption?.label || "");
@@ -49,6 +57,10 @@ export function SearchableSelect({
             <TextField
                 fullWidth
                 value={query}
+                label={label}
+                helperText={helperText}
+                error={error}
+                size={size}
                 placeholder={placeholder}
                 onFocus={() => setOpen(true)}
                 onChange={(event) => {
