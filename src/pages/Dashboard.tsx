@@ -2284,130 +2284,152 @@ export function DashboardPage() {
                     </>
                 ) : role === "branch_manager" ? (
                     <>
-                        <Grid size={{ xs: 12, lg: 7 }}>
-                            <ChartPanel
-                                title="Loan Aging Summary"
-                                subtitle="Current portfolio quality by overdue days and PAR percentage."
-                                data={{
-                                    labels: ["Current", "1-30 days", "31-60 days", "60+ days"],
-                                    datasets: [
-                                        {
-                                            label: "Schedules",
-                                            data: [
-                                                branchLoanAging.current,
-                                                branchLoanAging.d1_30,
-                                                branchLoanAging.d31_60,
-                                                branchLoanAging.d60Plus
-                                            ],
-                                            backgroundColor: [
-                                                alpha(theme.palette.success.main, 0.74),
-                                                alpha(theme.palette.warning.main, 0.74),
-                                                alpha(theme.palette.warning.main, 0.58),
-                                                alpha(theme.palette.error.main, 0.74)
-                                            ]
-                                        }
-                                    ]
-                                }}
-                                type="bar"
-                                options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }}
-                            />
-                        </Grid>
-                        <Grid size={{ xs: 12, lg: 5 }}>
-                            <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
-                                <CardContent sx={{ height: "100%" }}>
-                                    <Stack spacing={2} sx={{ height: "100%" }}>
-                                        <Box>
-                                            <Typography variant="h6">Cash Position</Typography>
-                                            <Typography variant="body2" color="text.secondary">
-                                                Opening balance, today inflows/outflows, and current net cash direction.
-                                            </Typography>
-                                        </Box>
-                                        <Stack spacing={1.25}>
-                                            <Stack direction="row" justifyContent="space-between">
-                                                <Typography variant="body2" color="text.secondary">Opening balance</Typography>
-                                                <Typography variant="subtitle2">{formatCurrency(metrics.branchOpeningBalance)}</Typography>
-                                            </Stack>
-                                            <Stack direction="row" justifyContent="space-between">
-                                                <Typography variant="body2" color="text.secondary">Inflows today</Typography>
-                                                <Typography variant="subtitle2" color="success.main">{formatCurrency(metrics.branchInflowsToday)}</Typography>
-                                            </Stack>
-                                            <Stack direction="row" justifyContent="space-between">
-                                                <Typography variant="body2" color="text.secondary">Outflows today</Typography>
-                                                <Typography variant="subtitle2" color="error.main">{formatCurrency(metrics.branchOutflowsToday)}</Typography>
-                                            </Stack>
-                                            <Divider />
-                                            <Stack direction="row" justifyContent="space-between">
-                                                <Typography variant="subtitle2">Net change</Typography>
-                                                <Typography variant="subtitle2" color={metrics.branchNetToday >= 0 ? "success.main" : "error.main"}>
-                                                    {formatCurrency(metrics.branchNetToday)}
-                                                </Typography>
-                                            </Stack>
-                                            <Chip
-                                                icon={<WarningAmberRoundedIcon />}
-                                                label={metrics.branchNetToday < 0 ? "Cash imbalance requires review" : "Cash movement within tolerance"}
-                                                color={metrics.branchNetToday < 0 ? "error" : "success"}
-                                                variant="outlined"
-                                            />
-                                        </Stack>
-                                    </Stack>
-                                </CardContent>
-                            </MotionCard>
-                        </Grid>
-                        <Grid size={{ xs: 12, lg: 7 }}>
-                            <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
-                                <CardContent sx={{ height: "100%" }}>
-                                    <Stack spacing={2.25} sx={{ height: "100%" }}>
-                                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                            <Box>
-                                                <Typography variant="h6">Operational Queue</Typography>
-                                                <Typography variant="body2" color="text.secondary">
-                                                    Work items requiring immediate branch action.
-                                                </Typography>
-                                            </Box>
-                                            <Button size="small" variant="outlined" onClick={() => navigate("/follow-ups")}>
-                                                View all
-                                            </Button>
-                                        </Stack>
-                                        <Grid container spacing={1.25}>
-                                            {operationalQueue.map((item) => (
-                                                <Grid key={item.id} size={{ xs: 12, sm: 6 }}>
-                                                    <OperationalQueueCard item={item} onOpen={(route) => navigate(route)} />
-                                                </Grid>
-                                            ))}
-                                        </Grid>
-                                    </Stack>
-                                </CardContent>
-                            </MotionCard>
-                        </Grid>
-                        <Grid size={{ xs: 12, lg: 7 }}>
-                            <StaffPerformancePanel rows={staffPerformance} />
-                        </Grid>
-                        <Grid size={{ xs: 12, lg: 5 }}>
-                            <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
-                                <CardContent>
-                                    <Stack spacing={1.5}>
-                                        <Box>
-                                            <Typography variant="h6">Branch Risk & Governance</Typography>
-                                            <Typography variant="body2" color="text.secondary">
-                                                Exception view for overdue assets, approval pressure, and operational controls.
-                                            </Typography>
-                                        </Box>
-                                        <Chip
-                                            color={par30Percent >= 15 ? "error" : par30Percent >= 8 ? "warning" : "success"}
-                                            variant="outlined"
-                                            label={`PAR ${par30Percent.toFixed(1)}%`}
-                                            icon={<RuleRoundedIcon />}
-                                            sx={{ width: "fit-content" }}
+                        <Grid size={{ xs: 12 }}>
+                            <Stack spacing={2}>
+                                <Box
+                                    sx={{
+                                        display: "flex",
+                                        flexDirection: { xs: "column", lg: "row" },
+                                        gap: 2,
+                                        alignItems: "stretch"
+                                    }}
+                                >
+                                    <Box sx={{ flex: { xs: "1 1 100%", lg: "1.6 1 0" }, minWidth: 0 }}>
+                                        <ChartPanel
+                                            title="Loan Aging Summary"
+                                            subtitle="Current portfolio quality by overdue days and PAR percentage."
+                                            data={{
+                                                labels: ["Current", "1-30 days", "31-60 days", "60+ days"],
+                                                datasets: [
+                                                    {
+                                                        label: "Schedules",
+                                                        data: [
+                                                            branchLoanAging.current,
+                                                            branchLoanAging.d1_30,
+                                                            branchLoanAging.d31_60,
+                                                            branchLoanAging.d60Plus
+                                                        ],
+                                                        backgroundColor: [
+                                                            alpha(theme.palette.success.main, 0.74),
+                                                            alpha(theme.palette.warning.main, 0.74),
+                                                            alpha(theme.palette.warning.main, 0.58),
+                                                            alpha(theme.palette.error.main, 0.74)
+                                                        ]
+                                                    }
+                                                ]
+                                            }}
+                                            type="bar"
+                                            options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }}
                                         />
-                                        {branchAlerts.map((alert) => (
-                                            <Alert key={alert.id} severity={alert.severity} variant="outlined">
-                                                <Typography variant="subtitle2">{alert.title}</Typography>
-                                                <Typography variant="body2">{alert.description}</Typography>
-                                            </Alert>
-                                        ))}
-                                    </Stack>
-                                </CardContent>
-                            </MotionCard>
+                                    </Box>
+                                    <Box sx={{ flex: { xs: "1 1 100%", lg: "1 1 0" }, minWidth: 0 }}>
+                                        <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
+                                            <CardContent sx={{ height: "100%" }}>
+                                                <Stack spacing={2} sx={{ height: "100%" }}>
+                                                    <Box>
+                                                        <Typography variant="h6">Cash Position</Typography>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            Opening balance, today inflows/outflows, and current net cash direction.
+                                                        </Typography>
+                                                    </Box>
+                                                    <Stack spacing={1.25}>
+                                                        <Stack direction="row" justifyContent="space-between">
+                                                            <Typography variant="body2" color="text.secondary">Opening balance</Typography>
+                                                            <Typography variant="subtitle2">{formatCurrency(metrics.branchOpeningBalance)}</Typography>
+                                                        </Stack>
+                                                        <Stack direction="row" justifyContent="space-between">
+                                                            <Typography variant="body2" color="text.secondary">Inflows today</Typography>
+                                                            <Typography variant="subtitle2" color="success.main">{formatCurrency(metrics.branchInflowsToday)}</Typography>
+                                                        </Stack>
+                                                        <Stack direction="row" justifyContent="space-between">
+                                                            <Typography variant="body2" color="text.secondary">Outflows today</Typography>
+                                                            <Typography variant="subtitle2" color="error.main">{formatCurrency(metrics.branchOutflowsToday)}</Typography>
+                                                        </Stack>
+                                                        <Divider />
+                                                        <Stack direction="row" justifyContent="space-between">
+                                                            <Typography variant="subtitle2">Net change</Typography>
+                                                            <Typography variant="subtitle2" color={metrics.branchNetToday >= 0 ? "success.main" : "error.main"}>
+                                                                {formatCurrency(metrics.branchNetToday)}
+                                                            </Typography>
+                                                        </Stack>
+                                                        <Chip
+                                                            icon={<WarningAmberRoundedIcon />}
+                                                            label={metrics.branchNetToday < 0 ? "Cash imbalance requires review" : "Cash movement within tolerance"}
+                                                            color={metrics.branchNetToday < 0 ? "error" : "success"}
+                                                            variant="outlined"
+                                                        />
+                                                    </Stack>
+                                                </Stack>
+                                            </CardContent>
+                                        </MotionCard>
+                                    </Box>
+                                </Box>
+
+                                <Box
+                                    sx={{
+                                        display: "flex",
+                                        flexDirection: { xs: "column", lg: "row" },
+                                        gap: 2,
+                                        alignItems: "stretch"
+                                    }}
+                                >
+                                    <Box sx={{ flex: { xs: "1 1 100%", lg: "1.6 1 0" }, minWidth: 0 }}>
+                                        <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
+                                            <CardContent sx={{ height: "100%" }}>
+                                                <Stack spacing={2.25} sx={{ height: "100%" }}>
+                                                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                                        <Box>
+                                                            <Typography variant="h6">Operational Queue</Typography>
+                                                            <Typography variant="body2" color="text.secondary">
+                                                                Work items requiring immediate branch action.
+                                                            </Typography>
+                                                        </Box>
+                                                        <Button size="small" variant="outlined" onClick={() => navigate("/follow-ups")}>
+                                                            View all
+                                                        </Button>
+                                                    </Stack>
+                                                    <Grid container spacing={1.25}>
+                                                        {operationalQueue.map((item) => (
+                                                            <Grid key={item.id} size={{ xs: 12, sm: 6 }}>
+                                                                <OperationalQueueCard item={item} onOpen={(route) => navigate(route)} />
+                                                            </Grid>
+                                                        ))}
+                                                    </Grid>
+                                                </Stack>
+                                            </CardContent>
+                                        </MotionCard>
+                                    </Box>
+                                    <Box sx={{ flex: { xs: "1 1 100%", lg: "1 1 0" }, minWidth: 0 }}>
+                                        <MotionCard variant="outlined" inView sx={{ height: "100%" }}>
+                                            <CardContent sx={{ height: "100%" }}>
+                                                <Stack spacing={1.5} sx={{ height: "100%" }}>
+                                                    <Box>
+                                                        <Typography variant="h6">Branch Risk & Governance</Typography>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            Exception view for overdue assets, approval pressure, and operational controls.
+                                                        </Typography>
+                                                    </Box>
+                                                    <Chip
+                                                        color={par30Percent >= 15 ? "error" : par30Percent >= 8 ? "warning" : "success"}
+                                                        variant="outlined"
+                                                        label={`PAR ${par30Percent.toFixed(1)}%`}
+                                                        icon={<RuleRoundedIcon />}
+                                                        sx={{ width: "fit-content" }}
+                                                    />
+                                                    {branchAlerts.map((alert) => (
+                                                        <Alert key={alert.id} severity={alert.severity} variant="outlined">
+                                                            <Typography variant="subtitle2">{alert.title}</Typography>
+                                                            <Typography variant="body2">{alert.description}</Typography>
+                                                        </Alert>
+                                                    ))}
+                                                </Stack>
+                                            </CardContent>
+                                        </MotionCard>
+                                    </Box>
+                                </Box>
+
+                                <StaffPerformancePanel rows={staffPerformance} />
+                            </Stack>
                         </Grid>
                     </>
                 ) : role === "auditor" ? (
@@ -2528,8 +2550,15 @@ export function DashboardPage() {
                 )
             ) : role === "branch_manager" ? (
                 <MotionSection inView>
-                <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, lg: 7 }}>
+                <Box
+                    sx={{
+                        display: "flex",
+                        flexDirection: { xs: "column", lg: "row" },
+                        gap: 2,
+                        alignItems: "stretch"
+                    }}
+                >
+                    <Box sx={{ flex: { xs: "1 1 100%", lg: "1.6 1 0" }, minWidth: 0 }}>
                         <ChartPanel
                             title="Recent Branch Activity"
                             subtitle="Latest visible savings and contribution postings for the supervised branch."
@@ -2557,16 +2586,16 @@ export function DashboardPage() {
                             }}
                             height={250}
                         />
-                    </Grid>
-                    <Grid size={{ xs: 12, lg: 5 }}>
+                    </Box>
+                    <Box sx={{ flex: { xs: "1 1 100%", lg: "1 1 0" }, minWidth: 0 }}>
                         <FollowUpPanel
                             title="Priority Follow-up"
                             subtitle="Branch loan items that need collections, review, or immediate member contact."
                             items={branchFollowUps}
                             onViewAll={() => navigate("/follow-ups")}
                         />
-                    </Grid>
-                </Grid>
+                    </Box>
+                </Box>
                 </MotionSection>
             ) : role === "loan_officer" ? (
                 <MotionSection inView>

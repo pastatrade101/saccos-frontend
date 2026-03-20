@@ -15,9 +15,17 @@ interface DataTableProps<T> {
     rows: T[];
     columns: Column<T>[];
     emptyMessage?: ReactNode;
+    maxHeight?: number | string;
+    stickyHeader?: boolean;
 }
 
-export function DataTable<T>({ rows, columns, emptyMessage = "No records available." }: DataTableProps<T>) {
+export function DataTable<T>({
+    rows,
+    columns,
+    emptyMessage = "No records available.",
+    maxHeight,
+    stickyHeader = false
+}: DataTableProps<T>) {
     const theme = useTheme();
     const isDarkMode = theme.palette.mode === "dark";
     const accent = isDarkMode ? "#D9B273" : theme.palette.primary.main;
@@ -42,8 +50,14 @@ export function DataTable<T>({ rows, columns, emptyMessage = "No records availab
 
     return (
         <MotionCard variant="outlined" inView sx={{ overflow: "hidden" }}>
-            <TableContainer component="div">
-                <Table size="small">
+            <TableContainer
+                component="div"
+                sx={{
+                    maxHeight,
+                    overflowY: maxHeight ? "auto" : undefined
+                }}
+            >
+                <Table size="small" stickyHeader={stickyHeader}>
                     <TableHead>
                         <TableRow>
                             {columns.map((column) => (

@@ -122,6 +122,7 @@ const routeMap = {
         update: (memberId: string) => `/members/${memberId}`,
         delete: (memberId: string) => `/members/${memberId}`,
         createLogin: (memberId: string) => `/members/${memberId}/create-login`,
+        provisionAccount: (memberId: string) => `/members/${memberId}/accounts/provision`,
         resetPassword: (memberId: string) => `/members/${memberId}/reset-password`,
         temporaryCredential: (memberId: string) => `/members/${memberId}/temporary-credential`
     },
@@ -289,6 +290,7 @@ export const endpoints = {
         update: (memberId: string) => routeMap.members.update(memberId),
         delete: (memberId: string) => routeMap.members.delete(memberId),
         createLogin: (memberId: string) => routeMap.members.createLogin(memberId),
+        provisionAccount: (memberId: string) => routeMap.members.provisionAccount(memberId),
         resetPassword: (memberId: string) => routeMap.members.resetPassword(memberId),
         temporaryCredential: (memberId: string) => routeMap.members.temporaryCredential(memberId)
     },
@@ -531,6 +533,8 @@ export interface DeleteTenantRequest {
 export interface CreateMemberRequest {
     tenant_id?: string;
     branch_id: string;
+    savings_product_id?: string | null;
+    share_product_id?: string | null;
     first_name?: string;
     last_name?: string;
     full_name?: string;
@@ -562,12 +566,21 @@ export interface CreateMemberRequest {
     };
 }
 
+export interface ProvisionMemberAccountRequest {
+    branch_id?: string | null;
+    product_type: "savings" | "shares" | "fixed_deposit";
+    savings_product_id?: string | null;
+    share_product_id?: string | null;
+    account_name?: string | null;
+}
+
 export type MembersResponse = ApiEnvelope<Member[]>;
 export type MemberAccountsResponse = ApiEnvelope<import("../types/api").MemberAccount[]>;
 export type CreateMemberResponse = ApiEnvelope<{
     member: Member;
     login: MemberLoginProvisionResult | null;
 }>;
+export type ProvisionMemberAccountResponse = ApiEnvelope<import("../types/api").MemberAccount>;
 export interface UpdateMemberRequest {
     branch_id?: string;
     full_name?: string;

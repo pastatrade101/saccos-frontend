@@ -53,7 +53,11 @@ import {
     type CreateMemberLoginResponse,
     type CreateMemberRequest,
     type CreateMemberResponse,
+    type MemberAccountsResponse,
     type MembersResponse,
+    type ProvisionMemberAccountRequest,
+    type ProvisionMemberAccountResponse,
+    type ProductBootstrapResponse,
     type ResetMemberPasswordRequest,
     type ResetMemberPasswordResponse,
     type TemporaryCredentialResponse,
@@ -61,7 +65,7 @@ import {
     type UpdateMemberResponse
 } from "../lib/endpoints";
 import { supabase } from "../lib/supabase";
-import type { Branch, Member, MemberAccount } from "../types/api";
+import type { Branch, Member, MemberAccount, ProductBootstrapPayload } from "../types/api";
 import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
 const schema = z.object({
@@ -75,6 +79,8 @@ const schema = z.object({
     email: z.string().email("Enter a valid email.").optional().or(z.literal("")),
     national_id: z.string().min(5, "National ID is required."),
     branch_id: z.string().uuid("Select a branch."),
+    savings_product_id: z.string().uuid("Select a savings product."),
+    share_product_id: z.string().uuid("Select a share product."),
     status: z.enum(["active", "suspended", "exited"]).default("active"),
     create_login: z.boolean().default(false),
     send_invite: z.boolean().default(true),
@@ -99,6 +105,31 @@ const schema = z.object({
 
 type MemberFormValues = z.infer<typeof schema>;
 type MemberWithAccount = Member & { account?: MemberAccount | null };
+
+const provisionAccountSchema = z.object({
+    product_type: z.enum(["savings", "shares"]).default("savings"),
+    savings_product_id: z.string().optional().or(z.literal("")),
+    share_product_id: z.string().optional().or(z.literal("")),
+    account_name: z.string().max(120, "Keep the account name under 120 characters.").optional().or(z.literal(""))
+}).superRefine((value, ctx) => {
+    if (value.product_type === "savings" && !value.savings_product_id) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Select a savings product.",
+            path: ["savings_product_id"]
+        });
+    }
+
+    if (value.product_type === "shares" && !value.share_product_id) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Select a share product.",
+            path: ["share_product_id"]
+        });
+    }
+});
+
+type ProvisionAccountValues = z.infer<typeof provisionAccountSchema>;
 
 const updateSchema = z.object({
     full_name: z.string().min(3, "Full name is required."),
@@ -135,8 +166,43 @@ interface MemberCredentialsHandoff {
 type MemberStatusFilter = "all" | "active" | "suspended" | "exited";
 type MemberOperationalFilter = "all" | "ready" | "needs_login" | "needs_account" | "needs_review";
 
+const emptyProductBootstrap: ProductBootstrapPayload = {
+    savings_products: [],
+    loan_products: [],
+    share_products: [],
+    fee_rules: [],
+    penalty_rules: [],
+    posting_rules: [],
+    chart_of_accounts: []
+};
+
 function composeMemberFullName(firstName: string, lastName: string) {
     return `${firstName.trim()} ${lastName.trim()}`.replace(/\s+/g, " ").trim();
+}
+
+function pickPrimaryMemberAccount(accounts: MemberAccount[]) {
+    return accounts.find((account) => account.product_type === "savings" && account.status === "active")
+        || accounts.find((account) => account.product_type === "shares" && account.status === "active")
+        || accounts[0]
+        || null;
+}
+
+function getMemberAccountProductLabel(
+    account: MemberAccount,
+    savingsProducts: ProductBootstrapPayload["savings_products"],
+    shareProducts: ProductBootstrapPayload["share_products"]
+) {
+    if (account.product_type === "savings") {
+        const product = savingsProducts.find((entry) => entry.id === account.savings_product_id);
+        return product ? `${product.name} (${product.code})` : "Savings product";
+    }
+
+    if (account.product_type === "shares") {
+        const product = shareProducts.find((entry) => entry.id === account.share_product_id);
+        return product ? `${product.name} (${product.code})` : "Share product";
+    }
+
+    return "Fixed deposit";
 }
 
 function isMissingDeletedAtColumnError(error: unknown) {
@@ -212,12 +278,18 @@ export function MembersPage() {
     const { profile, selectedTenantId, selectedTenantName, selectedBranchId } = useAuth();
     const [members, setMembers] = useState<MemberWithAccount[]>([]);
     const [branches, setBranches] = useState<Branch[]>([]);
+    const [memberAccountsByMember, setMemberAccountsByMember] = useState<Record<string, MemberAccount[]>>({});
+    const [productBootstrap, setProductBootstrap] = useState<ProductBootstrapPayload>(emptyProductBootstrap);
     const [selectedMember, setSelectedMember] = useState<MemberWithAccount | null>(null);
+    const [selectedMemberAccounts, setSelectedMemberAccounts] = useState<MemberAccount[]>([]);
     const [loading, setLoading] = useState(true);
     const [accountsLoading, setAccountsLoading] = useState(false);
     const [accountsLoaded, setAccountsLoaded] = useState(false);
+    const [selectedMemberAccountsLoading, setSelectedMemberAccountsLoading] = useState(false);
+    const [productBootstrapLoading, setProductBootstrapLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [updatingMember, setUpdatingMember] = useState(false);
+    const [provisioningAccount, setProvisioningAccount] = useState(false);
     const [provisioningLogin, setProvisioningLogin] = useState(false);
     const [resettingMemberPassword, setResettingMemberPassword] = useState(false);
     const [deletingMember, setDeletingMember] = useState(false);
@@ -226,6 +298,8 @@ export function MembersPage() {
     const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
     const [showMemberWorkspaceModal, setShowMemberWorkspaceModal] = useState(false);
     const [showOnboardForm, setShowOnboardForm] = useState(false);
+    const [showProvisionAccountDialog, setShowProvisionAccountDialog] = useState(false);
+    const [showUpdateMemberForm, setShowUpdateMemberForm] = useState(false);
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
     const [lastMemberCredentials, setLastMemberCredentials] = useState<MemberCredentialsHandoff | null>(null);
     const [search, setSearch] = useState("");
@@ -269,6 +343,8 @@ export function MembersPage() {
             email: "",
             national_id: "",
             branch_id: selectedBranchId || "",
+            savings_product_id: "",
+            share_product_id: "",
             status: "active",
             create_login: false,
             send_invite: true,
@@ -297,9 +373,45 @@ export function MembersPage() {
         }
     });
 
+    const provisionAccountForm = useForm<ProvisionAccountValues>({
+        resolver: zodResolver(provisionAccountSchema),
+        defaultValues: {
+            product_type: "savings",
+            savings_product_id: "",
+            share_product_id: "",
+            account_name: ""
+        }
+    });
+
     const createLoginNow = form.watch("create_login");
     const onboardingInviteMode = form.watch("send_invite");
     const standaloneInviteMode = memberLoginForm.watch("send_invite");
+    const provisionProductType = provisionAccountForm.watch("product_type");
+    const activeSavingsProducts = useMemo(
+        () => productBootstrap.savings_products.filter((product) => product.status === "active"),
+        [productBootstrap.savings_products]
+    );
+    const activeShareProducts = useMemo(
+        () => productBootstrap.share_products.filter((product) => product.status === "active"),
+        [productBootstrap.share_products]
+    );
+    const productCatalogReady = activeSavingsProducts.length > 0 && activeShareProducts.length > 0;
+    const selectedMemberActiveSavingsProductIds = useMemo(
+        () => new Set(
+            selectedMemberAccounts
+                .filter((account) => account.product_type === "savings" && account.status === "active" && account.savings_product_id)
+                .map((account) => account.savings_product_id as string)
+        ),
+        [selectedMemberAccounts]
+    );
+    const availableProvisionSavingsProducts = useMemo(
+        () => activeSavingsProducts.filter((product) => !selectedMemberActiveSavingsProductIds.has(product.id)),
+        [activeSavingsProducts, selectedMemberActiveSavingsProductIds]
+    );
+    const selectedMemberHasActiveShareAccount = useMemo(
+        () => selectedMemberAccounts.some((account) => account.product_type === "shares" && account.status === "active"),
+        [selectedMemberAccounts]
+    );
 
     const loadMemberAccounts = async (options?: { silent?: boolean; force?: boolean; members?: MemberWithAccount[] }) => {
         if (!selectedTenantId) {
@@ -350,16 +462,20 @@ export function MembersPage() {
 
             const data = await fetchAccounts(true);
 
-            const accountsByMember = new Map<string, MemberAccount>();
+            const accountsByMember = new Map<string, MemberAccount[]>();
             (data || []).forEach((account) => {
-                if (!accountsByMember.has(account.member_id)) {
-                    accountsByMember.set(account.member_id, account as MemberAccount);
-                }
+                const typedAccount = account as MemberAccount;
+                const existing = accountsByMember.get(typedAccount.member_id) || [];
+                existing.push(typedAccount);
+                accountsByMember.set(typedAccount.member_id, existing);
             });
+
+            const nextAccountsByMember = Object.fromEntries(accountsByMember.entries());
+            setMemberAccountsByMember(nextAccountsByMember);
 
             setMembers((current) => current.map((member) => ({
                 ...member,
-                account: accountsByMember.get(member.id) || null
+                account: pickPrimaryMemberAccount(accountsByMember.get(member.id) || [])
             })));
             setSelectedMember((current) => {
                 if (!current) {
@@ -368,7 +484,7 @@ export function MembersPage() {
 
                 return {
                     ...current,
-                    account: accountsByMember.get(current.id) || null
+                    account: pickPrimaryMemberAccount(accountsByMember.get(current.id) || [])
                 };
             });
             setAccountsLoaded(true);
@@ -386,11 +502,93 @@ export function MembersPage() {
         }
     };
 
+    const loadProductBootstrap = async () => {
+        if (!selectedTenantId) {
+            setProductBootstrap(emptyProductBootstrap);
+            setProductBootstrapLoading(false);
+            return;
+        }
+
+        setProductBootstrapLoading(true);
+
+        try {
+            const { data } = await api.get<ProductBootstrapResponse>(endpoints.products.bootstrap(), {
+                params: { tenant_id: selectedTenantId }
+            });
+            setProductBootstrap(data.data || emptyProductBootstrap);
+        } catch (error) {
+            setProductBootstrap(emptyProductBootstrap);
+            pushToast({
+                type: "error",
+                title: "Unable to load product catalog",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setProductBootstrapLoading(false);
+        }
+    };
+
+    const loadSelectedMemberAccounts = async (memberId: string) => {
+        if (!selectedTenantId) {
+            setSelectedMemberAccounts([]);
+            setSelectedMemberAccountsLoading(false);
+            return;
+        }
+
+        setSelectedMemberAccountsLoading(true);
+
+        try {
+            const { data } = await api.get<MemberAccountsResponse>(endpoints.members.accounts(), {
+                params: {
+                    tenant_id: selectedTenantId,
+                    member_id: memberId,
+                    page: 1,
+                    limit: 100
+                }
+            });
+
+            const nextAccounts = data.data || [];
+            setSelectedMemberAccounts(nextAccounts);
+            setMemberAccountsByMember((current) => ({
+                ...current,
+                [memberId]: nextAccounts
+            }));
+            setMembers((current) => current.map((member) => (
+                member.id === memberId
+                    ? {
+                        ...member,
+                        account: pickPrimaryMemberAccount(nextAccounts)
+                    }
+                    : member
+            )));
+            setSelectedMember((current) => (
+                current && current.id === memberId
+                    ? {
+                        ...current,
+                        account: pickPrimaryMemberAccount(nextAccounts)
+                    }
+                    : current
+            ));
+        } catch (error) {
+            setSelectedMemberAccounts([]);
+            pushToast({
+                type: "error",
+                title: "Unable to load member accounts",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setSelectedMemberAccountsLoading(false);
+        }
+    };
+
     const loadMembers = async () => {
         if (!selectedTenantId) {
             setMembers([]);
             setBranches([]);
+            setMemberAccountsByMember({});
             setSelectedMember(null);
+            setSelectedMemberAccounts([]);
+            setProductBootstrap(emptyProductBootstrap);
             setServerTotalMembers(0);
             setAccountsLoaded(false);
             setAccountsLoading(false);
@@ -462,8 +660,24 @@ export function MembersPage() {
     }, [branchFilter, deferredSearch, page, selectedTenantId, statusFilter]);
 
     useEffect(() => {
+        void loadProductBootstrap();
+    }, [selectedTenantId]);
+
+    useEffect(() => {
         form.setValue("branch_id", selectedBranchId || branches[0]?.id || "");
     }, [branches, form, selectedBranchId]);
+
+    useEffect(() => {
+        const savingsId = form.getValues("savings_product_id");
+        if (!savingsId || !activeSavingsProducts.some((product) => product.id === savingsId)) {
+            form.setValue("savings_product_id", activeSavingsProducts[0]?.id || "", { shouldValidate: Boolean(showOnboardForm) });
+        }
+
+        const shareId = form.getValues("share_product_id");
+        if (!shareId || !activeShareProducts.some((product) => product.id === shareId)) {
+            form.setValue("share_product_id", activeShareProducts[0]?.id || "", { shouldValidate: Boolean(showOnboardForm) });
+        }
+    }, [activeSavingsProducts, activeShareProducts, form, showOnboardForm]);
 
     useEffect(() => {
         memberLoginForm.reset({
@@ -485,10 +699,30 @@ export function MembersPage() {
     }, [branches, selectedBranchId, selectedMember, updateForm]);
 
     useEffect(() => {
+        provisionAccountForm.reset({
+            product_type: "savings",
+            savings_product_id: availableProvisionSavingsProducts[0]?.id || "",
+            share_product_id: activeShareProducts[0]?.id || "",
+            account_name: ""
+        });
+    }, [activeShareProducts, availableProvisionSavingsProducts, provisionAccountForm, selectedMember]);
+
+    useEffect(() => {
         if (selectedBranchId && branchFilter === "all") {
             setBranchFilter(selectedBranchId);
         }
     }, [branchFilter, selectedBranchId]);
+
+    useEffect(() => {
+        if (!selectedMember?.id) {
+            setSelectedMemberAccounts([]);
+            setSelectedMemberAccountsLoading(false);
+            setShowUpdateMemberForm(false);
+            return;
+        }
+
+        void loadSelectedMemberAccounts(selectedMember.id);
+    }, [selectedMember?.id, selectedTenantId]);
 
     const filteredMembers = useMemo(() => {
         return members.filter((member) => {
@@ -549,6 +783,8 @@ export function MembersPage() {
             const payload: CreateMemberRequest = {
                 tenant_id: selectedTenantId || undefined,
                 branch_id: values.branch_id,
+                savings_product_id: values.savings_product_id,
+                share_product_id: values.share_product_id,
                 first_name: values.first_name.trim(),
                 last_name: values.last_name.trim(),
                 full_name: fullName,
@@ -596,6 +832,8 @@ export function MembersPage() {
                 email: "",
                 national_id: "",
                 branch_id: values.branch_id,
+                savings_product_id: activeSavingsProducts[0]?.id || "",
+                share_product_id: activeShareProducts[0]?.id || "",
                 status: "active",
                 create_login: false,
                 send_invite: true,
@@ -611,6 +849,51 @@ export function MembersPage() {
             });
         } finally {
             setSubmitting(false);
+        }
+    });
+
+    const provisionAccount = provisionAccountForm.handleSubmit(async (values) => {
+        if (!selectedMember) {
+            return;
+        }
+
+        setProvisioningAccount(true);
+
+        try {
+            const payload: ProvisionMemberAccountRequest = {
+                product_type: values.product_type,
+                savings_product_id: values.product_type === "savings" ? values.savings_product_id || null : null,
+                share_product_id: values.product_type === "shares" ? values.share_product_id || null : null,
+                account_name: values.account_name?.trim() || null
+            };
+
+            const { data } = await api.post<ProvisionMemberAccountResponse>(
+                endpoints.members.provisionAccount(selectedMember.id),
+                payload
+            );
+
+            pushToast({
+                type: "success",
+                title: "Account provisioned",
+                message: `${data.data.account_name} is now active for ${selectedMember.full_name}.`
+            });
+            setShowProvisionAccountDialog(false);
+            provisionAccountForm.reset({
+                product_type: "savings",
+                savings_product_id: availableProvisionSavingsProducts[0]?.id || "",
+                share_product_id: activeShareProducts[0]?.id || "",
+                account_name: ""
+            });
+            await loadMemberAccounts({ force: true, members });
+            await loadSelectedMemberAccounts(selectedMember.id);
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Provisioning failed",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setProvisioningAccount(false);
         }
     });
 
@@ -770,6 +1053,7 @@ export function MembersPage() {
                     ? { ...current, ...data.data }
                     : current
             );
+            setShowUpdateMemberForm(false);
         } catch (error) {
             pushToast({
                 type: "error",
@@ -918,6 +1202,7 @@ export function MembersPage() {
 
     const handleSelectMember = (member: MemberWithAccount) => {
         setSelectedMember(member);
+        setShowUpdateMemberForm(false);
         if (useModalMemberWorkspace) {
             setShowMemberWorkspaceModal(true);
         }
@@ -1433,16 +1718,17 @@ export function MembersPage() {
                     onClick={useModalMemberWorkspace ? () => setShowMemberWorkspaceModal(false) : undefined}
                 >
                     <Box
-                        sx={useModalMemberWorkspace ? { width: "100%", maxWidth: 980 } : undefined}
+                        sx={useModalMemberWorkspace ? { width: "min(860px, calc(100vw - 24px))" } : undefined}
                         onClick={useModalMemberWorkspace ? (event) => event.stopPropagation() : undefined}
                     >
                     <MotionCard
                         variant="outlined"
                         sx={{
-                            height: "100%",
-                            maxHeight: useModalMemberWorkspace ? "92vh" : undefined,
+                            height: useModalMemberWorkspace ? "auto" : "100%",
+                            maxHeight: useModalMemberWorkspace ? "86vh" : undefined,
                             overflowY: useModalMemberWorkspace ? "auto" : undefined,
-                            borderRadius: 2,
+                            borderRadius: useModalMemberWorkspace ? 3 : 2,
+                            boxShadow: useModalMemberWorkspace ? theme.shadows[24] : undefined,
                             background: isTeller
                                 ? `linear-gradient(180deg, ${alpha(theme.palette.background.paper, 0.98)}, ${alpha(memberAccent, 0.06)})`
                                 : undefined
@@ -1460,7 +1746,14 @@ export function MembersPage() {
                                         </Typography>
                                     </Box>
                                     {useModalMemberWorkspace ? (
-                                        <Button size="small" color="inherit" onClick={() => setShowMemberWorkspaceModal(false)}>
+                                        <Button
+                                            size="small"
+                                            color="inherit"
+                                            onClick={() => {
+                                                setShowUpdateMemberForm(false);
+                                                setShowMemberWorkspaceModal(false);
+                                            }}
+                                        >
                                             Close
                                         </Button>
                                     ) : null}
@@ -1518,6 +1811,125 @@ export function MembersPage() {
                                                 </Grid>
                                             ))}
                                         </Grid>
+
+                                        {!isTeller ? (
+                                            <Stack spacing={1.5}>
+                                                <Stack
+                                                    direction={{ xs: "column", md: "row" }}
+                                                    justifyContent="space-between"
+                                                    alignItems={{ xs: "stretch", md: "center" }}
+                                                    spacing={2}
+                                                    sx={{
+                                                        p: 2,
+                                                        border: `1px solid ${theme.palette.divider}`,
+                                                        borderRadius: 2.5,
+                                                        bgcolor: alpha(memberAccent, 0.05)
+                                                    }}
+                                                >
+                                                    <Box sx={{ minWidth: 0 }}>
+                                                        <Typography variant="subtitle1" fontWeight={700}>Provisioned Accounts</Typography>
+                                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                                            One active share capital account is allowed. Savings accounts can be added across products, but duplicate active accounts for the same savings product are blocked.
+                                                        </Typography>
+                                                    </Box>
+                                                    {canCreateMembers ? (
+                                                        <Button
+                                                            variant="contained"
+                                                            size="large"
+                                                            startIcon={<AccountBalanceWalletRoundedIcon />}
+                                                            onClick={() => setShowProvisionAccountDialog(true)}
+                                                            disabled={!productCatalogReady}
+                                                            sx={{
+                                                                minWidth: { xs: "100%", md: 220 },
+                                                                alignSelf: { xs: "stretch", md: "center" },
+                                                                py: 1.15,
+                                                                borderRadius: 2
+                                                            }}
+                                                        >
+                                                            Add New Account
+                                                        </Button>
+                                                    ) : null}
+                                                </Stack>
+
+                                                {selectedMemberAccountsLoading ? (
+                                                    <Alert severity="info" variant="outlined">
+                                                        Syncing member accounts. Provisioned savings and share accounts will appear here once the background lookup completes.
+                                                    </Alert>
+                                                ) : selectedMemberAccounts.length ? (
+                                                    <Stack
+                                                        spacing={0}
+                                                        sx={{
+                                                            border: `1px solid ${theme.palette.divider}`,
+                                                            borderRadius: 2,
+                                                            overflow: "hidden"
+                                                        }}
+                                                    >
+                                                        <Box
+                                                            sx={{
+                                                                display: "grid",
+                                                                gridTemplateColumns: { xs: "1.5fr 1.2fr 1fr", md: "1.5fr 1.2fr 1fr 1fr 0.9fr" },
+                                                                gap: 2,
+                                                                px: 2,
+                                                                py: 1.25,
+                                                                bgcolor: alpha(memberAccentStrong, 0.08),
+                                                                borderBottom: `1px solid ${theme.palette.divider}`
+                                                            }}
+                                                        >
+                                                            <Typography variant="caption" fontWeight={700}>Account</Typography>
+                                                            <Typography variant="caption" fontWeight={700}>Product</Typography>
+                                                            <Typography variant="caption" fontWeight={700}>Type</Typography>
+                                                            <Typography variant="caption" fontWeight={700} sx={{ display: { xs: "none", md: "block" } }}>Balance</Typography>
+                                                            <Typography variant="caption" fontWeight={700} sx={{ display: { xs: "none", md: "block" } }}>Status</Typography>
+                                                        </Box>
+                                                        {selectedMemberAccounts.map((account, index) => (
+                                                            <Box
+                                                                key={account.id}
+                                                                sx={{
+                                                                    display: "grid",
+                                                                    gridTemplateColumns: { xs: "1.5fr 1.2fr 1fr", md: "1.5fr 1.2fr 1fr 1fr 0.9fr" },
+                                                                    gap: 2,
+                                                                    px: 2,
+                                                                    py: 1.5,
+                                                                    bgcolor: index % 2 === 0 ? alpha(theme.palette.background.default, 0.55) : alpha(memberAccent, 0.035),
+                                                                    borderTop: index === 0 ? "none" : `1px solid ${theme.palette.divider}`
+                                                                }}
+                                                            >
+                                                                <Box>
+                                                                    <Typography variant="body2" fontWeight={700}>
+                                                                        {account.account_name}
+                                                                    </Typography>
+                                                                    <Typography variant="caption" color="text.secondary">
+                                                                        {account.account_number}
+                                                                    </Typography>
+                                                                </Box>
+                                                                <Typography variant="body2">
+                                                                    {getMemberAccountProductLabel(account, activeSavingsProducts, activeShareProducts)}
+                                                                </Typography>
+                                                                <Typography variant="body2" sx={{ textTransform: "capitalize" }}>
+                                                                    {account.product_type.replace("_", " ")}
+                                                                </Typography>
+                                                                <Typography variant="body2" sx={{ display: { xs: "none", md: "block" }, fontWeight: 600 }}>
+                                                                    {formatCurrency(account.available_balance)}
+                                                                </Typography>
+                                                                <Box sx={{ display: { xs: "none", md: "block" } }}>
+                                                                    <Chip
+                                                                        label={account.status}
+                                                                        size="small"
+                                                                        color={account.status === "active" ? "success" : "default"}
+                                                                        variant={account.status === "active" ? "filled" : "outlined"}
+                                                                        sx={{ textTransform: "capitalize" }}
+                                                                    />
+                                                                </Box>
+                                                            </Box>
+                                                        ))}
+                                                    </Stack>
+                                                ) : (
+                                                    <Alert severity="warning" variant="outlined">
+                                                        No member accounts are provisioned yet for this member.
+                                                    </Alert>
+                                                )}
+                                            </Stack>
+                                        ) : null}
 
                                         {isTeller ? (
                                             <Grid container spacing={1.5}>
@@ -1603,20 +2015,34 @@ export function MembersPage() {
                                         {!isTeller ? <Divider /> : null}
 
                                         {!isTeller ? (
-                                        <Box component="form" onSubmit={updateMember} sx={{ display: "grid", gap: 2 }}>
-                                            <Box>
-                                                <Typography variant="subtitle1">Update Member</Typography>
-                                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                                    Editing a member does not create or change login passwords.
-                                                </Typography>
-                                            </Box>
+                                        <Stack spacing={2}>
+                                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                                                <Box>
+                                                    <Typography variant="subtitle1">Update Member</Typography>
+                                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                                        Editing a member does not create or change login passwords.
+                                                    </Typography>
+                                                </Box>
+                                                {canUpdateMembers ? (
+                                                    <Button
+                                                        variant={showUpdateMemberForm ? "outlined" : "contained"}
+                                                        onClick={() => setShowUpdateMemberForm((current) => !current)}
+                                                    >
+                                                        {showUpdateMemberForm ? "Hide Edit Form" : "Edit Member"}
+                                                    </Button>
+                                                ) : null}
+                                            </Stack>
 
                                             {!canUpdateMembers ? (
                                                 <Alert severity="info" variant="outlined">
                                                     Your role can review member details but cannot edit this profile.
                                                 </Alert>
+                                            ) : !showUpdateMemberForm ? (
+                                                <Alert severity="info" variant="outlined">
+                                                    The edit form is hidden by default to keep this workspace clean. Use `Edit Member` when you want to change profile details.
+                                                </Alert>
                                             ) : (
-                                                <>
+                                                <Box component="form" onSubmit={updateMember} sx={{ display: "grid", gap: 2 }}>
                                                     <Grid container spacing={2}>
                                                         <Grid size={{ xs: 12, md: 6 }}>
                                                             <TextField
@@ -1701,9 +2127,9 @@ export function MembersPage() {
                                                             Delete Member
                                                         </Button>
                                                     ) : null}
-                                                </>
+                                                </Box>
                                             )}
-                                        </Box>
+                                        </Stack>
                                         ) : null}
 
                                         {!isTeller ? <Divider /> : null}
@@ -1994,7 +2420,7 @@ export function MembersPage() {
                 <DialogContent dividers>
                     <Stack spacing={3} sx={{ pt: 0.5 }}>
                         <Typography variant="body2" color="text.secondary">
-                            Create the member profile and the backend will automatically provision both the primary savings account and the member share capital account.
+                            Create the member profile, choose the savings and share products for initial provisioning, and the backend will open the linked member accounts against those products.
                         </Typography>
 
                         <Alert severity={createLoginNow ? "info" : "success"} variant="outlined">
@@ -2002,8 +2428,20 @@ export function MembersPage() {
                                 ? onboardingInviteMode
                                     ? "The member will be created with a linked login and receive a first-time password setup link by SMS."
                                     : "The member will be created with a linked login and either your password or a generated temporary password."
-                                : "The member will be created without a login. Access can be provisioned later from the details panel."}
+                                    : "The member will be created without a login. Access can be provisioned later from the details panel."}
                         </Alert>
+
+                        {!productCatalogReady ? (
+                            <Alert severity="warning" variant="outlined">
+                                {productBootstrapLoading
+                                    ? "Loading active savings and share products for this tenant."
+                                    : "Create at least one active savings product and one active share product before onboarding new members."}
+                            </Alert>
+                        ) : (
+                            <Alert severity="info" variant="outlined">
+                                Savings and share accounts will be provisioned using the products selected below. This keeps member accounts aligned with the branch catalog and audit trail.
+                            </Alert>
+                        )}
 
                         <Box component="form" id="member-onboard-form" onSubmit={onSubmit} sx={{ display: "grid", gap: 2 }}>
                             <Grid container spacing={2}>
@@ -2089,6 +2527,48 @@ export function MembersPage() {
                                         <MenuItem value="exited">Exited</MenuItem>
                                     </TextField>
                                 </Grid>
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <TextField
+                                        select
+                                        label="Savings Product"
+                                        fullWidth
+                                        value={form.watch("savings_product_id")}
+                                        onChange={(event) => form.setValue("savings_product_id", event.target.value, { shouldValidate: true })}
+                                        error={Boolean(form.formState.errors.savings_product_id)}
+                                        helperText={
+                                            form.formState.errors.savings_product_id?.message ||
+                                            "Choose which savings product the primary member savings account should use."
+                                        }
+                                        disabled={productBootstrapLoading || !activeSavingsProducts.length}
+                                    >
+                                        {activeSavingsProducts.map((product) => (
+                                            <MenuItem key={product.id} value={product.id}>
+                                                {`${product.name} (${product.code})`}
+                                            </MenuItem>
+                                        ))}
+                                    </TextField>
+                                </Grid>
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <TextField
+                                        select
+                                        label="Share Product"
+                                        fullWidth
+                                        value={form.watch("share_product_id")}
+                                        onChange={(event) => form.setValue("share_product_id", event.target.value, { shouldValidate: true })}
+                                        error={Boolean(form.formState.errors.share_product_id)}
+                                        helperText={
+                                            form.formState.errors.share_product_id?.message ||
+                                            "Choose which share product the member share capital account should use."
+                                        }
+                                        disabled={productBootstrapLoading || !activeShareProducts.length}
+                                    >
+                                        {activeShareProducts.map((product) => (
+                                            <MenuItem key={product.id} value={product.id}>
+                                                {`${product.name} (${product.code})`}
+                                            </MenuItem>
+                                        ))}
+                                    </TextField>
+                                </Grid>
                             </Grid>
 
                             <Divider />
@@ -2160,11 +2640,118 @@ export function MembersPage() {
                     <Button onClick={() => setShowOnboardForm(false)} disabled={submitting} color="inherit">
                         Cancel
                     </Button>
-                    <Button form="member-onboard-form" type="submit" variant="contained" disabled={submitting}>
+                    <Button
+                        form="member-onboard-form"
+                        type="submit"
+                        variant="contained"
+                        disabled={submitting || productBootstrapLoading || !productCatalogReady}
+                    >
                         {submitting ? "Creating member..." : "Create Member"}
                     </Button>
                 </DialogActions>
             </MotionModal>
+
+            <Dialog
+                open={showProvisionAccountDialog}
+                onClose={provisioningAccount ? undefined : () => setShowProvisionAccountDialog(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>Provision Additional Account</DialogTitle>
+                <DialogContent dividers>
+                    <Stack component="form" id="member-provision-account-form" spacing={2.5} sx={{ pt: 0.5 }} onSubmit={provisionAccount}>
+                        <Typography variant="body2" color="text.secondary">
+                            Open a new member account against a specific product. Savings allows multiple products, while share capital stays limited to one active account per member.
+                        </Typography>
+
+                        {!productCatalogReady ? (
+                            <Alert severity="warning" variant="outlined">
+                                Active savings and share products must be configured before you can provision new accounts.
+                            </Alert>
+                        ) : null}
+
+                        <TextField
+                            select
+                            label="Account Type"
+                            fullWidth
+                            value={provisionProductType}
+                            onChange={(event) => provisionAccountForm.setValue("product_type", event.target.value as ProvisionAccountValues["product_type"], { shouldValidate: true })}
+                            helperText={
+                                selectedMemberHasActiveShareAccount
+                                    ? "This member already has an active share capital account. Savings products without active accounts remain available."
+                                    : "Fixed deposit accounts will appear here once a dedicated fixed deposit product catalog is introduced."
+                            }
+                        >
+                            <MenuItem value="savings">Savings</MenuItem>
+                            <MenuItem value="shares" disabled={selectedMemberHasActiveShareAccount}>Share Capital</MenuItem>
+                        </TextField>
+
+                        {provisionProductType === "savings" ? (
+                            <TextField
+                                select
+                                label="Savings Product"
+                                fullWidth
+                                value={provisionAccountForm.watch("savings_product_id")}
+                                onChange={(event) => provisionAccountForm.setValue("savings_product_id", event.target.value, { shouldValidate: true })}
+                                error={Boolean(provisionAccountForm.formState.errors.savings_product_id)}
+                                helperText={
+                                    provisionAccountForm.formState.errors.savings_product_id?.message
+                                    || "Members can hold multiple savings accounts, but only one active account per savings product."
+                                }
+                                disabled={!availableProvisionSavingsProducts.length}
+                            >
+                                {availableProvisionSavingsProducts.map((product) => (
+                                    <MenuItem key={product.id} value={product.id}>
+                                        {`${product.name} (${product.code})`}
+                                    </MenuItem>
+                                ))}
+                            </TextField>
+                        ) : (
+                            <TextField
+                                select
+                                label="Share Product"
+                                fullWidth
+                                value={provisionAccountForm.watch("share_product_id")}
+                                onChange={(event) => provisionAccountForm.setValue("share_product_id", event.target.value, { shouldValidate: true })}
+                                error={Boolean(provisionAccountForm.formState.errors.share_product_id)}
+                                helperText={
+                                    provisionAccountForm.formState.errors.share_product_id?.message
+                                    || "Only one active share capital account is allowed for a member."
+                                }
+                                disabled={!activeShareProducts.length}
+                            >
+                                {activeShareProducts.map((product) => (
+                                    <MenuItem key={product.id} value={product.id}>
+                                        {`${product.name} (${product.code})`}
+                                    </MenuItem>
+                                ))}
+                            </TextField>
+                        )}
+
+                        <TextField
+                            label="Account Name Override"
+                            fullWidth
+                            placeholder={selectedMember ? `${selectedMember.full_name} ${provisionProductType === "shares" ? "Share Capital" : "Savings"}` : ""}
+                            {...provisionAccountForm.register("account_name")}
+                            error={Boolean(provisionAccountForm.formState.errors.account_name)}
+                            helperText={provisionAccountForm.formState.errors.account_name?.message || "Optional. Leave blank to use the standard product-based account name."}
+                        />
+                    </Stack>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, py: 2 }}>
+                    <Button onClick={() => setShowProvisionAccountDialog(false)} disabled={provisioningAccount} color="inherit">
+                        Cancel
+                    </Button>
+                    <Button
+                        form="member-provision-account-form"
+                        type="submit"
+                        variant="contained"
+                        disabled={provisioningAccount || !productCatalogReady}
+                    >
+                        {provisioningAccount ? "Provisioning..." : "Provision Account"}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <Dialog
                 open={showBulkDeleteDialog}

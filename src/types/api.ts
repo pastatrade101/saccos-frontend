@@ -578,6 +578,8 @@ export interface MemberAccount {
     account_number: string;
     account_name: string;
     product_type: "savings" | "shares" | "fixed_deposit";
+    savings_product_id?: string | null;
+    share_product_id?: string | null;
     status: "active" | "dormant" | "closed";
     available_balance: number;
     locked_balance: number;

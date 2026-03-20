@@ -1,10 +1,12 @@
 import { MotionCard, MotionModal } from "../ui/motion";
 import {
     Alert,
+    Box,
     Card,
     CardContent,
     Chip,
     Grid,
+    Paper,
     Stack,
     Typography
 } from "@mui/material";
@@ -14,7 +16,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 import { AppLoader } from "../components/AppLoader";
 import { ChartPanel } from "../components/ChartPanel";
-import { DataTable, type Column } from "../components/DataTable";
 import { api, getApiErrorMessage } from "../lib/api";
 import { endpoints, type MemberAccountsResponse, type MembersResponse, type StatementsResponse } from "../lib/endpoints";
 import type { Member, MemberAccount, StatementRow } from "../types/api";
@@ -117,37 +118,29 @@ export function ContributionsPage() {
             series: orderedSeries
         };
     }, [shareAccounts, transactions]);
-
-    const transactionColumns: Column<StatementRow>[] = [
-        { key: "date", header: "Date", render: (row) => formatDate(row.transaction_date) },
-        { key: "member", header: "Member", render: (row) => row.member_name },
-        {
-            key: "type",
-            header: "Type",
-            render: (row) => (
-                <Chip
-                    size="small"
-                    label={row.transaction_type === "share_contribution" ? "Contribution" : "Dividend"}
-                    color={row.transaction_type === "share_contribution" ? "primary" : "success"}
-                    variant="outlined"
-                />
-            )
-        },
-        { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) },
-        { key: "balance", header: "Running Balance", render: (row) => formatCurrency(row.running_balance) },
-        { key: "reference", header: "Reference", render: (row) => row.reference || "N/A" }
-    ];
-
-    const accountColumns: Column<MemberAccount>[] = [
-        { key: "account", header: "Share Account", render: (row) => row.account_number },
-        {
-            key: "member",
-            header: "Member",
-            render: (row) => members.find((member) => member.id === row.member_id)?.full_name || "Unknown member"
-        },
-        { key: "status", header: "Status", render: (row) => row.status },
-        { key: "balance", header: "Share Capital", render: (row) => formatCurrency(row.available_balance) }
-    ];
+    const memberNameById = useMemo(
+        () =>
+            new Map(
+                members.map((member) => [member.id, member.full_name || "Unknown member"])
+            ),
+        [members]
+    );
+    const alternateRowSx = (index: number) => ({
+        p: 1.6,
+        borderRadius: 2,
+        border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+        bgcolor:
+            index % 2 === 0
+                ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.05)
+                : alpha(theme.palette.background.paper, theme.palette.mode === "dark" ? 0.86 : 0.92)
+    });
+    const listHeaderSx = {
+        px: 1.6,
+        py: 1.1,
+        borderRadius: 2,
+        border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+        bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.2 : 0.09)
+    };
 
     return (
         <Stack spacing={3}>
@@ -248,26 +241,172 @@ export function ContributionsPage() {
             </Grid>
 
             <Grid container spacing={2}>
-                <Grid size={{ xs: 12, lg: 5 }}>
-                    <MotionCard variant="outlined">
-                        <CardContent>
-                            <Typography variant="h6" gutterBottom>Share Accounts</Typography>
+                <Grid size={{ xs: 12 }}>
+                    <MotionCard variant="outlined" sx={{ height: "100%" }}>
+                        <CardContent sx={{ display: "grid", gap: 2 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                <Typography variant="h6">Share Accounts</Typography>
+                                <Chip label={`${shareAccounts.length} accounts`} size="small" color="primary" variant="outlined" />
+                            </Stack>
                             {loading ? (
                                 <AppLoader fullscreen={false} minHeight={240} message="Loading share accounts..." />
+                            ) : !shareAccounts.length ? (
+                                <Alert severity="info" variant="outlined">
+                                    No share accounts available.
+                                </Alert>
                             ) : (
-                                <DataTable rows={shareAccounts} columns={accountColumns} emptyMessage="No share accounts available." />
+                                <Box sx={{ maxHeight: 560, overflowY: "auto", pr: 0.5 }}>
+                                    <Stack spacing={1.2}>
+                                        <Paper elevation={0} sx={listHeaderSx}>
+                                            <Grid container spacing={1.5} alignItems="center">
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        SHARE ACCOUNT
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        MEMBER
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 6, md: 2 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        STATUS
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 6, md: 2 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        SHARE CAPITAL
+                                                    </Typography>
+                                                </Grid>
+                                            </Grid>
+                                        </Paper>
+                                        {shareAccounts.map((account, index) => (
+                                            <Paper key={account.id} elevation={0} sx={alternateRowSx(index)}>
+                                                <Grid container spacing={1.5} alignItems="center">
+                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                        <Typography variant="subtitle1" sx={{ fontWeight: 800 }} noWrap>
+                                                            {account.account_number}
+                                                        </Typography>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                        <Typography variant="body1" sx={{ fontWeight: 700 }} noWrap>
+                                                            {memberNameById.get(account.member_id) || "Unknown member"}
+                                                        </Typography>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                        <Chip
+                                                            size="small"
+                                                            label={account.status}
+                                                            color={account.status === "active" ? "success" : "default"}
+                                                            variant="outlined"
+                                                        />
+                                                    </Grid>
+                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                        <Typography variant="subtitle1" sx={{ fontWeight: 900, color: theme.palette.primary.main }}>
+                                                            {formatCurrency(account.available_balance)}
+                                                        </Typography>
+                                                    </Grid>
+                                                </Grid>
+                                            </Paper>
+                                        ))}
+                                    </Stack>
+                                </Box>
                             )}
                         </CardContent>
                     </MotionCard>
                 </Grid>
-                <Grid size={{ xs: 12, lg: 7 }}>
-                    <MotionCard variant="outlined">
-                        <CardContent>
-                            <Typography variant="h6" gutterBottom>Contribution Activity</Typography>
+                <Grid size={{ xs: 12 }}>
+                    <MotionCard variant="outlined" sx={{ height: "100%" }}>
+                        <CardContent sx={{ display: "grid", gap: 2 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                <Typography variant="h6">Contribution Activity</Typography>
+                                <Chip label={`${transactions.length} entries`} size="small" color="primary" variant="outlined" />
+                            </Stack>
                             {loading ? (
                                 <AppLoader fullscreen={false} minHeight={240} message="Loading contribution history..." />
+                            ) : !transactions.length ? (
+                                <Alert severity="info" variant="outlined">
+                                    No share contribution activity available.
+                                </Alert>
                             ) : (
-                                <DataTable rows={transactions} columns={transactionColumns} emptyMessage="No share contribution activity available." />
+                                <Box sx={{ maxHeight: 560, overflowY: "auto", pr: 0.5 }}>
+                                    <Stack spacing={1.2}>
+                                        <Paper elevation={0} sx={listHeaderSx}>
+                                            <Grid container spacing={1.5} alignItems="center">
+                                                <Grid size={{ xs: 12, md: 2 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        DATE
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 3 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        MEMBER
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 6, md: 2 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        TYPE
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 6, md: 2 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        AMOUNT
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 2 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        BALANCE
+                                                    </Typography>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 1 }}>
+                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
+                                                        REF
+                                                    </Typography>
+                                                </Grid>
+                                            </Grid>
+                                        </Paper>
+                                        {transactions.map((row, index) => (
+                                            <Paper key={`${row.transaction_id}-${index}`} elevation={0} sx={alternateRowSx(index)}>
+                                                <Grid container spacing={1.5} alignItems="center">
+                                                    <Grid size={{ xs: 12, md: 2 }}>
+                                                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                                            {formatDate(row.transaction_date)}
+                                                        </Typography>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 12, md: 3 }}>
+                                                        <Typography variant="body1" sx={{ fontWeight: 700 }} noWrap>
+                                                            {row.member_name}
+                                                        </Typography>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                        <Chip
+                                                            size="small"
+                                                            label={row.transaction_type === "share_contribution" ? "Contribution" : "Dividend"}
+                                                            color={row.transaction_type === "share_contribution" ? "primary" : "success"}
+                                                            variant="outlined"
+                                                        />
+                                                    </Grid>
+                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                        <Typography variant="subtitle1" sx={{ fontWeight: 900, color: theme.palette.primary.main }}>
+                                                            {formatCurrency(row.amount)}
+                                                        </Typography>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 12, md: 2 }}>
+                                                        <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                            {formatCurrency(row.running_balance)}
+                                                        </Typography>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 12, md: 1 }}>
+                                                        <Typography variant="body2" color="text.secondary" noWrap>
+                                                            {row.reference || "N/A"}
+                                                        </Typography>
+                                                    </Grid>
+                                                </Grid>
+                                            </Paper>
+                                        ))}
+                                    </Stack>
+                                </Box>
                             )}
                         </CardContent>
                     </MotionCard>

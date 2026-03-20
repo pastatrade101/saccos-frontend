@@ -38,8 +38,9 @@ export function SearchableSelect({
 
     const filteredOptions = useMemo(() => {
         const normalized = query.trim().toLowerCase();
+        const selectedLabel = selectedOption?.label?.trim().toLowerCase() || "";
 
-        if (!normalized) {
+        if (!normalized || (selectedLabel && normalized === selectedLabel)) {
             return options.slice(0, 10);
         }
 
