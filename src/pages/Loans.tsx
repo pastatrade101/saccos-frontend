@@ -380,7 +380,7 @@ export function LoansPage() {
     const pageSize = 8;
 
     const role = profile?.role || "loan_officer";
-    const canCreateApplications = ["branch_manager", "loan_officer", "teller"].includes(role);
+    const canCreateApplications = ["loan_officer", "teller"].includes(role);
     const canAppraise = role === "loan_officer";
     const canApprove = role === "branch_manager";
     const canReject = role === "branch_manager" || role === "loan_officer";

@@ -297,6 +297,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         password: string,
         options?: { challengeId?: string | null; otpCode?: string | null }
     ) => {
+        setLoading(true);
         clearStaleSupabaseSession();
         localStorage.removeItem(SELECTED_TENANT_KEY);
         localStorage.removeItem(SELECTED_BRANCH_KEY);
@@ -336,6 +337,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
                 throw error;
             }
         } catch (error) {
+            setLoading(false);
             if (axios.isAxiosError<ApiErrorPayload>(error)) {
                 const code = error.response?.data?.error?.code;
                 const details = error.response?.data?.error?.details;

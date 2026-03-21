@@ -108,6 +108,20 @@ function PublicHomePage() {
     return <WorkspaceRedirect />;
 }
 
+function SignInRoute() {
+    const { session, loading } = useAuth();
+
+    if (loading) {
+        return <AppLoader message="Loading workspace..." />;
+    }
+
+    if (session) {
+        return <WorkspaceRedirect />;
+    }
+
+    return <SignInPage />;
+}
+
 function SetupRouteGuard({
     step,
     children
@@ -160,7 +174,7 @@ export default function App() {
     return (
         <Routes>
             <Route path="/" element={<PublicHomePage />} />
-            <Route path="/signin" element={<SignInPage />} />
+            <Route path="/signin" element={<SignInRoute />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
             <Route path="/terms-and-agreement" element={<TermsAgreementPage />} />

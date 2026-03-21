@@ -8,7 +8,7 @@ import {
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link as RouterLink, Navigate, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
 import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
@@ -46,7 +46,7 @@ const OTP_LENGTH = 6;
 export function SignInPage() {
     const navigate = useNavigate();
     const { pushToast } = useToast();
-    const { signIn, requestOtp, session } = useAuth();
+    const { signIn, requestOtp } = useAuth();
     const { theme, toggleTheme } = useUI();
     const [submitting, setSubmitting] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
@@ -75,10 +75,6 @@ export function SignInPage() {
             password: ""
         }
     });
-
-    if (session) {
-        return <Navigate to="/" replace />;
-    }
 
     const clearOtpState = () => {
         setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ""));
