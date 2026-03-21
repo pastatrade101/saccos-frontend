@@ -1495,7 +1495,7 @@ export function LoansPage() {
             key: "actions",
             header: "Actions",
             render: (row) => {
-                const canSubmit = (row.status === "draft" || row.status === "rejected") && canCreateApplications;
+                const canSubmit = row.status === "draft" && canCreateApplications;
                 const canRunAppraisal = ["submitted", "appraised"].includes(row.status) && canAppraise;
                 const canRunApproval = (["submitted", "appraised"].includes(row.status) || (row.status === "approved" && row.approval_count < row.required_approval_count)) && canApprove;
                 const canRunRejection = (["submitted", "appraised"].includes(row.status) || (row.status === "approved" && row.approval_count < row.required_approval_count)) && canReject;
