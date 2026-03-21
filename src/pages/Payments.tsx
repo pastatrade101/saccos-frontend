@@ -25,6 +25,7 @@ import {
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import { useEffect, useMemo, useState } from "react";
+import { Navigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthProvider";
 import { AppLoader } from "../components/AppLoader";
@@ -110,7 +111,8 @@ function MetricCard({ label, value, helper, icon: Icon, tone }: MetricCardProps)
 export function PaymentsPage() {
     const theme = useTheme();
     const { pushToast } = useToast();
-    const { selectedTenantId, selectedBranchId, selectedBranchName } = useAuth();
+    const { selectedTenantId, selectedBranchId, selectedBranchName, subscription } = useAuth();
+    const hasPaymentsAccess = Boolean(subscription?.features?.contributions_enabled);
     const [orders, setOrders] = useState<PaymentOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -124,7 +126,8 @@ export function PaymentsPage() {
 
     useEffect(() => {
         const loadOrders = async () => {
-            if (!selectedTenantId) {
+            if (!selectedTenantId || !hasPaymentsAccess) {
+                setOrders([]);
                 setLoading(false);
                 return;
             }
@@ -151,7 +154,7 @@ export function PaymentsPage() {
         };
 
         void loadOrders();
-    }, [selectedBranchId, selectedTenantId]);
+    }, [hasPaymentsAccess, selectedBranchId, selectedTenantId]);
 
     const mergeOrder = (nextOrder: PaymentOrder) => {
         const normalized = normalizePaymentOrder(nextOrder);
@@ -324,6 +327,10 @@ export function PaymentsPage() {
             )
         }
     ];
+
+    if (!hasPaymentsAccess) {
+        return <Navigate to="/dashboard" replace />;
+    }
 
     if (loading) {
         return <AppLoader message="Loading payment operations..." />;

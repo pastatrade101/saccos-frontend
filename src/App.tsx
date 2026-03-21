@@ -239,7 +239,7 @@ export default function App() {
                     <Route
                         element={
                             <ProtectedRoute
-                                allowedRoles={["super_admin", "branch_manager", "loan_officer", "teller"]}
+                                allowedRoles={["super_admin", "branch_manager", "teller"]}
                                 allowInternalOps={false}
                             />
                         }

@@ -84,7 +84,7 @@ const navItems: NavItem[] = [
     { to: "/staff-users", label: "Team Access", roles: ["super_admin", "branch_manager"], section: "workspace", icon: PeopleAltRoundedIcon },
     { to: "/products", label: "Products", roles: ["branch_manager"], section: "workspace", icon: TuneRoundedIcon },
     { to: "/member-applications", label: "Applications", roles: ["super_admin", "branch_manager", "auditor"], section: "workspace", icon: DescriptionRoundedIcon },
-    { to: "/members", label: "Members", roles: ["super_admin", "branch_manager", "loan_officer", "teller"], section: "workspace", icon: GroupRoundedIcon },
+    { to: "/members", label: "Members", roles: ["super_admin", "branch_manager", "teller"], section: "workspace", icon: GroupRoundedIcon },
     { to: "/members/import", label: "Member Import", roles: ["branch_manager"], section: "workspace", icon: StoreRoundedIcon },
     { to: "/auditor/exceptions", label: "Exceptions", roles: ["auditor"], section: "workspace", icon: WarningAmberRoundedIcon },
     { to: "/auditor/journals", label: "Journals", roles: ["auditor"], section: "workspace", icon: RuleFolderRoundedIcon },
@@ -288,6 +288,10 @@ export function AppLayout() {
         }
 
         if (item.to === "/contributions" && !subscription?.features?.contributions_enabled) {
+            return false;
+        }
+
+        if (item.to === "/payments" && !subscription?.features?.contributions_enabled) {
             return false;
         }
 

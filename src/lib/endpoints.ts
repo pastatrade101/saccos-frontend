@@ -305,6 +305,7 @@ export const endpoints = {
     loanApplications: {
         list: () => routeMap.loanApplications.list,
         detail: (applicationId: string) => routeMap.loanApplications.detail(applicationId),
+        update: (applicationId: string) => routeMap.loanApplications.detail(applicationId),
         submit: (applicationId: string) => routeMap.loanApplications.submit(applicationId),
         appraise: (applicationId: string) => routeMap.loanApplications.appraise(applicationId),
         approve: (applicationId: string) => routeMap.loanApplications.approve(applicationId),

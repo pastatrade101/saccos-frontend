@@ -383,6 +383,7 @@ export function LoansPage() {
     const canCreateApplications = ["branch_manager", "loan_officer", "teller"].includes(role);
     const canAppraise = role === "loan_officer";
     const canApprove = role === "branch_manager";
+    const canReject = role === "branch_manager" || role === "loan_officer";
     const canDisburse = role === "loan_officer" || role === "teller";
     const canRepay = role === "loan_officer" || role === "teller";
 
@@ -771,7 +772,9 @@ export function LoansPage() {
         const outstandingPrincipal = loans.reduce((sum, loan) => sum + loan.outstanding_principal, 0);
         const activeLoans = loans.filter((loan) => loan.status === "active").length;
         const arrearsLoans = loans.filter((loan) => loan.status === "in_arrears").length;
-        const awaitingAppraisal = applications.filter((application) => application.status === "submitted").length;
+        const awaitingAppraisal = role === "branch_manager"
+            ? 0
+            : applications.filter((application) => application.status === "submitted").length;
         const awaitingApproval = applications.filter((application) => application.status === "appraised" || (application.status === "approved" && application.approval_count < application.required_approval_count)).length;
         const readyToDisburse = applications.filter((application) => application.status === "approved" && !application.loan_id).length;
 
@@ -783,7 +786,7 @@ export function LoansPage() {
             awaitingApproval,
             readyToDisburse
         };
-    }, [applications, loans]);
+    }, [applications, loans, role]);
     const dashboardAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
     const dashboardAccentStrong = theme.palette.mode === "dark" ? "#C89B52" : theme.palette.primary.dark;
     const darkAccentContainedSx = theme.palette.mode === "dark"
@@ -1187,6 +1190,16 @@ export function LoansPage() {
             return;
         }
 
+        if (!canApprove) {
+            pushToast({
+                type: "error",
+                title: "Approval not allowed",
+                message: "Only branch managers can approve loan applications."
+            });
+            setApprovalTarget(null);
+            return;
+        }
+
         const unresolvedGuarantors = getUnresolvedGuarantorConsents(approvalTarget);
         if (unresolvedGuarantors.length) {
             pushToast({
@@ -1481,91 +1494,152 @@ export function LoansPage() {
         {
             key: "actions",
             header: "Actions",
-            render: (row) => (
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            render: (row) => {
+                const canSubmit = (row.status === "draft" || row.status === "rejected") && canCreateApplications;
+                const canRunAppraisal = ["submitted", "appraised"].includes(row.status) && canAppraise;
+                const canRunApproval = (["submitted", "appraised"].includes(row.status) || (row.status === "approved" && row.approval_count < row.required_approval_count)) && canApprove;
+                const canRunRejection = (["submitted", "appraised"].includes(row.status) || (row.status === "approved" && row.approval_count < row.required_approval_count)) && canReject;
+                const canRunDisbursement = row.status === "approved" && !row.loan_id && canDisburse;
+
+                const openApproval = () => {
+                    const unresolvedGuarantors = getUnresolvedGuarantorConsents(row);
+                    if (unresolvedGuarantors.length) {
+                        pushToast({
+                            type: "error",
+                            title: "Guarantor consent pending",
+                            message: "All listed guarantors must accept before approval can proceed."
+                        });
+                        return;
+                    }
+                    setApprovalTarget(row);
+                    approveForm.reset({ notes: "" });
+                };
+
+                const openDisbursement = () => {
+                    const unresolvedGuarantors = getUnresolvedGuarantorConsents(row);
+                    if (unresolvedGuarantors.length) {
+                        pushToast({
+                            type: "error",
+                            title: "Guarantor consent pending",
+                            message: "Loan disbursement is blocked until all guarantors accept."
+                        });
+                        return;
+                    }
+                    setDisbursementTarget(row);
+                    disburseForm.reset({
+                        reference: row.external_reference || "",
+                        description: row.purpose || ""
+                    });
+                };
+
+                let primaryAction = (
                     <Button
                         size="small"
                         variant="outlined"
                         color="inherit"
                         startIcon={<VisibilityRoundedIcon />}
                         onClick={() => setReviewTarget(row)}
+                        fullWidth
                         sx={darkAccentOutlinedSx}
                     >
                         View Details
                     </Button>
-                    {(row.status === "draft" || row.status === "rejected") && canCreateApplications ? (
-                        <Button size="small" variant="outlined" color="inherit" onClick={() => void submitDraftApplication(row)} sx={darkAccentOutlinedSx}>
-                            Submit
-                        </Button>
-                    ) : null}
-                    {["submitted", "appraised"].includes(row.status) && canAppraise ? (
-                        <Button size="small" variant="outlined" color="inherit" onClick={() => openAppraisalDialog(row)} sx={darkAccentOutlinedSx}>
-                            {row.status === "submitted" ? "Appraise" : "Update Appraisal"}
-                        </Button>
-                    ) : null}
-                    {(row.status === "appraised" || (row.status === "approved" && row.approval_count < row.required_approval_count)) && canApprove ? (
-                        <>
-                            <Button
-                                size="small"
-                                variant="contained"
-                                onClick={() => {
-                                    const unresolvedGuarantors = getUnresolvedGuarantorConsents(row);
-                                    if (unresolvedGuarantors.length) {
-                                        pushToast({
-                                            type: "error",
-                                            title: "Guarantor consent pending",
-                                            message: "All listed guarantors must accept before approval can proceed."
-                                        });
-                                        return;
-                                    }
-                                    setApprovalTarget(row);
-                                    approveForm.reset({ notes: "" });
-                                }}
-                                sx={darkAccentContainedSx}
-                            >
-                                Approve
-                            </Button>
-                            <Button
-                                size="small"
-                                variant="outlined"
-                                color="inherit"
-                                onClick={() => {
-                                    setRejectionTarget(row);
-                                    rejectForm.reset({ reason: "", notes: "" });
-                                }}
-                                sx={darkAccentOutlinedSx}
-                            >
-                                Reject
-                            </Button>
-                        </>
-                    ) : null}
-                    {row.status === "approved" && !row.loan_id && canDisburse ? (
+                );
+
+                if (canRunDisbursement) {
+                    primaryAction = (
                         <Button
                             size="small"
                             variant="contained"
                             color="success"
-                            onClick={() => {
-                                const unresolvedGuarantors = getUnresolvedGuarantorConsents(row);
-                                if (unresolvedGuarantors.length) {
-                                    pushToast({
-                                        type: "error",
-                                        title: "Guarantor consent pending",
-                                        message: "Loan disbursement is blocked until all guarantors accept."
-                                    });
-                                    return;
-                                }
-                                setDisbursementTarget(row);
-                                disburseForm.reset({
-                                    reference: row.external_reference || "",
-                                    description: row.purpose || ""
-                                });
-                            }}
+                            onClick={openDisbursement}
+                            fullWidth
                         >
-                            Disburse
+                            Disburse Loan
                         </Button>
-                    ) : null}
-                </Stack>
-            )
+                    );
+                } else if (canRunApproval) {
+                    primaryAction = (
+                        <Button
+                            size="small"
+                            variant="contained"
+                            onClick={openApproval}
+                            fullWidth
+                            sx={darkAccentContainedSx}
+                        >
+                            Approve Application
+                        </Button>
+                    );
+                } else if (canRunAppraisal) {
+                    primaryAction = (
+                        <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => openAppraisalDialog(row)}
+                            fullWidth
+                            sx={darkAccentContainedSx}
+                        >
+                            {row.status === "submitted" ? "Start Appraisal" : "Update Appraisal"}
+                        </Button>
+                    );
+                } else if (canSubmit) {
+                    primaryAction = (
+                        <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => void submitDraftApplication(row)}
+                            fullWidth
+                            sx={darkAccentContainedSx}
+                        >
+                            Submit Application
+                        </Button>
+                    );
+                }
+
+                return (
+                    <Stack
+                        spacing={0.9}
+                        sx={{
+                            minWidth: 190,
+                            p: 1,
+                            borderRadius: 2.5,
+                            border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+                            bgcolor: theme.palette.mode === "dark" ? alpha(dashboardAccent, 0.08) : alpha(theme.palette.primary.main, 0.03)
+                        }}
+                    >
+                        <Typography variant="caption" sx={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }} color="text.secondary">
+                            Next action
+                        </Typography>
+                        {primaryAction}
+                        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                            <Button
+                                size="small"
+                                variant="text"
+                                color="inherit"
+                                startIcon={<VisibilityRoundedIcon />}
+                                onClick={() => setReviewTarget(row)}
+                                sx={{ minWidth: 0, px: 0.5 }}
+                            >
+                                Review
+                            </Button>
+                            {canRunRejection ? (
+                                <Button
+                                    size="small"
+                                    variant="text"
+                                    color="inherit"
+                                    onClick={() => {
+                                        setRejectionTarget(row);
+                                        rejectForm.reset({ reason: "", notes: "" });
+                                    }}
+                                    sx={{ minWidth: 0, px: 0.5, color: theme.palette.error.main }}
+                                >
+                                    Reject
+                                </Button>
+                            ) : null}
+                        </Stack>
+                    </Stack>
+                );
+            }
         }
     ];
 
@@ -1978,17 +2052,9 @@ export function LoansPage() {
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
                         <MetricCard
-                            title="Awaiting Appraisal"
-                            value={String(metrics.awaitingAppraisal)}
-                            helper="Submitted applications waiting for loan officer review."
-                            icon={<PendingActionsRoundedIcon fontSize="small" />}
-                        />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                        <MetricCard
-                            title="Awaiting Approval"
+                            title="Approval Queue"
                             value={String(metrics.awaitingApproval)}
-                            helper="Appraised applications pending branch approval."
+                            helper="Appraised applications currently waiting for branch approval."
                             icon={<ApprovalRoundedIcon fontSize="small" />}
                         />
                     </Grid>
@@ -1996,8 +2062,16 @@ export function LoansPage() {
                         <MetricCard
                             title="Ready to Disburse"
                             value={String(metrics.readyToDisburse)}
-                            helper="Approved applications waiting for teller or loan officer execution."
+                            helper="Approved applications waiting for loan officer or teller execution."
                             icon={<PlaylistAddCheckRoundedIcon fontSize="small" />}
+                        />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                        <MetricCard
+                            title="Open Default Cases"
+                            value={String(openDefaultCaseCount)}
+                            helper="Detected default cases requiring branch follow-up."
+                            icon={<PendingActionsRoundedIcon fontSize="small" />}
                         />
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
@@ -2043,60 +2117,58 @@ export function LoansPage() {
             </MotionCard>
 
             {activeTab === "applications" ? (
-                <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, lg: 8 }}>
-                        <MotionCard variant="outlined">
-                            <CardContent>
-                                <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
+                <Stack spacing={2}>
+                    <MotionCard variant="outlined">
+                        <CardContent>
+                            <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
+                                <Box>
+                                    <Typography variant="h6">Loan Applications</Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Review every step before the final disbursement posting occurs.
+                                    </Typography>
+                                </Box>
+                                <Chip
+                                    label={`${applicationTotal} application(s)`}
+                                    color="primary"
+                                    variant="outlined"
+                                    sx={darkAccentChipSx}
+                                />
+                            </Stack>
+                            <DataTable rows={paginatedApplications} columns={applicationColumns} emptyMessage={loading ? "Loading applications..." : "No loan applications found."} />
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }}>
+                                <Typography variant="body2" color="text.secondary">
+                                    Showing {applicationTotal ? (applicationPage - 1) * pageSize + 1 : 0}-{Math.min(applicationPage * pageSize, applicationTotal)} of {applicationTotal}
+                                </Typography>
+                                <Pagination
+                                    page={applicationPage}
+                                    count={applicationTotalPages}
+                                    onChange={(_, value) => setApplicationPage(value)}
+                                    color="primary"
+                                    sx={darkAccentPaginationSx}
+                                />
+                            </Stack>
+                        </CardContent>
+                    </MotionCard>
+
+                    <MotionCard variant="outlined">
+                        <CardContent>
+                            {role === "loan_officer" ? (
+                                <Stack spacing={2}>
                                     <Box>
-                                        <Typography variant="h6">Loan Applications</Typography>
-                                        <Typography variant="body2" color="text.secondary">
-                                            Review every step before the final disbursement posting occurs.
+                                        <Typography variant="h6">Officer Action Queue</Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                            Keep pipeline, disbursement, and collections actions visible in one place.
                                         </Typography>
                                     </Box>
-                                    <Chip
-                                        label={`${applicationTotal} application(s)`}
-                                        color="primary"
-                                        variant="outlined"
-                                        sx={darkAccentChipSx}
-                                    />
-                                </Stack>
-                                <DataTable rows={paginatedApplications} columns={applicationColumns} emptyMessage={loading ? "Loading applications..." : "No loan applications found."} />
-                                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }}>
-                                    <Typography variant="body2" color="text.secondary">
-                                        Showing {applicationTotal ? (applicationPage - 1) * pageSize + 1 : 0}-{Math.min(applicationPage * pageSize, applicationTotal)} of {applicationTotal}
-                                    </Typography>
-                                    <Pagination
-                                        page={applicationPage}
-                                        count={applicationTotalPages}
-                                        onChange={(_, value) => setApplicationPage(value)}
-                                        color="primary"
-                                        sx={darkAccentPaginationSx}
-                                    />
-                                </Stack>
-                            </CardContent>
-                        </MotionCard>
-                    </Grid>
-                    <Grid size={{ xs: 12, lg: 4 }}>
-                        <MotionCard variant="outlined" sx={{ height: "100%" }}>
-                            <CardContent>
-                                {role === "loan_officer" ? (
-                                    <Stack spacing={2}>
-                                        <Box>
-                                            <Typography variant="h6">Officer Action Queue</Typography>
-                                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                                Keep pipeline, disbursement, and collections actions visible in one place.
-                                            </Typography>
-                                        </Box>
-                                        <Stack spacing={1.1}>
-                                            {loanOfficerQueue.map((item) => (
+                                    <Grid container spacing={1.25}>
+                                        {loanOfficerQueue.map((item) => (
+                                            <Grid key={item.id} size={{ xs: 12, md: 6 }}>
                                                 <Button
-                                                    key={item.id}
                                                     fullWidth
                                                     variant="outlined"
                                                     color="inherit"
                                                     onClick={() => navigate(item.route)}
-                                                    sx={{ justifyContent: "space-between", textTransform: "none", borderStyle: "dashed" }}
+                                                    sx={{ justifyContent: "space-between", textTransform: "none", borderStyle: "dashed", minHeight: 88 }}
                                                 >
                                                     <Stack spacing={0.25} sx={{ textAlign: "left", flex: 1 }}>
                                                         <Typography variant="subtitle2">{item.label}</Typography>
@@ -2108,29 +2180,29 @@ export function LoansPage() {
                                                         color={item.tone === "error" ? "error" : item.tone === "warning" ? "warning" : "success"}
                                                     />
                                                 </Button>
-                                            ))}
-                                        </Stack>
-                                    </Stack>
-                                ) : (
-                                    <>
-                                        <Typography variant="h6">Workflow Guardrails</Typography>
-                                        <Stack spacing={1.5} sx={{ mt: 2 }}>
-                                        <Alert severity="info" variant="outlined" sx={darkAccentInfoAlertSx}>
-                                            Members and staff originate applications. Drafts or rejected applications must be submitted before they can be appraised.
+                                            </Grid>
+                                        ))}
+                                    </Grid>
+                                </Stack>
+                            ) : (
+                                <>
+                                    <Typography variant="h6">Workflow Guardrails</Typography>
+                                    <Stack spacing={1.5} sx={{ mt: 2 }}>
+                                    <Alert severity="info" variant="outlined" sx={darkAccentInfoAlertSx}>
+                                        Members and staff originate applications. Drafts or rejected applications must be submitted before they can be appraised.
+                                    </Alert>
+                                        <Alert severity="warning" variant="outlined">
+                                            Loan officers appraise first. Loan officers or branch managers can reject for rework, while final approval remains with branch managers. The maker cannot approve the same application.
                                         </Alert>
-                                            <Alert severity="warning" variant="outlined">
-                                                Loan officers appraise first. Branch managers then approve or reject. The maker cannot approve the same application.
-                                            </Alert>
-                                            <Alert severity="success" variant="outlined">
-                                                Teller or loan officer disbursement is the only step that triggers the double-entry loan posting procedure.
-                                            </Alert>
-                                        </Stack>
-                                    </>
-                                )}
-                            </CardContent>
-                        </MotionCard>
-                    </Grid>
-                </Grid>
+                                        <Alert severity="success" variant="outlined">
+                                            Teller or loan officer disbursement is the only step that triggers the double-entry loan posting procedure.
+                                        </Alert>
+                                    </Stack>
+                                </>
+                            )}
+                        </CardContent>
+                    </MotionCard>
+                </Stack>
             ) : null}
 
             {activeTab === "portfolio" ? (
@@ -2775,6 +2847,22 @@ export function LoansPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setReviewTarget(null)}>Close</Button>
+                    {reviewTarget
+                    && (["submitted", "appraised"].includes(reviewTarget.status) || (reviewTarget.status === "approved" && reviewTarget.approval_count < reviewTarget.required_approval_count))
+                    && canReject ? (
+                            <Button
+                                variant="outlined"
+                                color="inherit"
+                                onClick={() => {
+                                    setRejectionTarget(reviewTarget);
+                                    rejectForm.reset({ reason: "", notes: "" });
+                                    setReviewTarget(null);
+                                }}
+                                sx={darkAccentOutlinedSx}
+                            >
+                                Reject Application
+                            </Button>
+                        ) : null}
                     {reviewTarget && ["submitted", "appraised"].includes(reviewTarget.status) && canAppraise ? (
                         <Button
                             variant="contained"
@@ -2969,7 +3057,7 @@ export function LoansPage() {
                 </DialogActions>
             </MotionModal>
 
-            <MotionModal open={Boolean(approvalTarget)} onClose={processing ? undefined : () => setApprovalTarget(null)} maxWidth="sm" fullWidth>
+            <MotionModal open={Boolean(approvalTarget) && canApprove} onClose={processing ? undefined : () => setApprovalTarget(null)} maxWidth="sm" fullWidth>
                 <DialogTitle>Approve Loan Application</DialogTitle>
                 <DialogContent dividers>
                     <Box component="form" id="loan-approve-form" onSubmit={saveApproval} sx={{ display: "grid", gap: 2, pt: 0.5 }}>

@@ -34,6 +34,7 @@ import {
     Button,
     Card,
     CardContent,
+    Checkbox,
     Divider,
     Dialog,
     DialogActions,
@@ -42,6 +43,7 @@ import {
     Chip,
     CircularProgress,
     Drawer,
+    FormControlLabel,
     Grid,
     IconButton,
     InputBase,
@@ -81,6 +83,7 @@ import { api, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
     type CreateLoanApplicationRequest,
+    type UpdateLoanApplicationRequest,
     type LoanApplicationResponse,
     type LoanApplicationsResponse,
     type LoanProductsResponse,
@@ -104,14 +107,187 @@ import type { Loan, LoanApplication, LoanProduct, LoanSchedule, Member, MemberAc
 import { downloadMemberStatementPdf } from "../utils/memberStatementPdf";
 import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
+type LoanRepaymentFrequency = "daily" | "weekly" | "monthly";
+
+const SUPPORTED_LOAN_REPAYMENT_FREQUENCIES: LoanRepaymentFrequency[] = ["daily", "weekly", "monthly"];
+const loanPurposePattern = /^[A-Za-z0-9\s,.]+$/;
+const loanReferencePattern = /^[A-Za-z0-9_-]+$/;
+
+function stripHtml(value: string) {
+    return value
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
+        .replace(/<[^>]+>/g, " ");
+}
+
+function normalizeWhitespace(value: string) {
+    return value.replace(/\s+/g, " ").trim();
+}
+
+function sanitizeLoanPurpose(value: string) {
+    return normalizeWhitespace(stripHtml(value || ""));
+}
+
+function sanitizeLoanReference(value: string) {
+    return normalizeWhitespace(stripHtml(value || ""));
+}
+
+function toPositiveNumber(value: unknown, fallback: number | null) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return fallback;
+    }
+    return parsed;
+}
+
+function getLoanEligibilityRuleNumber(rules: Record<string, unknown> | undefined, keys: string[], fallback: number | null) {
+    for (const key of keys) {
+        if (rules && Object.prototype.hasOwnProperty.call(rules, key)) {
+            const parsed = toPositiveNumber(rules[key], fallback);
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
+    }
+
+    return fallback;
+}
+
+function resolveLoanAllowedFrequencies(product?: LoanProduct | null) {
+    const rules = product?.eligibility_rules_json;
+    const candidates = [
+        rules?.allowed_repayment_frequencies,
+        rules?.allowedRepaymentFrequencies,
+        rules?.repayment_frequencies,
+        rules?.repaymentFrequencies
+    ];
+
+    for (const candidate of candidates) {
+        if (!Array.isArray(candidate)) {
+            continue;
+        }
+
+        const frequencies = candidate
+            .map((value) => String(value || "").trim().toLowerCase())
+            .filter((value): value is LoanRepaymentFrequency => SUPPORTED_LOAN_REPAYMENT_FREQUENCIES.includes(value as LoanRepaymentFrequency));
+
+        if (frequencies.length) {
+            return Array.from(new Set(frequencies));
+        }
+    }
+
+    return [...SUPPORTED_LOAN_REPAYMENT_FREQUENCIES];
+}
+
+function resolveLoanEligibilityPolicy(product?: LoanProduct | null) {
+    const rules = product?.eligibility_rules_json;
+
+    return {
+        savingsMultiplier: getLoanEligibilityRuleNumber(rules, [
+            "savings_multiplier",
+            "savingsMultiplier",
+            "savings_balance_multiplier",
+            "savingsBalanceMultiplier",
+            "savings_eligibility_multiplier",
+            "savingsEligibilityMultiplier"
+        ], 1) ?? 1,
+        sharesMultiplier: getLoanEligibilityRuleNumber(rules, [
+            "share_multiplier",
+            "shareMultiplier",
+            "shares_multiplier",
+            "sharesMultiplier",
+            "share_balance_multiplier",
+            "shareBalanceMultiplier",
+            "shares_balance_multiplier",
+            "sharesBalanceMultiplier",
+            "share_eligibility_multiplier",
+            "shareEligibilityMultiplier"
+        ], 1) ?? 1,
+        baseEligibilityAmount: getLoanEligibilityRuleNumber(rules, [
+            "base_eligibility_amount",
+            "baseEligibilityAmount"
+        ], 0) ?? 0,
+        eligibilityCapAmount: getLoanEligibilityRuleNumber(rules, [
+            "eligibility_cap_amount",
+            "eligibilityCapAmount",
+            "max_eligible_amount",
+            "maxEligibleAmount"
+        ], null),
+        allowedRepaymentFrequencies: resolveLoanAllowedFrequencies(product)
+    };
+}
+
+function formatWholeNumber(value: number | string | null | undefined) {
+    const digits = String(value ?? "").replace(/[^\d]/g, "");
+    if (!digits) {
+        return "";
+    }
+
+    return new Intl.NumberFormat("en-TZ").format(Number(digits));
+}
+
+function getRepaymentPeriodsPerYear(frequency: LoanRepaymentFrequency) {
+    if (frequency === "daily") {
+        return 365;
+    }
+
+    if (frequency === "weekly") {
+        return 52;
+    }
+
+    return 12;
+}
+
+function getRepaymentFrequencyLabel(frequency: LoanRepaymentFrequency) {
+    if (frequency === "daily") {
+        return "Daily";
+    }
+
+    if (frequency === "weekly") {
+        return "Weekly";
+    }
+
+    return "Monthly";
+}
+
+function estimateInstallment(amount: number, annualRate: number, termCount: number, frequency: LoanRepaymentFrequency) {
+    if (!(amount > 0) || !(termCount > 0)) {
+        return null;
+    }
+
+    const ratePerPeriod = annualRate > 0 ? (annualRate / 100) / getRepaymentPeriodsPerYear(frequency) : 0;
+
+    let installment = amount / termCount;
+    if (ratePerPeriod > 0) {
+        installment = amount * ratePerPeriod / (1 - Math.pow(1 + ratePerPeriod, -termCount));
+    }
+
+    const totalRepayment = installment * termCount;
+    return {
+        installment,
+        totalRepayment
+    };
+}
+
 const loanApplicationSchema = z.object({
     product_id: z.string().uuid("Select a loan product."),
-    purpose: z.string().trim().min(3, "Purpose is required.").max(500),
-    requested_amount: z.coerce.number().positive("Requested amount is required."),
-    requested_term_count: z.coerce.number().int().positive("Requested term is required."),
+    purpose: z.string()
+        .transform((value) => sanitizeLoanPurpose(value))
+        .refine((value) => value.length >= 20, "Loan purpose must be at least 20 characters")
+        .refine((value) => value.length <= 500, "Loan purpose cannot exceed 500 characters")
+        .refine((value) => loanPurposePattern.test(value), "Loan purpose may contain only letters, numbers, spaces, commas, and periods"),
+    requested_amount: z.coerce.number().min(10000, "Requested amount must be at least TZS 10,000"),
+    requested_term_count: z.coerce.number().int("Loan term must be a whole number").min(1, "Loan term must be at least 1 month"),
     requested_repayment_frequency: z.enum(["daily", "weekly", "monthly"]).default("monthly"),
-    requested_interest_rate: z.union([z.coerce.number().min(0).max(100), z.nan()]).optional().transform((value) => (Number.isNaN(value) ? undefined : value)),
-    external_reference: z.string().max(80).optional().or(z.literal(""))
+    requested_interest_rate: z.coerce.number().min(0).max(100),
+    external_reference: z.string()
+        .transform((value) => sanitizeLoanReference(value))
+        .refine((value) => !value || value.length <= 100, "Application reference cannot exceed 100 characters")
+        .refine((value) => !value || loanReferencePattern.test(value), "Reference may contain only letters, numbers, dashes, and underscores")
+        .optional()
+        .or(z.literal("")),
+    confirmation_checked: z.boolean().refine((value) => value, {
+        message: "Confirm the application details before submission."
+    })
 });
 
 type LoanApplicationValues = z.infer<typeof loanApplicationSchema>;
@@ -471,8 +647,10 @@ export function MemberPortalPage() {
     const navigate = useNavigate();
     const isDesktop = useMediaQuery(theme.breakpoints.up("lg"));
     const { profile, selectedTenantName, selectedBranchName, signOut, subscription, user } = useAuth();
+    const canUsePortalDeposits = Boolean(subscription?.features?.contributions_enabled);
     const { pushToast } = useToast();
     const { theme: themeMode, toggleTheme } = useUI();
+    const [memberRecord, setMemberRecord] = useState<Member | null>(null);
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
     const [memberId, setMemberId] = useState("");
     const [loans, setLoans] = useState<Loan[]>([]);
@@ -486,6 +664,7 @@ export function MemberPortalPage() {
     const [error, setError] = useState<string | null>(null);
     const [warning, setWarning] = useState<string | null>(null);
     const [showApplyDialog, setShowApplyDialog] = useState(false);
+    const [editingLoanApplicationId, setEditingLoanApplicationId] = useState<string | null>(null);
     const [showContributionDialog, setShowContributionDialog] = useState(false);
     const [submittingApplication, setSubmittingApplication] = useState(false);
     const [submittingContribution, setSubmittingContribution] = useState(false);
@@ -521,6 +700,7 @@ export function MemberPortalPage() {
     const [loanScheduleRowsPerPage, setLoanScheduleRowsPerPage] = useState(10);
     const [loanDetailId, setLoanDetailId] = useState<string>("");
     const [prepaymentAmount, setPrepaymentAmount] = useState<number>(0);
+    const [requestedAmountInput, setRequestedAmountInput] = useState("");
     const loanApplicationForm = useForm<LoanApplicationValues>({
         resolver: zodResolver(loanApplicationSchema),
         defaultValues: {
@@ -529,7 +709,9 @@ export function MemberPortalPage() {
             requested_amount: 0,
             requested_term_count: 12,
             requested_repayment_frequency: "monthly",
-            external_reference: ""
+            requested_interest_rate: 0,
+            external_reference: "",
+            confirmation_checked: false
         }
     });
     const contributionPaymentForm = useForm<ContributionPaymentValues>({
@@ -542,6 +724,82 @@ export function MemberPortalPage() {
             description: ""
         }
     });
+    const selectedLoanProductId = loanApplicationForm.watch("product_id");
+    const requestedLoanTerm = loanApplicationForm.watch("requested_term_count");
+    const requestedLoanAmount = loanApplicationForm.watch("requested_amount");
+    const requestedLoanFrequency = loanApplicationForm.watch("requested_repayment_frequency");
+    const selectedLoanProduct = useMemo(
+        () => loanProducts.find((product) => product.id === selectedLoanProductId) || null,
+        [loanProducts, selectedLoanProductId]
+    );
+    const selectedLoanPolicy = useMemo(
+        () => resolveLoanEligibilityPolicy(selectedLoanProduct),
+        [selectedLoanProduct]
+    );
+    const savingsEligibilityBalance = useMemo(
+        () => accounts
+            .filter((account) => account.status === "active" && account.product_type === "savings")
+            .reduce((sum, account) => sum + Number(account.available_balance || 0), 0),
+        [accounts]
+    );
+    const sharesEligibilityBalance = useMemo(
+        () => accounts
+            .filter((account) => account.status === "active" && account.product_type === "shares")
+            .reduce((sum, account) => sum + Number(account.available_balance || 0), 0),
+        [accounts]
+    );
+    const selectedLoanEligibleAmount = useMemo(() => {
+        if (!selectedLoanProduct) {
+            return 0;
+        }
+
+        let eligibleAmount = selectedLoanPolicy.baseEligibilityAmount
+            + savingsEligibilityBalance * selectedLoanPolicy.savingsMultiplier
+            + sharesEligibilityBalance * selectedLoanPolicy.sharesMultiplier;
+
+        if (selectedLoanPolicy.eligibilityCapAmount !== null) {
+            eligibleAmount = Math.min(eligibleAmount, selectedLoanPolicy.eligibilityCapAmount);
+        }
+
+        if (selectedLoanProduct.max_amount) {
+            eligibleAmount = Math.min(eligibleAmount, Number(selectedLoanProduct.max_amount));
+        }
+
+        return Math.max(0, eligibleAmount);
+    }, [selectedLoanPolicy, selectedLoanProduct, savingsEligibilityBalance, sharesEligibilityBalance]);
+    const selectedLoanMinimumAmount = useMemo(
+        () => Math.max(10000, Number(selectedLoanProduct?.min_amount || 0)),
+        [selectedLoanProduct]
+    );
+    const selectedLoanMinimumTerm = useMemo(
+        () => Math.max(1, Number(selectedLoanProduct?.min_term_count || 1)),
+        [selectedLoanProduct]
+    );
+    const selectedLoanMaximumTerm = useMemo(
+        () => (selectedLoanProduct?.max_term_count ? Number(selectedLoanProduct.max_term_count) : null),
+        [selectedLoanProduct]
+    );
+    const selectedLoanConflict = useMemo(
+        () => loanApplications.find((application) =>
+            application.product_id === selectedLoanProductId
+            && application.id !== editingLoanApplicationId
+            && ["submitted", "appraised", "approved"].includes(application.status)
+        ) || null,
+        [editingLoanApplicationId, loanApplications, selectedLoanProductId]
+    );
+    const memberHasProblemLoan = useMemo(
+        () => loans.some((loan) => ["in_arrears", "written_off"].includes(loan.status)),
+        [loans]
+    );
+    const installmentPreview = useMemo(
+        () => estimateInstallment(
+            Number(requestedLoanAmount || 0),
+            Number(selectedLoanProduct?.annual_interest_rate || 0),
+            Number(requestedLoanTerm || 0),
+            requestedLoanFrequency
+        ),
+        [requestedLoanAmount, requestedLoanFrequency, requestedLoanTerm, selectedLoanProduct]
+    );
 
     const getSupabaseErrorMessage = (value: unknown, fallback: string) => {
         if (value && typeof value === "object" && "message" in value && typeof value.message === "string") {
@@ -550,6 +808,26 @@ export function MemberPortalPage() {
 
         return fallback;
     };
+
+    useEffect(() => {
+        if (!selectedLoanProduct) {
+            loanApplicationForm.setValue("requested_interest_rate", 0, { shouldDirty: false, shouldValidate: false });
+            return;
+        }
+
+        loanApplicationForm.setValue("requested_interest_rate", Number(selectedLoanProduct.annual_interest_rate || 0), {
+            shouldDirty: false,
+            shouldValidate: false
+        });
+
+        const nextAllowedFrequencies = selectedLoanPolicy.allowedRepaymentFrequencies;
+        if (!nextAllowedFrequencies.includes(requestedLoanFrequency)) {
+            loanApplicationForm.setValue("requested_repayment_frequency", nextAllowedFrequencies[0] || "monthly", {
+                shouldDirty: true,
+                shouldValidate: true
+            });
+        }
+    }, [loanApplicationForm, requestedLoanFrequency, selectedLoanPolicy.allowedRepaymentFrequencies, selectedLoanProduct]);
 
     const normalizeContributionOrder = (order: PaymentOrder) => {
         if ((order.posted_at || order.journal_id) && order.status !== "posted") {
@@ -718,6 +996,15 @@ export function MemberPortalPage() {
     };
 
     const openDepositDialog = (purpose: MemberPaymentPurpose = "share_contribution") => {
+        if (!canUsePortalDeposits) {
+            pushToast({
+                title: "Deposits unavailable",
+                message: "Your current plan does not include mobile-money deposit integration.",
+                type: "error"
+            });
+            return;
+        }
+
         setPaymentFlowPurpose(purpose);
         const latestOrder = purpose === "savings_deposit" ? latestSavingsPaymentOrder : latestSharePaymentOrder;
         if (latestOrder && ["pending", "paid"].includes(latestOrder.status)) {
@@ -899,6 +1186,7 @@ export function MemberPortalPage() {
                     membersResponse.data?.[0];
 
                 if (!memberRecord?.id) {
+                    setMemberRecord(null);
                     setMemberId("");
                     setAccounts([]);
                     setLoans([]);
@@ -912,6 +1200,7 @@ export function MemberPortalPage() {
                     return;
                 }
 
+                setMemberRecord(memberRecord);
                 setMemberId(memberRecord.id);
 
                 const results = await Promise.allSettled([
@@ -955,9 +1244,11 @@ export function MemberPortalPage() {
                     api.get<StatementsResponse>(endpoints.finance.statements(), {
                         params: { tenant_id: profile.tenant_id, member_id: memberRecord.id, page: 1, limit: 100 }
                     }),
-                    api.get<PaymentOrdersResponse>(endpoints.memberPayments.listOrders(), {
-                        params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
-                    })
+                    canUsePortalDeposits
+                        ? api.get<PaymentOrdersResponse>(endpoints.memberPayments.listOrders(), {
+                            params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
+                        })
+                        : Promise.resolve(null)
                 ]);
 
                 const [accountsResult, loansResult, schedulesResult, productsResult, applicationsResult, guarantorRequestsResult, statementsResult, paymentOrdersResult] = results;
@@ -1012,7 +1303,10 @@ export function MemberPortalPage() {
                     issues.push(getApiErrorMessage(statementsResult.reason, "Transactions unavailable."));
                 }
 
-                if (paymentOrdersResult.status === "fulfilled") {
+                if (!canUsePortalDeposits) {
+                    setPaymentOrders([]);
+                    setPaymentOrder(null);
+                } else if (paymentOrdersResult.status === "fulfilled" && paymentOrdersResult.value) {
                     const nextPaymentOrders = (paymentOrdersResult.value.data.data?.data || []).map((order) => normalizeContributionOrder(order));
                     setPaymentOrders(nextPaymentOrders);
                     setPaymentOrder((current) => {
@@ -1021,7 +1315,7 @@ export function MemberPortalPage() {
                         }
                         return nextPaymentOrders[0] || null;
                     });
-                } else {
+                } else if (paymentOrdersResult.status === "rejected") {
                     setPaymentOrders([]);
                     issues.push(getApiErrorMessage(paymentOrdersResult.reason, "Payment history unavailable."));
                 }
@@ -1030,6 +1324,7 @@ export function MemberPortalPage() {
                     setWarning(issues[0]);
                 }
             } catch (portalError) {
+                setMemberRecord(null);
                 setError(getApiErrorMessage(portalError));
             } finally {
                 setLoading(false);
@@ -1037,7 +1332,7 @@ export function MemberPortalPage() {
         };
 
         void loadPortal();
-    }, [profile, user?.id]);
+    }, [canUsePortalDeposits, profile, user?.id]);
 
     useEffect(() => {
         if (!isDesktop) {
@@ -1052,6 +1347,16 @@ export function MemberPortalPage() {
             contributionPaymentForm.setValue("msisdn", profile.phone);
         }
     }, [profile?.phone]);
+
+    useEffect(() => {
+        if (!canUsePortalDeposits && activeSection === "member-payments") {
+            setActiveSection("member-overview");
+        }
+
+        if (!canUsePortalDeposits && showContributionDialog) {
+            setShowContributionDialog(false);
+        }
+    }, [activeSection, canUsePortalDeposits, showContributionDialog]);
 
     const savingsAccounts = useMemo(() => accounts.filter((account) => account.product_type === "savings"), [accounts]);
     const totalSavings = useMemo(
@@ -1184,10 +1489,14 @@ export function MemberPortalPage() {
         () => guarantorRequests.filter((request) => request.consent_status === "pending"),
         [guarantorRequests]
     );
+    const visiblePortalSections = useMemo(
+        () => portalSections.filter((section) => canUsePortalDeposits || section.id !== "member-payments"),
+        [canUsePortalDeposits]
+    );
     const transactionCount = statements.length;
     const balanceTrend = groupBalances(statements);
     const monthlySavingsTrend = useMemo(() => groupSavingsByMonth(statements), [statements]);
-    const currentView = portalSections.find((section) => section.id === activeSection) || portalSections[0];
+    const currentView = visiblePortalSections.find((section) => section.id === activeSection) || visiblePortalSections[0];
     const latestBalance = statements[0]?.running_balance ?? 0;
     const totalVisibleCapital = totalSavings + totalShareCapital;
     const netPosition = totalVisibleCapital - totalOutstandingLoans;
@@ -1856,12 +2165,43 @@ export function MemberPortalPage() {
         {
             key: "status",
             header: "Status",
-            render: (row) => row.status.replace(/_/g, " ")
+            render: (row) =>
+                row.status === "rejected" ? (
+                    <Stack spacing={0.35}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            Rejected
+                        </Typography>
+                        {row.rejection_reason ? (
+                            <Typography variant="caption" color="error.main">
+                                Reason: {row.rejection_reason}
+                            </Typography>
+                        ) : null}
+                        {row.approval_notes ? (
+                            <Typography variant="caption" color="text.secondary">
+                                Notes: {row.approval_notes}
+                            </Typography>
+                        ) : null}
+                    </Stack>
+                ) : (
+                    row.status.replace(/_/g, " ")
+                )
         },
         {
             key: "updated",
             header: "Last Update",
             render: (row) => formatDate(row.updated_at)
+        },
+        {
+            key: "actions",
+            header: "Actions",
+            render: (row) =>
+                row.status === "rejected" ? (
+                    <Button size="small" variant="outlined" onClick={() => openLoanApplicationEditor(row)}>
+                        Edit & Resubmit
+                    </Button>
+                ) : (
+                    <Chip size="small" variant="outlined" label={row.status === "submitted" ? "In review" : row.status.replace(/_/g, " ")} />
+                )
         }
     ];
 
@@ -1964,13 +2304,137 @@ export function MemberPortalPage() {
     const loanProductOptions = loanProducts.map((product) => ({
         value: product.id,
         label: product.name,
-        secondary: `${product.annual_interest_rate}% · ${formatCurrency(product.min_amount)} min`
+        secondary: `${product.annual_interest_rate}% · ${formatCurrency(product.min_amount)} min · ${product.max_term_count || "Open"} term`
     }));
 
     const canApplyForLoan = Boolean(subscription?.features?.loans_enabled ?? true);
 
+    const reloadLoanApplications = async (tenantId: string) => {
+        const { data: applicationsResponse } = await api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
+            params: { tenant_id: tenantId, page: 1, limit: 100 }
+        });
+        setLoanApplications(applicationsResponse.data || []);
+    };
+
+    const openLoanApplicationEditor = (application?: LoanApplication | null) => {
+        if (application) {
+            setEditingLoanApplicationId(application.id);
+            setRequestedAmountInput(formatWholeNumber(application.requested_amount));
+            loanApplicationForm.reset({
+                product_id: application.product_id,
+                purpose: application.purpose,
+                requested_amount: application.requested_amount,
+                requested_term_count: application.requested_term_count,
+                requested_repayment_frequency: application.requested_repayment_frequency,
+                requested_interest_rate: application.requested_interest_rate ?? 0,
+                external_reference: application.external_reference || "",
+                confirmation_checked: false
+            });
+        } else {
+            setEditingLoanApplicationId(null);
+            setRequestedAmountInput("");
+            loanApplicationForm.reset({
+                product_id: "",
+                purpose: "",
+                requested_amount: 0,
+                requested_term_count: 12,
+                requested_repayment_frequency: "monthly",
+                requested_interest_rate: 0,
+                external_reference: "",
+                confirmation_checked: false
+            });
+        }
+
+        setShowApplyDialog(true);
+    };
+
     const submitLoanApplication = loanApplicationForm.handleSubmit(async (values) => {
         if (!profile) {
+            return;
+        }
+
+        const sanitizedPurpose = sanitizeLoanPurpose(values.purpose);
+        const selectedProduct = loanProducts.find((product) => product.id === values.product_id) || null;
+        const selectedFrequencies = resolveLoanAllowedFrequencies(selectedProduct);
+        let hasClientValidationError = false;
+
+        loanApplicationForm.clearErrors();
+
+        if (!selectedProduct) {
+            loanApplicationForm.setError("product_id", { message: "Select a loan product." });
+            return;
+        }
+
+        if (memberRecord?.status !== "active") {
+            pushToast({
+                type: "error",
+                title: "Member not eligible",
+                message: "Only active members can submit loan applications."
+            });
+            return;
+        }
+
+        if (memberHasProblemLoan) {
+            pushToast({
+                type: "error",
+                title: "Loan blocked",
+                message: "You cannot submit a new loan application while you have in-arrears or written-off loans."
+            });
+            return;
+        }
+
+        if (selectedLoanConflict) {
+            pushToast({
+                type: "error",
+                title: "Existing application in progress",
+                message: "You already have another pending application for this loan product."
+            });
+            return;
+        }
+
+        if (sanitizedPurpose.length < 20) {
+            loanApplicationForm.setError("purpose", { message: "Loan purpose must be at least 20 characters" });
+            hasClientValidationError = true;
+        } else if (sanitizedPurpose.length > 500) {
+            loanApplicationForm.setError("purpose", { message: "Loan purpose cannot exceed 500 characters" });
+            hasClientValidationError = true;
+        } else if (!loanPurposePattern.test(sanitizedPurpose)) {
+            loanApplicationForm.setError("purpose", { message: "Loan purpose may contain only letters, numbers, spaces, commas, and periods" });
+            hasClientValidationError = true;
+        }
+
+        if (values.requested_amount < selectedLoanMinimumAmount) {
+            loanApplicationForm.setError("requested_amount", {
+                message: `Requested amount must be at least ${formatCurrency(selectedLoanMinimumAmount)}`
+            });
+            hasClientValidationError = true;
+        } else if (selectedProduct.max_amount && values.requested_amount > Number(selectedProduct.max_amount)) {
+            loanApplicationForm.setError("requested_amount", {
+                message: "Requested amount exceeds maximum allowed for this loan product"
+            });
+            hasClientValidationError = true;
+        } else if (values.requested_amount > selectedLoanEligibleAmount) {
+            loanApplicationForm.setError("requested_amount", {
+                message: `Requested amount exceeds your current eligibility limit of ${formatCurrency(selectedLoanEligibleAmount)}`
+            });
+            hasClientValidationError = true;
+        }
+
+        if (values.requested_term_count < selectedLoanMinimumTerm || (selectedLoanMaximumTerm && values.requested_term_count > selectedLoanMaximumTerm)) {
+            loanApplicationForm.setError("requested_term_count", {
+                message: `Loan term must be between ${selectedLoanMinimumTerm} and ${selectedLoanMaximumTerm || selectedLoanMinimumTerm} months`
+            });
+            hasClientValidationError = true;
+        }
+
+        if (!selectedFrequencies.includes(values.requested_repayment_frequency)) {
+            loanApplicationForm.setError("requested_repayment_frequency", {
+                message: "Selected repayment frequency is not available for this loan product."
+            });
+            hasClientValidationError = true;
+        }
+
+        if (hasClientValidationError) {
             return;
         }
 
@@ -1980,34 +2444,42 @@ export function MemberPortalPage() {
                 tenant_id: profile.tenant_id,
                 branch_id: profile.branch_id || undefined,
                 product_id: values.product_id,
-                purpose: values.purpose,
+                purpose: sanitizedPurpose,
                 requested_amount: values.requested_amount,
                 requested_term_count: values.requested_term_count,
                 requested_repayment_frequency: values.requested_repayment_frequency,
-                requested_interest_rate: values.requested_interest_rate ?? null,
-                external_reference: values.external_reference || null
+                requested_interest_rate: selectedProduct.annual_interest_rate
             };
 
-            const { data } = await api.post<LoanApplicationResponse>(endpoints.loanApplications.list(), payload);
-            await api.post<LoanApplicationResponse>(endpoints.loanApplications.submit(data.data.id), {});
+            const applicationId = editingLoanApplicationId
+                ? (
+                    await api.patch<LoanApplicationResponse>(
+                        endpoints.loanApplications.update(editingLoanApplicationId),
+                        payload as UpdateLoanApplicationRequest
+                    )
+                ).data.data.id
+                : (
+                    await api.post<LoanApplicationResponse>(endpoints.loanApplications.list(), payload)
+                ).data.data.id;
+
+            await api.post<LoanApplicationResponse>(endpoints.loanApplications.submit(applicationId), {});
 
             pushToast({
                 type: "success",
-                title: "Loan application submitted",
-                message: "Your application is now waiting for appraisal."
+                title: editingLoanApplicationId ? "Loan application updated" : "Loan application submitted",
+                message: editingLoanApplicationId
+                    ? "Your corrected application has been resubmitted for appraisal."
+                    : "Your application is now waiting for appraisal."
             });
+            setEditingLoanApplicationId(null);
+            setRequestedAmountInput("");
             loanApplicationForm.reset();
             setShowApplyDialog(false);
-            await (async () => {
-                const { data: applicationsResponse } = await api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
-                    params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
-                });
-                setLoanApplications(applicationsResponse.data || []);
-            })();
+            await reloadLoanApplications(profile.tenant_id);
         } catch (loanApplicationError) {
             pushToast({
                 type: "error",
-                title: "Unable to submit application",
+                title: editingLoanApplicationId ? "Unable to resubmit application" : "Unable to submit application",
                 message: getApiErrorMessage(loanApplicationError)
             });
         } finally {
@@ -2297,7 +2769,7 @@ export function MemberPortalPage() {
             onApplyLoan={() => {
                 handleSectionSelect("member-loans");
                 if (canApplyForLoan) {
-                    setShowApplyDialog(true);
+                    openLoanApplicationEditor();
                 }
             }}
             onMakeContribution={() => handleSectionSelect("member-contributions")}
@@ -2338,86 +2810,87 @@ export function MemberPortalPage() {
                 </Grid>
             </Grid>
 
-            <MotionCard variant="outlined" sx={contentCardSx}>
-                <CardContent sx={{ p: { xs: 2.25, md: 2.75 } }}>
-                    <Grid container spacing={2.5} alignItems="center">
-                        <Grid size={{ xs: 12, md: 7 }}>
-                            <Stack spacing={1.15}>
-                                <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: 1.4 }}>
-                                    Azam Pay Deposit
-                                </Typography>
-                                <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
-                                    Deposit into savings or contributions from one portal flow.
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Start one Azam Pay deposit request, choose whether it goes to savings or share contributions, approve it on your phone, and the backend will post it automatically after confirmation.
-                                </Typography>
-                                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                                    <Chip label={`${savingsAccounts.length} savings account(s)`} variant="outlined" />
-                                    <Chip label={`${shareAccounts.length} share account(s)`} variant="outlined" />
-                                    <Chip
-                                        label={
-                                            latestSavingsPaymentOrder || latestSharePaymentOrder
-                                                ? `Latest activity ${(latestSavingsPaymentOrder || latestSharePaymentOrder)?.status.replace(/_/g, " ")}`
-                                                : "No active deposit"
-                                        }
-                                        variant="outlined"
-                                    />
+            {canUsePortalDeposits ? (
+                <MotionCard variant="outlined" sx={contentCardSx}>
+                    <CardContent sx={{ p: { xs: 2.25, md: 2.75 } }}>
+                        <Grid container spacing={2.5} alignItems="center">
+                            <Grid size={{ xs: 12, md: 7 }}>
+                                <Stack spacing={1.15}>
+                                    <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: 1.4 }}>
+                                        Azam Pay Deposit
+                                    </Typography>
+                                    <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
+                                        Deposit into savings or contributions from one portal flow.
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Start one Azam Pay deposit request, choose whether it goes to savings or share contributions, approve it on your phone, and the backend will post it automatically after confirmation.
+                                    </Typography>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                        <Chip label={`${savingsAccounts.length} savings account(s)`} variant="outlined" />
+                                        <Chip label={`${shareAccounts.length} share account(s)`} variant="outlined" />
+                                        <Chip
+                                            label={
+                                                latestSavingsPaymentOrder || latestSharePaymentOrder
+                                                    ? `Latest activity ${(latestSavingsPaymentOrder || latestSharePaymentOrder)?.status.replace(/_/g, " ")}`
+                                                    : "No active deposit"
+                                            }
+                                            variant="outlined"
+                                        />
+                                    </Stack>
                                 </Stack>
-                            </Stack>
-                        </Grid>
-                        <Grid size={{ xs: 12, md: 5 }}>
-                            <Stack spacing={1.1} alignItems={{ xs: "stretch", md: "flex-end" }}>
-                                <Button
-                                    variant="contained"
-                                    onClick={() => openDepositDialog("savings_deposit")}
-                                    disabled={(!savingsAccounts.length && !shareAccounts.length) || submittingContribution}
-                                    sx={
-                                        isDarkMode
-                                            ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
-                                            : undefined
-                                    }
-                                >
-                                    Make Deposit
-                                </Button>
-                                {latestSavingsPaymentOrder?.status === "paid" && !latestSavingsPaymentOrder.posted_at ? (
+                            </Grid>
+                            <Grid size={{ xs: 12, md: 5 }}>
+                                <Stack spacing={1.1} alignItems={{ xs: "stretch", md: "flex-end" }}>
                                     <Button
-                                        variant="outlined"
-                                        onClick={() => void handleReconcilePaymentOrder()}
-                                        disabled={reconcilingPayment}
+                                        variant="contained"
+                                        onClick={() => openDepositDialog("savings_deposit")}
+                                        disabled={(!savingsAccounts.length && !shareAccounts.length) || submittingContribution}
+                                        sx={
+                                            isDarkMode
+                                                ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                                : undefined
+                                        }
                                     >
-                                        {reconcilingPayment ? "Reconciling..." : "Reconcile Payment"}
+                                        Make Deposit
                                     </Button>
-                                ) : null}
-                            </Stack>
+                                    {latestSavingsPaymentOrder?.status === "paid" && !latestSavingsPaymentOrder.posted_at ? (
+                                        <Button
+                                            variant="outlined"
+                                            onClick={() => void handleReconcilePaymentOrder()}
+                                            disabled={reconcilingPayment}
+                                        >
+                                            {reconcilingPayment ? "Reconciling..." : "Reconcile Payment"}
+                                        </Button>
+                                    ) : null}
+                                </Stack>
+                            </Grid>
                         </Grid>
-                    </Grid>
-                    {!savingsAccounts.length && !shareAccounts.length ? (
-                        <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
-                            A branch manager must provision at least one savings or share account before this portal can start member deposits.
-                        </Alert>
-                    ) : null}
-                    {latestSavingsPaymentOrder ? (
-                        <Alert
-                            severity={
-                                latestSavingsPaymentOrder.status === "posted"
-                                    ? "success"
-                                    : latestSavingsPaymentOrder.status === "failed"
-                                        ? "error"
-                                        : latestSavingsPaymentOrder.status === "expired"
-                                            ? "warning"
-                                            : "info"
-                            }
-                            variant="outlined"
-                            sx={{ mt: 2, alignItems: "flex-start" }}
-                        >
-                            <Stack spacing={0.5}>
-                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                    {latestSavingsPaymentOrder.status === "posted"
-                                        ? "Savings deposit completed"
-                                        : latestSavingsPaymentOrder.status === "paid"
-                                            ? "Payment received, posting in progress"
-                                            : latestSavingsPaymentOrder.status === "pending"
+                        {!savingsAccounts.length && !shareAccounts.length ? (
+                            <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
+                                A branch manager must provision at least one savings or share account before this portal can start member deposits.
+                            </Alert>
+                        ) : null}
+                        {latestSavingsPaymentOrder ? (
+                            <Alert
+                                severity={
+                                    latestSavingsPaymentOrder.status === "posted"
+                                        ? "success"
+                                        : latestSavingsPaymentOrder.status === "failed"
+                                            ? "error"
+                                            : latestSavingsPaymentOrder.status === "expired"
+                                                ? "warning"
+                                                : "info"
+                                }
+                                variant="outlined"
+                                sx={{ mt: 2, alignItems: "flex-start" }}
+                            >
+                                <Stack spacing={0.5}>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                        {latestSavingsPaymentOrder.status === "posted"
+                                            ? "Savings deposit completed"
+                                            : latestSavingsPaymentOrder.status === "paid"
+                                                ? "Payment received, posting in progress"
+                                                : latestSavingsPaymentOrder.status === "pending"
                                                 ? "Awaiting member approval"
                                                 : latestSavingsPaymentOrder.status === "failed"
                                                     ? "Payment failed"
@@ -2435,10 +2908,11 @@ export function MemberPortalPage() {
                                     <Typography variant="body2">{latestSavingsPaymentOrder.error_message}</Typography>
                                 ) : null}
                             </Stack>
-                        </Alert>
-                    ) : null}
-                </CardContent>
-            </MotionCard>
+                            </Alert>
+                        ) : null}
+                    </CardContent>
+                </MotionCard>
+            ) : null}
 
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
@@ -2728,7 +3202,7 @@ export function MemberPortalPage() {
                                 {canApplyForLoan ? (
                                     <Button
                                         variant="contained"
-                                        onClick={() => setShowApplyDialog(true)}
+                                        onClick={() => openLoanApplicationEditor()}
                                         sx={{
                                             alignSelf: "flex-start",
                                             bgcolor: "#fff",
@@ -2809,6 +3283,39 @@ export function MemberPortalPage() {
                                             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.25 }}>
                                                 Updated {formatDate(application.updated_at)}
                                             </Typography>
+                                            {application.status === "rejected" ? (
+                                                <Stack
+                                                    spacing={0.65}
+                                                    sx={{
+                                                        mt: 1.5,
+                                                        p: 1.25,
+                                                        borderRadius: 1.5,
+                                                        bgcolor: alpha(brandColors.danger, 0.08),
+                                                        border: `1px solid ${alpha(brandColors.danger, 0.18)}`
+                                                    }}
+                                                >
+                                                    {application.rejection_reason ? (
+                                                        <Typography variant="body2" sx={{ fontWeight: 700, color: "error.main" }}>
+                                                            Reason: {application.rejection_reason}
+                                                        </Typography>
+                                                    ) : null}
+                                                    {application.approval_notes ? (
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            Notes: {application.approval_notes}
+                                                        </Typography>
+                                                    ) : null}
+                                                </Stack>
+                                            ) : null}
+                                            {application.status === "rejected" ? (
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    sx={{ mt: 1.5 }}
+                                                    onClick={() => openLoanApplicationEditor(application)}
+                                                >
+                                                    Edit & Resubmit
+                                                </Button>
+                                            ) : null}
                                         </Box>
                                     </Grid>
                                 );
@@ -3380,7 +3887,8 @@ export function MemberPortalPage() {
                     </CardContent>
                 </MotionCard>
 
-                <MotionCard variant="outlined" sx={contentCardSx}>
+                {canUsePortalDeposits ? (
+                    <MotionCard variant="outlined" sx={contentCardSx}>
                     <CardContent sx={{ p: { xs: 2.25, md: 2.75 } }}>
                         <Grid container spacing={2.5} alignItems="center">
                             <Grid size={{ xs: 12, md: 7 }}>
@@ -3480,7 +3988,8 @@ export function MemberPortalPage() {
                             </Alert>
                         ) : null}
                     </CardContent>
-                </MotionCard>
+                    </MotionCard>
+                ) : null}
 
                 <Grid container spacing={2}>
                     <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
@@ -4060,7 +4569,7 @@ export function MemberPortalPage() {
                     }}
                 >
                     <List disablePadding>
-                        {portalSections.map((section) => {
+                        {visiblePortalSections.map((section) => {
                             const Icon = section.icon;
                             const active = activeSection === section.id;
 
@@ -4928,13 +5437,45 @@ export function MemberPortalPage() {
                 </DialogActions>
             </MotionModal>
 
-            <MotionModal open={showApplyDialog} onClose={submittingApplication ? undefined : () => setShowApplyDialog(false)} maxWidth="md" fullWidth>
-                <DialogTitle>Apply for Loan</DialogTitle>
+            <MotionModal
+                open={showApplyDialog}
+                onClose={submittingApplication ? undefined : () => {
+                    setShowApplyDialog(false);
+                    setEditingLoanApplicationId(null);
+                    setRequestedAmountInput("");
+                    loanApplicationForm.reset();
+                }}
+                maxWidth="md"
+                fullWidth
+            >
+                <DialogTitle>{editingLoanApplicationId ? "Edit Rejected Loan Application" : "Apply for Loan"}</DialogTitle>
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
                         <Alert severity="info" variant="outlined">
-                            This submits a loan application into appraisal and approval workflow. No money movement happens until a teller or loan officer disburses an approved application.
+                            {editingLoanApplicationId
+                                ? "Update the rejected application details, then resubmit it back into appraisal workflow."
+                                : "This submits a loan application into appraisal and approval workflow. No money movement happens until a teller or loan officer disburses an approved application."}
                         </Alert>
+                        {memberRecord?.status !== "active" ? (
+                            <Alert severity="warning" variant="outlined">
+                                Your member profile is not active. Only active members can submit a loan application.
+                            </Alert>
+                        ) : null}
+                        {memberHasProblemLoan ? (
+                            <Alert severity="warning" variant="outlined">
+                                You currently have in-arrears or written-off loans. Clear them first before applying again.
+                            </Alert>
+                        ) : null}
+                        {selectedLoanConflict ? (
+                            <Alert severity="warning" variant="outlined">
+                                Another {selectedLoanProduct?.name || "loan"} application is already in progress. Complete or resolve it before submitting a new one.
+                            </Alert>
+                        ) : null}
+                        {selectedLoanProduct && selectedLoanEligibleAmount < selectedLoanMinimumAmount ? (
+                            <Alert severity="warning" variant="outlined">
+                                Your current share and savings eligibility is {formatCurrency(selectedLoanEligibleAmount)}, which is below this product's minimum loan size of {formatCurrency(selectedLoanMinimumAmount)}.
+                            </Alert>
+                        ) : null}
                         <Box component="form" id="member-loan-application-form" onSubmit={submitLoanApplication} sx={{ display: "grid", gap: 2 }}>
                             <Box>
                                 <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
@@ -4952,50 +5493,153 @@ export function MemberPortalPage() {
                                     </Typography>
                                 ) : null}
                             </Box>
+                            {selectedLoanProduct ? (
+                                <Card
+                                    variant="outlined"
+                                    sx={{
+                                        borderRadius: 3,
+                                        borderColor: alpha(memberAccent, 0.24),
+                                        bgcolor: alpha(memberAccent, isDarkMode ? 0.14 : 0.05)
+                                    }}
+                                >
+                                    <CardContent sx={{ display: "grid", gap: 1.5 }}>
+                                        <Stack
+                                            direction={{ xs: "column", md: "row" }}
+                                            spacing={1.5}
+                                            justifyContent="space-between"
+                                            alignItems={{ xs: "flex-start", md: "center" }}
+                                        >
+                                            <Box>
+                                                <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                                                    {selectedLoanProduct.name}
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {selectedLoanProduct.description || "Configured limits and eligibility rules apply automatically to this application."}
+                                                </Typography>
+                                            </Box>
+                                            <Chip
+                                                label={`${selectedLoanProduct.annual_interest_rate}% per year`}
+                                                color="primary"
+                                                variant={isDarkMode ? "filled" : "outlined"}
+                                                sx={{ fontWeight: 700 }}
+                                            />
+                                        </Stack>
+                                        <Grid container spacing={1.5}>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Product range
+                                                    </Typography>
+                                                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                        {formatCurrency(selectedLoanMinimumAmount)} to {selectedLoanProduct.max_amount ? formatCurrency(selectedLoanProduct.max_amount) : "No capped max"}
+                                                    </Typography>
+                                                </Paper>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Eligibility cap
+                                                    </Typography>
+                                                    <Typography variant="body1" sx={{ fontWeight: 700, color: selectedLoanEligibleAmount >= selectedLoanMinimumAmount ? "success.main" : "warning.main" }}>
+                                                        {formatCurrency(selectedLoanEligibleAmount)}
+                                                    </Typography>
+                                                </Paper>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Allowed frequency
+                                                    </Typography>
+                                                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                        {selectedLoanPolicy.allowedRepaymentFrequencies.map((frequency) => getRepaymentFrequencyLabel(frequency)).join(", ")}
+                                                    </Typography>
+                                                </Paper>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Savings-backed amount
+                                                    </Typography>
+                                                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                        {formatCurrency(savingsEligibilityBalance)} x {selectedLoanPolicy.savingsMultiplier}
+                                                    </Typography>
+                                                </Paper>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Shares-backed amount
+                                                    </Typography>
+                                                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                        {formatCurrency(sharesEligibilityBalance)} x {selectedLoanPolicy.sharesMultiplier}
+                                                    </Typography>
+                                                </Paper>
+                                            </Grid>
+                                        </Grid>
+                                    </CardContent>
+                                </Card>
+                            ) : null}
                             <TextField
-                                label="Purpose"
+                                label="Loan Purpose *"
+                                placeholder="Explain how the loan will be used (e.g., farming inputs, business expansion, school fees)"
                                 fullWidth
                                 multiline
-                                minRows={3}
+                                minRows={2}
+                                maxRows={4}
                                 {...loanApplicationForm.register("purpose")}
                                 error={Boolean(loanApplicationForm.formState.errors.purpose)}
-                                helperText={loanApplicationForm.formState.errors.purpose?.message}
+                                helperText={loanApplicationForm.formState.errors.purpose?.message || "20 to 500 characters. Letters, numbers, commas, and periods only."}
                             />
                             <Grid container spacing={2}>
                                 <Grid size={{ xs: 12, md: 4 }}>
                                     <TextField
-                                        label="Requested Amount"
-                                        type="number"
+                                        label="Requested Amount (TZS) *"
                                         fullWidth
-                                        {...loanApplicationForm.register("requested_amount")}
+                                        value={requestedAmountInput}
+                                        onChange={(event) => {
+                                            const digits = event.target.value.replace(/[^\d]/g, "");
+                                            setRequestedAmountInput(formatWholeNumber(digits));
+                                            loanApplicationForm.setValue("requested_amount", digits ? Number(digits) : 0, { shouldValidate: true, shouldDirty: true });
+                                        }}
                                         error={Boolean(loanApplicationForm.formState.errors.requested_amount)}
-                                        helperText={loanApplicationForm.formState.errors.requested_amount?.message}
+                                        helperText={
+                                            loanApplicationForm.formState.errors.requested_amount?.message
+                                            || (selectedLoanProduct
+                                                ? `Min ${formatCurrency(selectedLoanMinimumAmount)} · Eligible up to ${formatCurrency(selectedLoanEligibleAmount)}`
+                                                : "Use Tanzanian Shillings only.")
+                                        }
+                                        inputProps={{ inputMode: "numeric" }}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 4 }}>
                                     <TextField
-                                        label="Requested Term"
+                                        label="Requested Loan Term (Months) *"
                                         type="number"
                                         fullWidth
                                         {...loanApplicationForm.register("requested_term_count")}
                                         error={Boolean(loanApplicationForm.formState.errors.requested_term_count)}
-                                        helperText={loanApplicationForm.formState.errors.requested_term_count?.message}
+                                        helperText={
+                                            loanApplicationForm.formState.errors.requested_term_count?.message
+                                            || (selectedLoanProduct
+                                                ? `Min ${selectedLoanMinimumTerm} month(s)${selectedLoanMaximumTerm ? ` · Max ${selectedLoanMaximumTerm} month(s)` : ""}`
+                                                : "Enter a whole number of months.")
+                                        }
+                                        inputProps={{ min: 1, step: 1 }}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 4 }}>
                                     <TextField
-                                        label="Requested Interest %"
-                                        type="number"
+                                        label="Interest Rate (% per year)"
                                         fullWidth
-                                        {...loanApplicationForm.register("requested_interest_rate")}
-                                        error={Boolean(loanApplicationForm.formState.errors.requested_interest_rate)}
-                                        helperText={loanApplicationForm.formState.errors.requested_interest_rate?.message}
+                                        value={selectedLoanProduct?.annual_interest_rate ?? 0}
+                                        helperText="Automatically pulled from the selected loan product."
+                                        InputProps={{ readOnly: true }}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 6 }}>
                                     <TextField
                                         select
-                                        label="Repayment Frequency"
+                                        label="Repayment Frequency *"
                                         fullWidth
                                         value={loanApplicationForm.watch("requested_repayment_frequency")}
                                         onChange={(event: ChangeEvent<HTMLInputElement>) =>
@@ -5005,33 +5649,105 @@ export function MemberPortalPage() {
                                                 { shouldValidate: true }
                                             )
                                         }
+                                        error={Boolean(loanApplicationForm.formState.errors.requested_repayment_frequency)}
+                                        helperText={loanApplicationForm.formState.errors.requested_repayment_frequency?.message}
                                     >
-                                        <MenuItem value="monthly">Monthly</MenuItem>
-                                        <MenuItem value="weekly">Weekly</MenuItem>
-                                        <MenuItem value="daily">Daily</MenuItem>
+                                        {selectedLoanPolicy.allowedRepaymentFrequencies.map((frequency) => (
+                                            <MenuItem key={frequency} value={frequency}>
+                                                {getRepaymentFrequencyLabel(frequency)}
+                                            </MenuItem>
+                                        ))}
                                     </TextField>
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 6 }}>
-                                    <TextField label="Reference" fullWidth {...loanApplicationForm.register("external_reference")} />
+                                    <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2.5, height: "100%" }}>
+                                        <Typography variant="caption" color="text.secondary">
+                                            Application Reference
+                                        </Typography>
+                                        <Typography variant="body1" sx={{ fontWeight: 700, mt: 0.35 }}>
+                                            {editingLoanApplicationId && loanApplicationForm.getValues("external_reference")
+                                                ? loanApplicationForm.getValues("external_reference")
+                                                : "Generated automatically on save"}
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                            The system creates a unique reference for every loan application.
+                                        </Typography>
+                                    </Paper>
                                 </Grid>
                             </Grid>
+                            <Paper
+                                variant="outlined"
+                                sx={{
+                                    p: 2,
+                                    borderRadius: 3,
+                                    bgcolor: isDarkMode ? alpha(memberAccent, 0.08) : alpha(memberAccent, 0.04)
+                                }}
+                            >
+                                <Stack spacing={0.9}>
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                        Estimated Installment
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Principal: {formatCurrency(requestedLoanAmount || 0)} · Interest: {selectedLoanProduct?.annual_interest_rate ?? 0}% per year · Term: {requestedLoanTerm || 0} months
+                                    </Typography>
+                                    <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                                        {getRepaymentFrequencyLabel(requestedLoanFrequency)} payment: {formatCurrency(installmentPreview?.installment || 0)}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Total repayment: {formatCurrency(installmentPreview?.totalRepayment || 0)}
+                                    </Typography>
+                                </Stack>
+                            </Paper>
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        checked={loanApplicationForm.watch("confirmation_checked")}
+                                        onChange={(event) =>
+                                            loanApplicationForm.setValue("confirmation_checked", event.target.checked, { shouldValidate: true, shouldDirty: true })
+                                        }
+                                    />
+                                }
+                                label="I confirm the information provided in this loan application is accurate."
+                            />
+                            {loanApplicationForm.formState.errors.confirmation_checked ? (
+                                <Typography variant="caption" color="error.main">
+                                    {loanApplicationForm.formState.errors.confirmation_checked.message}
+                                </Typography>
+                            ) : null}
                         </Box>
                     </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setShowApplyDialog(false)}>Cancel</Button>
+                    <Button
+                        onClick={() => {
+                            setShowApplyDialog(false);
+                            setEditingLoanApplicationId(null);
+                            setRequestedAmountInput("");
+                            loanApplicationForm.reset();
+                        }}
+                    >
+                        Cancel
+                    </Button>
                     <Button
                         variant="contained"
                         type="submit"
                         form="member-loan-application-form"
-                        disabled={submittingApplication || !canApplyForLoan}
+                        disabled={
+                            submittingApplication
+                            || !canApplyForLoan
+                            || !selectedLoanProduct
+                            || memberRecord?.status !== "active"
+                            || memberHasProblemLoan
+                            || Boolean(selectedLoanConflict)
+                            || selectedLoanEligibleAmount < selectedLoanMinimumAmount
+                        }
                         sx={
                             isDarkMode
                                 ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
                                 : undefined
                         }
                     >
-                        {submittingApplication ? "Submitting..." : "Submit Application"}
+                        {submittingApplication ? "Submitting..." : editingLoanApplicationId ? "Save & Resubmit" : "Submit Application"}
                     </Button>
                 </DialogActions>
             </MotionModal>
@@ -5052,7 +5768,7 @@ export function MemberPortalPage() {
                         px: 1
                     }}
                 >
-                    {portalSections.slice(0, 4).map((section) => {
+                    {visiblePortalSections.slice(0, 4).map((section) => {
                         const Icon = section.icon;
                         const active = activeSection === section.id;
 
