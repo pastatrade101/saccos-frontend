@@ -703,6 +703,8 @@ export function MemberPortalPage() {
     const [requestedAmountInput, setRequestedAmountInput] = useState("");
     const loanApplicationForm = useForm<LoanApplicationValues>({
         resolver: zodResolver(loanApplicationSchema),
+        mode: "onChange",
+        reValidateMode: "onChange",
         defaultValues: {
             product_id: "",
             purpose: "",
@@ -790,6 +792,50 @@ export function MemberPortalPage() {
     const memberHasProblemLoan = useMemo(
         () => loans.some((loan) => ["in_arrears", "written_off"].includes(loan.status)),
         [loans]
+    );
+    const loanSubmissionBlockers = useMemo(() => {
+        const blockers: string[] = [];
+
+        if (!(subscription?.features?.loans_enabled ?? true)) {
+            blockers.push("Loan applications are not enabled for your current plan.");
+        }
+
+        if (!selectedLoanProduct) {
+            blockers.push("Select a loan product to continue.");
+        }
+
+        if (memberRecord?.status !== "active") {
+            blockers.push("Your member profile is not active, so loan submission is locked.");
+        }
+
+        if (memberHasProblemLoan) {
+            blockers.push("You have an in-arrears or written-off loan that must be resolved first.");
+        }
+
+        if (selectedLoanConflict) {
+            blockers.push(`You already have a ${selectedLoanConflict.status} application for this loan product.`);
+        }
+
+        if (selectedLoanProduct && selectedLoanEligibleAmount < selectedLoanMinimumAmount) {
+            blockers.push(`Your eligibility limit of ${formatCurrency(selectedLoanEligibleAmount)} is below this product minimum of ${formatCurrency(selectedLoanMinimumAmount)}.`);
+        }
+
+        return blockers;
+    }, [
+        memberHasProblemLoan,
+        memberRecord?.status,
+        selectedLoanConflict,
+        selectedLoanEligibleAmount,
+        selectedLoanMinimumAmount,
+        selectedLoanProduct,
+        subscription?.features?.loans_enabled
+    ]);
+    const visibleLoanFormErrors = useMemo(
+        () =>
+            Object.values(loanApplicationForm.formState.errors)
+                .map((entry) => entry?.message)
+                .filter((message): message is string => Boolean(message)),
+        [loanApplicationForm.formState.errors]
     );
     const installmentPreview = useMemo(
         () => estimateInstallment(
@@ -5476,6 +5522,20 @@ export function MemberPortalPage() {
                                 Your current share and savings eligibility is {formatCurrency(selectedLoanEligibleAmount)}, which is below this product's minimum loan size of {formatCurrency(selectedLoanMinimumAmount)}.
                             </Alert>
                         ) : null}
+                        {loanSubmissionBlockers.length ? (
+                            <Alert severity="warning" variant="outlined">
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                                    Submission is currently locked
+                                </Typography>
+                                <Stack spacing={0.35}>
+                                    {loanSubmissionBlockers.map((reason) => (
+                                        <Typography key={reason} variant="body2">
+                                            • {reason}
+                                        </Typography>
+                                    ))}
+                                </Stack>
+                            </Alert>
+                        ) : null}
                         <Box component="form" id="member-loan-application-form" onSubmit={submitLoanApplication} sx={{ display: "grid", gap: 2 }}>
                             <Box>
                                 <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
@@ -5714,6 +5774,20 @@ export function MemberPortalPage() {
                                     {loanApplicationForm.formState.errors.confirmation_checked.message}
                                 </Typography>
                             ) : null}
+                            {!loanSubmissionBlockers.length && visibleLoanFormErrors.length ? (
+                                <Alert severity="info" variant="outlined">
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                                        Complete these items before submitting
+                                    </Typography>
+                                    <Stack spacing={0.35}>
+                                        {visibleLoanFormErrors.map((message) => (
+                                            <Typography key={message} variant="body2">
+                                                • {message}
+                                            </Typography>
+                                        ))}
+                                    </Stack>
+                                </Alert>
+                            ) : null}
                         </Box>
                     </Stack>
                 </DialogContent>
@@ -5734,12 +5808,7 @@ export function MemberPortalPage() {
                         form="member-loan-application-form"
                         disabled={
                             submittingApplication
-                            || !canApplyForLoan
-                            || !selectedLoanProduct
-                            || memberRecord?.status !== "active"
-                            || memberHasProblemLoan
-                            || Boolean(selectedLoanConflict)
-                            || selectedLoanEligibleAmount < selectedLoanMinimumAmount
+                            || loanSubmissionBlockers.length > 0
                         }
                         sx={
                             isDarkMode

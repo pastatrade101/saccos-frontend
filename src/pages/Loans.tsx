@@ -384,7 +384,7 @@ export function LoansPage() {
     const canAppraise = role === "loan_officer";
     const canApprove = role === "branch_manager";
     const canReject = role === "branch_manager" || role === "loan_officer";
-    const canDisburse = role === "loan_officer" || role === "teller";
+    const canDisburse = role === "teller";
     const canRepay = role === "loan_officer" || role === "teller";
 
     const createForm = useForm<CreateApplicationValues>({
@@ -901,14 +901,6 @@ export function LoansPage() {
             helper: "Submitted applications requiring your recommendation and risk notes.",
             route: "/loans",
             tone: metrics.awaitingAppraisal > 0 ? "warning" : "success"
-        },
-        {
-            id: "queue-disbursement",
-            label: "Ready to disburse",
-            count: metrics.readyToDisburse,
-            helper: "Approved applications waiting final disbursement posting.",
-            route: "/loans",
-            tone: metrics.readyToDisburse > 0 ? "warning" : "success"
         },
         {
             id: "queue-default-cases",
