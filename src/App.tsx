@@ -111,7 +111,7 @@ function PublicHomePage() {
 function SignInRoute() {
     const { session, loading } = useAuth();
 
-    if (loading) {
+    if (session && loading) {
         return <AppLoader message="Loading workspace..." />;
     }
 
