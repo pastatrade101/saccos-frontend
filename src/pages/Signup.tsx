@@ -270,6 +270,80 @@ export function SignupPage() {
     const mutedText = muiTheme.palette.mode === "dark"
         ? alpha("#FFFFFF", 0.72)
         : "#5B6B85";
+    const shellOverlay = muiTheme.palette.mode === "dark"
+        ? `linear-gradient(135deg, ${alpha("#06101D", 0.74)} 0%, ${alpha("#091628", 0.62)} 44%, ${alpha("#0E1D32", 0.68)} 100%)`
+        : `linear-gradient(135deg, ${alpha("#F5F9FF", 0.72)} 0%, ${alpha("#EEF5FF", 0.54)} 42%, ${alpha("#E5F1FF", 0.6)} 100%)`;
+    const cardBackground = muiTheme.palette.mode === "dark"
+        ? alpha("#0F172A", 0.68)
+        : alpha("#FFFFFF", 0.84);
+    const headerBackground = muiTheme.palette.mode === "dark"
+        ? `linear-gradient(180deg, ${alpha("#FFFFFF", 0.04)} 0%, ${alpha("#FFFFFF", 0.02)} 100%)`
+        : `linear-gradient(180deg, ${alpha("#FFFFFF", 0.72)} 0%, ${alpha("#F7FAFF", 0.58)} 100%)`;
+    const sectionBackground = muiTheme.palette.mode === "dark"
+        ? alpha("#091221", 0.18)
+        : alpha("#FFFFFF", 0.34);
+    const footerActionSx = muiTheme.palette.mode === "dark"
+        ? {
+              color: "#FFFFFF",
+              "&:hover": {
+                  bgcolor: alpha("#FFFFFF", 0.06)
+              }
+          }
+        : undefined;
+    const signupFieldSx = muiTheme.palette.mode === "dark"
+        ? {
+              "& .MuiOutlinedInput-root": {
+                  bgcolor: alpha("#0B1524", 0.9),
+                  "& fieldset": {
+                      borderColor: alpha("#FFFFFF", 0.16)
+                  },
+                  "&:hover fieldset": {
+                      borderColor: alpha("#FFFFFF", 0.24)
+                  },
+                  "&.Mui-focused fieldset": {
+                      borderColor: alpha("#8DD8FF", 0.72)
+                  }
+              },
+              "& .MuiInputLabel-root": {
+                  color: alpha("#FFFFFF", 0.82)
+              },
+              "& .MuiInputLabel-root.Mui-focused": {
+                  color: "#FFFFFF"
+              },
+              "& .MuiInputBase-input": {
+                  color: "#FFFFFF"
+              },
+              "& .MuiOutlinedInput-input:-webkit-autofill": {
+                  WebkitBoxShadow: `0 0 0 100px ${alpha("#0B1524", 0.9)} inset`,
+                  WebkitTextFillColor: "#FFFFFF",
+                  caretColor: "#FFFFFF",
+                  borderRadius: "inherit",
+                  transition: "background-color 9999s ease-out 0s"
+              },
+              "& .MuiOutlinedInput-input:-webkit-autofill:hover": {
+                  WebkitBoxShadow: `0 0 0 100px ${alpha("#0B1524", 0.9)} inset`,
+                  WebkitTextFillColor: "#FFFFFF"
+              },
+              "& .MuiOutlinedInput-input:-webkit-autofill:focus": {
+                  WebkitBoxShadow: `0 0 0 100px ${alpha("#0B1524", 0.9)} inset`,
+                  WebkitTextFillColor: "#FFFFFF"
+              },
+              "& .MuiOutlinedInput-input:-webkit-autofill:active": {
+                  WebkitBoxShadow: `0 0 0 100px ${alpha("#0B1524", 0.9)} inset`,
+                  WebkitTextFillColor: "#FFFFFF"
+              },
+              "& .MuiInputBase-input::placeholder": {
+                  color: alpha("#FFFFFF", 0.54),
+                  opacity: 1
+              },
+              "& .MuiFormHelperText-root": {
+                  color: alpha("#FFFFFF", 0.62)
+              },
+              "& .MuiSvgIcon-root": {
+                  color: alpha("#FFFFFF", 0.76)
+              }
+          }
+        : undefined;
 
     return (
         <Box
@@ -279,12 +353,22 @@ export function SignupPage() {
                 placeItems: "center",
                 px: { xs: 1.25, md: 2 },
                 py: { xs: 1.25, md: 1 },
-                background: muiTheme.palette.mode === "dark"
-                    ? `radial-gradient(circle at 14% 16%, ${alpha("#1FA8E6", 0.16)} 0%, transparent 24%),
-                        linear-gradient(180deg, ${alpha("#0A1021", 0.98)} 0%, ${alpha("#081122", 1)} 100%)`
-                    : `radial-gradient(circle at 10% 12%, ${alpha("#D9E9FF", 0.92)} 0%, transparent 24%),
-                        radial-gradient(circle at 88% 8%, ${alpha("#E6F8FF", 0.82)} 0%, transparent 18%),
-                        linear-gradient(180deg, ${alpha("#F7FAFF", 1)} 0%, ${alpha("#F3F7FF", 1)} 100%)`
+                backgroundImage: `${shellOverlay}, url('/bk.jpg')`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+                position: "relative",
+                "&::before": {
+                    content: '""',
+                    position: "absolute",
+                    inset: 0,
+                    background: muiTheme.palette.mode === "dark"
+                        ? `radial-gradient(circle at 16% 18%, ${alpha("#1FA8E6", 0.1)} 0%, transparent 22%),
+                            radial-gradient(circle at 84% 10%, ${alpha("#7DD3FC", 0.07)} 0%, transparent 18%)`
+                        : `radial-gradient(circle at 12% 14%, ${alpha("#D8E9FF", 0.56)} 0%, transparent 24%),
+                            radial-gradient(circle at 88% 10%, ${alpha("#E3F5FF", 0.5)} 0%, transparent 18%)`,
+                    pointerEvents: "none"
+                }
             }}
         >
             <Paper
@@ -297,10 +381,11 @@ export function SignupPage() {
                     overflow: "hidden",
                     border: `1px solid ${surfaceBorder}`,
                     maxHeight: { md: "calc(100dvh - 16px)" },
-                    bgcolor: muiTheme.palette.mode === "dark" ? alpha("#0F172A", 0.92) : alpha("#FFFFFF", 0.98),
+                    bgcolor: cardBackground,
+                    backdropFilter: "blur(14px)",
                     boxShadow: muiTheme.palette.mode === "dark"
                         ? `0 30px 90px ${alpha("#020617", 0.42)}`
-                        : `0 30px 80px ${alpha("#9DB7E8", 0.22)}`
+                        : `0 30px 80px ${alpha("#5E7DAE", 0.18)}`
                 }}
             >
                 <Box
@@ -309,9 +394,7 @@ export function SignupPage() {
                         py: { xs: 2.25, md: 2.2 },
                         flexShrink: 0,
                         borderBottom: `1px solid ${alpha(surfaceBorder, 0.9)}`,
-                        background: muiTheme.palette.mode === "dark"
-                            ? alpha("#FFFFFF", 0.02)
-                            : `linear-gradient(180deg, ${alpha("#F8FBFF", 0.98)} 0%, ${alpha("#FFFFFF", 0.96)} 100%)`
+                        background: headerBackground
                     }}
                 >
                     <Stack spacing={2.35}>
@@ -396,9 +479,8 @@ export function SignupPage() {
                                             height: "100%",
                                             borderRadius: 2.25,
                                             borderColor: surfaceBorder,
-                                            bgcolor: muiTheme.palette.mode === "dark"
-                                                ? alpha("#FFFFFF", 0.02)
-                                                : alpha("#F8FBFF", 0.96)
+                                            bgcolor: sectionBackground,
+                                            backdropFilter: "blur(6px)"
                                         }}
                                     >
                                         <Stack direction="row" spacing={1.2} alignItems="flex-start">
@@ -431,7 +513,10 @@ export function SignupPage() {
                     sx={{
                         px: { xs: 2.25, md: 3.5 },
                         py: { xs: 2.25, md: 2.2 },
-                        overflowY: { md: "auto" }
+                        overflowY: { md: "auto" },
+                        background: muiTheme.palette.mode === "dark"
+                            ? alpha("#08111F", 0.08)
+                            : alpha("#FFFFFF", 0.12)
                     }}
                 >
                     <form onSubmit={onSubmit}>
@@ -441,6 +526,7 @@ export function SignupPage() {
                                     fullWidth
                                     label="First name"
                                     size="small"
+                                    sx={signupFieldSx}
                                     value={form.watch("first_name")}
                                     onChange={(event) => form.setValue("first_name", event.target.value)}
                                     error={Boolean(form.formState.errors.first_name)}
@@ -452,6 +538,7 @@ export function SignupPage() {
                                     fullWidth
                                     label="Last name"
                                     size="small"
+                                    sx={signupFieldSx}
                                     value={form.watch("last_name")}
                                     onChange={(event) => form.setValue("last_name", event.target.value)}
                                     error={Boolean(form.formState.errors.last_name)}
@@ -464,6 +551,7 @@ export function SignupPage() {
                                     label="Email address"
                                     size="small"
                                     type="email"
+                                    sx={signupFieldSx}
                                     value={form.watch("email")}
                                     onChange={(event) => form.setValue("email", event.target.value)}
                                     error={Boolean(form.formState.errors.email)}
@@ -476,6 +564,7 @@ export function SignupPage() {
                                     label="Phone number"
                                     size="small"
                                     type="tel"
+                                    sx={signupFieldSx}
                                     value={form.watch("phone")}
                                     onChange={(event) => form.setValue("phone", formatSignupPhone(event.target.value), { shouldValidate: true })}
                                     error={Boolean(form.formState.errors.phone)}
@@ -493,6 +582,7 @@ export function SignupPage() {
                                     label="Date of birth"
                                     size="small"
                                     type="date"
+                                    sx={signupFieldSx}
                                     InputLabelProps={{ shrink: true }}
                                     value={form.watch("date_of_birth")}
                                     onChange={(event) => form.setValue("date_of_birth", event.target.value)}
@@ -505,6 +595,7 @@ export function SignupPage() {
                                     fullWidth
                                     label="National ID"
                                     size="small"
+                                    sx={signupFieldSx}
                                     value={form.watch("national_id")}
                                     onChange={(event) => form.setValue("national_id", formatNationalId(event.target.value), { shouldValidate: true })}
                                     error={Boolean(form.formState.errors.national_id)}
@@ -522,6 +613,7 @@ export function SignupPage() {
                                     fullWidth
                                     label="Branch"
                                     size="small"
+                                    sx={signupFieldSx}
                                     value={form.watch("branch_id")}
                                     onChange={(event) => form.setValue("branch_id", event.target.value)}
                                     error={Boolean(form.formState.errors.branch_id) || Boolean(branchesError)}
@@ -541,6 +633,7 @@ export function SignupPage() {
                                     label="Create password"
                                     size="small"
                                     type={showPassword ? "text" : "password"}
+                                    sx={signupFieldSx}
                                     value={form.watch("password")}
                                     onChange={(event) => form.setValue("password", event.target.value)}
                                     error={Boolean(form.formState.errors.password)}
@@ -566,6 +659,7 @@ export function SignupPage() {
                                     label="Confirm password"
                                     size="small"
                                     type={showConfirmPassword ? "text" : "password"}
+                                    sx={signupFieldSx}
                                     value={form.watch("confirm_password")}
                                     onChange={(event) => form.setValue("confirm_password", event.target.value)}
                                     error={Boolean(form.formState.errors.confirm_password)}
@@ -592,9 +686,8 @@ export function SignupPage() {
                                         p: 1.3,
                                         borderRadius: 2.25,
                                         borderColor: surfaceBorder,
-                                        bgcolor: muiTheme.palette.mode === "dark"
-                                            ? alpha("#FFFFFF", 0.02)
-                                            : alpha("#F8FBFF", 0.96)
+                                        bgcolor: sectionBackground,
+                                        backdropFilter: "blur(6px)"
                                     }}
                                 >
                                     <Stack spacing={0.9}>
@@ -682,6 +775,7 @@ export function SignupPage() {
                                 component="a"
                                 href={import.meta.env.VITE_MARKETING_OWNER_EMAIL ? `mailto:${import.meta.env.VITE_MARKETING_OWNER_EMAIL}` : "/signin"}
                                 variant="text"
+                                sx={footerActionSx}
                             >
                                 Talk to us
                             </Button>
@@ -690,6 +784,7 @@ export function SignupPage() {
                                 to="/"
                                 variant="text"
                                 endIcon={<ArrowForwardRoundedIcon />}
+                                sx={footerActionSx}
                             >
                                 Back to home
                             </Button>

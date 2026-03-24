@@ -1,10 +1,23 @@
-import { MotionCard, MotionModal } from "../ui/motion";
+import { useState } from "react";
+import { Link as RouterLink } from "react-router-dom";
+import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
+import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
+import AutoGraphRoundedIcon from "@mui/icons-material/AutoGraphRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
+import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
+import LockRoundedIcon from "@mui/icons-material/LockRounded";
+import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
+import PeopleAltRoundedIcon from "@mui/icons-material/PeopleAltRounded";
+import ReceiptLongRoundedIcon from "@mui/icons-material/ReceiptLongRounded";
+import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
+import ShieldRoundedIcon from "@mui/icons-material/ShieldRounded";
+import SupportAgentRoundedIcon from "@mui/icons-material/SupportAgentRounded";
+import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
 import {
     AppBar,
     Box,
     Button,
-    Card,
-    CardContent,
     Chip,
     Container,
     Divider,
@@ -21,242 +34,78 @@ import {
     alpha,
     useTheme
 } from "@mui/material";
-import { useState } from "react";
-import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
-import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
-import AutoGraphRoundedIcon from "@mui/icons-material/AutoGraphRounded";
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
-import GavelRoundedIcon from "@mui/icons-material/GavelRounded";
-import HealthAndSafetyRoundedIcon from "@mui/icons-material/HealthAndSafetyRounded";
-import InsightsRoundedIcon from "@mui/icons-material/InsightsRounded";
-import LanRoundedIcon from "@mui/icons-material/LanRounded";
-import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
-import LockRoundedIcon from "@mui/icons-material/LockRounded";
-import NightlightRoundedIcon from "@mui/icons-material/NightlightRounded";
-import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
-import PeopleAltRoundedIcon from "@mui/icons-material/PeopleAltRounded";
-import PieChartRoundedIcon from "@mui/icons-material/PieChartRounded";
-import SecurityRoundedIcon from "@mui/icons-material/SecurityRounded";
-import VerifiedRoundedIcon from "@mui/icons-material/VerifiedRounded";
-import { Link as RouterLink } from "react-router-dom";
 
 import { useUI } from "../ui/UIProvider";
 
-const planCards = [
+const coreCapabilities = [
     {
-        code: "Starter",
-        description: "Perfect for small SACCOS starting digital operations.",
-        highlight: false,
-        features: [
-            "Member registration and profiles",
-            "Daily cash desk transactions",
-            "Role-based staff access",
-            "Basic reports for management"
-        ]
-    },
-    {
-        code: "Growth",
-        description: "Best for growing SACCOS handling loans and dividends every day.",
-        highlight: true,
-        features: [
-            "Loan applications, appraisal, and tracking",
-            "Share contributions and dividends",
-            "Approval workflow for sensitive actions",
-            "Branch dashboards and richer reports"
-        ]
-    },
-    {
-        code: "Enterprise",
-        description: "For large institutions that need stronger controls and multi-branch visibility.",
-        highlight: false,
-        features: [
-            "Multi-branch operations at scale",
-            "Advanced approval chains",
-            "Audit-friendly logs and evidence",
-            "Priority rollout support"
-        ]
-    }
-] as const;
-
-const productModules = [
-    {
-        title: "Members",
-        copy: "Register members quickly, keep records clean, and track account details in one place.",
+        title: "Member lifecycle",
+        copy: "Handle member application, approval, activation, balances, and self-service from one workspace.",
         icon: <PeopleAltRoundedIcon />
     },
     {
-        title: "Cash Desk",
-        copy: "Handle deposits, withdrawals, and contributions with a simple, guided flow.",
-        icon: <PaidRoundedIcon />
+        title: "Savings and shares",
+        copy: "Track deposits, share contributions, dividend visibility, and running balances with clear history.",
+        icon: <SavingsRoundedIcon />
     },
     {
-        title: "Loans",
-        copy: "Manage loan requests, approvals, disbursement, and repayment without losing track.",
-        icon: <AutoGraphRoundedIcon />
+        title: "Lending operations",
+        copy: "Manage loan application, appraisal, approval, disbursement, repayment, and follow-up without spreadsheet drift.",
+        icon: <TrendingUpRoundedIcon />
     },
     {
-        title: "Shares and Dividends",
-        copy: "Track share growth and run dividend cycles with clear records for every member.",
-        icon: <PieChartRoundedIcon />
+        title: "Payments and collections",
+        copy: "Support teller cash flows and member self-service collections through guided payment flows.",
+        icon: <PaymentsRoundedIcon />
     },
     {
-        title: "Audit Trail",
-        copy: "Every key action is logged so managers and auditors can review with confidence.",
-        icon: <GavelRoundedIcon />
+        title: "Controls and approvals",
+        copy: "Keep risky operations approval-gated with role-aware execution paths and audit-friendly traceability.",
+        icon: <ShieldRoundedIcon />
     },
     {
-        title: "Tenant Management",
-        copy: "Run one or many SACCOS workspaces with separate data and simple plan control.",
-        icon: <LanRoundedIcon />
+        title: "Reports and visibility",
+        copy: "Give management branch revenue, loan performance, cash control, and operational reporting in real time.",
+        icon: <ReceiptLongRoundedIcon />
     }
 ] as const;
 
-const buyerValuePillars = [
+const memberJourney = [
+    "Apply for membership online",
+    "Branch reviews and approves",
+    "Member pays the membership fee",
+    "Savings and share accounts become active",
+    "Member contributes, repays, and tracks statements in the portal"
+] as const;
+
+const operatingPrinciples = [
     {
-        title: "Safer Money Movement",
-        copy: "Built-in checks help prevent risky mistakes before money is posted.",
-        icon: <HealthAndSafetyRoundedIcon />
+        title: "Built for one SACCO, not a generic platform",
+        copy: "The experience is focused on one institution, one team, one member base, and one operating model."
     },
     {
-        title: "Faster Daily Work",
-        copy: "Your team handles members, cash, loans, and reports from one dashboard.",
-        icon: <AutoGraphRoundedIcon />
+        title: "Real branch workflows",
+        copy: "Branch manager, teller, loan officer, auditor, and member journeys are handled as distinct roles."
     },
     {
-        title: "Better Member Service",
-        copy: "Give members clearer records, faster responses, and more trust in your process.",
-        icon: <PeopleAltRoundedIcon />
-    },
-    {
-        title: "Ready to Scale",
-        copy: "Start small today and expand branches and users without changing systems.",
-        icon: <LanRoundedIcon />
+        title: "Controls at the backend",
+        copy: "Approval, branch access, posting rules, and account ownership are enforced by system logic, not just UI hints."
     }
 ] as const;
 
-const whyDifferentPoints = [
-    "Only the right person can approve sensitive actions.",
-    "Important actions leave a clear, searchable history.",
-    "Loan and cash workflows follow clear approval steps.",
-    "The system blocks high-risk actions until checks are complete.",
-    "Controls are enforced by the backend, not just the screen."
+const quickStats = [
+    { value: "1", label: "Unified SACCO workspace" },
+    { value: "6", label: "Core operating areas" },
+    { value: "24/7", label: "Member self-service reach" }
 ] as const;
 
-const onboardingSteps = [
-    {
-        step: "01",
-        title: "Book a quick demo",
-        description: "Tell us your branch size and goals so we can guide you."
-    },
-    {
-        step: "02",
-        title: "Choose your plan",
-        description: "Pick Starter, Growth, or Enterprise based on your needs."
-    },
-    {
-        step: "03",
-        title: "We set up your workspace",
-        description: "Your tenant, roles, and access are prepared for your team."
-    },
-    {
-        step: "04",
-        title: "Start operations",
-        description: "Your team signs in and starts serving members immediately."
-    }
-] as const;
-
-const demoStorySteps = [
-    {
-        step: "01",
-        title: "Register a member",
-        description: "Your officer adds member details once and keeps records clean."
-    },
-    {
-        step: "02",
-        title: "Member requests a loan",
-        description: "The application enters one clear workflow."
-    },
-    {
-        step: "03",
-        title: "Loan officer appraises",
-        description: "The officer reviews terms and updates the appraisal."
-    },
-    {
-        step: "04",
-        title: "Branch manager decides",
-        description: "The manager approves or rejects based on policy."
-    },
-    {
-        step: "05",
-        title: "Teller disburses",
-        description: "Funds are released and recorded with receipt evidence."
-    },
-    {
-        step: "06",
-        title: "Repayments are tracked",
-        description: "Installments and balances update in real time."
-    },
-    {
-        step: "07",
-        title: "Reports update automatically",
-        description: "Leadership sees performance without manual spreadsheets."
-    },
-    {
-        step: "08",
-        title: "Auditor reviews history",
-        description: "Every step can be traced from request to final posting."
-    }
-] as const;
-
-const enterpriseReadinessPhases = [
-    {
-        phase: "Step 1",
-        priority: "Now",
-        title: "Map your process",
-        copy: "We align your member, loan, and cash workflow to how your team works today."
-    },
-    {
-        phase: "Step 2",
-        priority: "Now",
-        title: "Set access and approvals",
-        copy: "We set user roles and approval rules so sensitive actions are controlled."
-    },
-    {
-        phase: "Step 3",
-        priority: "Now",
-        title: "Load your starting data",
-        copy: "Members and opening balances are prepared so your team can start cleanly."
-    },
-    {
-        phase: "Step 4",
-        priority: "Next",
-        title: "Train your staff",
-        copy: "Your team learns the daily flow in plain, practical sessions."
-    },
-    {
-        phase: "Step 5",
-        priority: "Next",
-        title: "Go live branch by branch",
-        copy: "You can launch one branch first and expand when the team is ready."
-    },
-    {
-        phase: "Step 6",
-        priority: "Next",
-        title: "Track daily performance",
-        copy: "Managers monitor loans, cash, and member activity from dashboards."
-    },
-    {
-        phase: "Step 7",
-        priority: "Grow",
-        title: "Strengthen audits and reports",
-        copy: "Use built-in logs and reports to simplify compliance and reviews."
-    },
-    {
-        phase: "Step 8",
-        priority: "Grow",
-        title: "Scale with confidence",
-        copy: "Add more users and branches while keeping the same simple workflow."
-    }
+const workspaceAreas = [
+    "Members and applications",
+    "Contributions and savings",
+    "Loan operations",
+    "Payments and repayment flows",
+    "Revenue and reports",
+    "Approvals, controls, and audit support"
 ] as const;
 
 export function LandingPage() {
@@ -265,7 +114,7 @@ export function LandingPage() {
     const [mobileNavOpen, setMobileNavOpen] = useState(false);
     const isDark = mode === "dark";
 
-    const ownerName = import.meta.env.VITE_MARKETING_OWNER_NAME || "Platform Owner";
+    const ownerName = import.meta.env.VITE_MARKETING_OWNER_NAME || "SACCO Team";
     const ownerEmail = import.meta.env.VITE_MARKETING_OWNER_EMAIL || "";
     const ownerPhone = import.meta.env.VITE_MARKETING_OWNER_PHONE || "";
     const ownerWhatsApp = import.meta.env.VITE_MARKETING_OWNER_WHATSAPP || "";
@@ -274,39 +123,41 @@ export function LandingPage() {
 
     const whatsappNumber = ownerWhatsApp.replace(/[^\d]/g, "");
     const contactHref = ownerEmail
-        ? `mailto:${ownerEmail}?subject=${encodeURIComponent("SACCOS SaaS plan inquiry")}`
+        ? `mailto:${ownerEmail}?subject=${encodeURIComponent(`${ownerCompany} product inquiry`)}`
         : ownerPhone
             ? `tel:${ownerPhone}`
             : "/signin";
     const whatsappHref = whatsappNumber ? `https://wa.me/${whatsappNumber}` : null;
+
     const shellBg = isDark
-        ? "radial-gradient(circle at 14% 12%, rgba(90,112,156,0.16), transparent 30%), radial-gradient(circle at 84% 10%, rgba(72,153,145,0.11), transparent 28%), radial-gradient(circle at 52% 88%, rgba(206,162,82,0.12), transparent 30%), linear-gradient(180deg, #070c16 0%, #0b121d 55%, #101827 100%)"
-        : "radial-gradient(circle at 14% 12%, rgba(92,109,255,0.14), transparent 30%), radial-gradient(circle at 84% 10%, rgba(39,209,187,0.12), transparent 28%), linear-gradient(180deg, #f8fbff 0%, #f3f8ff 55%, #f7fbff 100%)";
-    const glassSurface = isDark
-        ? alpha(theme.palette.background.paper, 0.62)
-        : alpha(theme.palette.common.white, 0.84);
-    const sectionSurface = isDark
-        ? alpha(theme.palette.background.paper, 0.54)
-        : alpha(theme.palette.common.white, 0.9);
-    const cardBorder = alpha(theme.palette.divider, isDark ? 0.52 : 0.82);
-    const accentColor = isDark ? "#D9B273" : theme.palette.primary.main;
-    const sectionCardSx = {
-        borderRadius: 3,
-        border: `1px solid ${cardBorder}`,
-        bgcolor: sectionSurface,
-        backdropFilter: "blur(10px)",
-        boxShadow: isDark
-            ? "0 20px 44px rgba(0, 0, 0, 0.34)"
-            : "0 18px 40px rgba(12, 23, 44, 0.1)"
-    } as const;
+        ? `radial-gradient(circle at 12% 10%, ${alpha("#67E8F9", 0.12)} 0%, transparent 28%),
+            radial-gradient(circle at 88% 8%, ${alpha("#3B82F6", 0.16)} 0%, transparent 22%),
+            linear-gradient(180deg, #07111d 0%, #0b1524 54%, #101827 100%)`
+        : `radial-gradient(circle at 12% 8%, ${alpha("#CDE4FF", 0.95)} 0%, transparent 28%),
+            radial-gradient(circle at 86% 10%, ${alpha("#DDF7FF", 0.9)} 0%, transparent 22%),
+            linear-gradient(180deg, #f7fbff 0%, #f4f8ff 58%, #f8fbff 100%)`;
+    const glassSurface = isDark ? alpha("#0F172A", 0.8) : alpha("#FFFFFF", 0.88);
+    const sectionSurface = isDark ? alpha("#111C2D", 0.84) : alpha("#FFFFFF", 0.92);
+    const borderColor = isDark ? alpha("#FFFFFF", 0.1) : alpha("#B9D4FF", 0.72);
+    const primaryAccent = isDark ? "#8DD8FF" : "#2358E8";
+    const secondaryAccent = isDark ? "#72E1B4" : "#0E9F6E";
+    const pageShadow = isDark ? "0 24px 60px rgba(2, 6, 23, 0.34)" : "0 24px 60px rgba(34, 73, 154, 0.12)";
+
+    const navItems = [
+        { label: "Overview", href: "#overview" },
+        { label: "Capabilities", href: "#capabilities" },
+        { label: "Member Experience", href: "#member-experience" },
+        { label: "Controls", href: "#controls" },
+        { label: "Contact", href: "#contact" }
+    ] as const;
 
     return (
         <Box
             sx={{
                 minHeight: "100vh",
-                bgcolor: "background.default",
                 color: "text.primary",
-                backgroundImage: shellBg
+                backgroundImage: shellBg,
+                backgroundAttachment: { md: "fixed" }
             }}
         >
             <AppBar
@@ -314,87 +165,60 @@ export function LandingPage() {
                 color="transparent"
                 elevation={0}
                 sx={{
-                    borderBottom: `1px solid ${alpha(theme.palette.divider, isDark ? 0.45 : 0.72)}`
+                    borderBottom: `1px solid ${alpha(theme.palette.divider, isDark ? 0.36 : 0.7)}`
                 }}
             >
                 <Toolbar
                     sx={{
-                        minHeight: { xs: 64, md: 76 },
-                        px: { xs: 1.5, sm: 2.5 },
+                        minHeight: { xs: 68, md: 78 },
                         backdropFilter: "blur(18px)",
                         bgcolor: glassSurface
                     }}
                 >
-                    <Container maxWidth="xl" sx={{ display: "flex", alignItems: "center", gap: { xs: 1, md: 2 } }}>
+                    <Container maxWidth="xl" sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                         <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flexGrow: 1, minWidth: 0 }}>
                             <Box
                                 sx={{
-                                    width: { xs: 36, md: 44 },
-                                    height: { xs: 36, md: 44 },
-                                    borderRadius: 1.5,
-                                    bgcolor: "#ffffff",
+                                    width: { xs: 40, md: 46 },
+                                    height: { xs: 40, md: 46 },
+                                    borderRadius: 2.25,
+                                    bgcolor: alpha("#FFFFFF", isDark ? 0.96 : 1),
                                     display: "grid",
                                     placeItems: "center",
-                                    flexShrink: 0,
-                                    boxShadow: `0 14px 30px ${alpha(accentColor, isDark ? 0.3 : 0.22)}`
+                                    boxShadow: `0 14px 34px ${alpha(primaryAccent, isDark ? 0.14 : 0.18)}`
                                 }}
                             >
                                 <Box
                                     component="img"
                                     src={logoSrc}
-                                    alt="SMART SACCOS logo"
-                                    sx={{
-                                        width: { xs: 24, md: 30 },
-                                        height: { xs: 24, md: 30 },
-                                        objectFit: "contain"
-                                    }}
+                                    alt={`${ownerCompany} logo`}
+                                    sx={{ width: { xs: 26, md: 30 }, height: { xs: 26, md: 30 }, objectFit: "contain" }}
                                 />
                             </Box>
                             <Box sx={{ minWidth: 0 }}>
                                 <Typography
                                     variant="subtitle1"
-                                    sx={{ fontWeight: 800, lineHeight: 1.2, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}
+                                    sx={{ fontWeight: 800, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
                                 >
                                     {ownerCompany}
                                 </Typography>
-                                <Typography
-                                    variant="caption"
-                                    color="text.secondary"
-                                    sx={{ display: { xs: "none", sm: "block" }, whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" }}
-                                >
-                                    Simple software to run your SACCOS
+                                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                                    Digital SACCO workspace
                                 </Typography>
                             </Box>
                         </Stack>
 
-                        <Stack
-                            direction="row"
-                            spacing={0.75}
-                            sx={{ display: { xs: "none", md: "flex" }, alignItems: "center" }}
-                        >
-                            <Button component="a" href="#solutions" color="inherit">
-                                Solutions
-                            </Button>
-                            <Button component="a" href="#readiness" color="inherit">
-                                Go Live Steps
-                            </Button>
-                            <Button component="a" href="#why-different" color="inherit">
-                                Why Different
-                            </Button>
-                            <Button component="a" href="#plans" color="inherit">
-                                Plans
-                            </Button>
-                            <Button component="a" href="#how-it-works" color="inherit">
-                                How It Works
-                            </Button>
-                            <Button component="a" href="#contact" color="inherit">
-                                Contact
-                            </Button>
+                        <Stack direction="row" spacing={0.5} sx={{ display: { xs: "none", md: "flex" } }}>
+                            {navItems.map((item) => (
+                                <Button key={item.href} component="a" href={item.href} color="inherit">
+                                    {item.label}
+                                </Button>
+                            ))}
                         </Stack>
 
-                        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexShrink: 0 }}>
-                            <IconButton onClick={toggleTheme} color="inherit" size="small">
-                                {mode === "dark" ? <LightModeRoundedIcon /> : <NightlightRoundedIcon />}
+                        <Stack direction="row" spacing={1} alignItems="center">
+                            <IconButton onClick={toggleTheme} color="inherit">
+                                {isDark ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}
                             </IconButton>
                             <Button component={RouterLink} to="/signin" variant="text" color="inherit" sx={{ display: { xs: "none", sm: "inline-flex" } }}>
                                 Sign in
@@ -402,40 +226,21 @@ export function LandingPage() {
                             <Button
                                 component={RouterLink}
                                 to="/signup"
-                                variant="outlined"
-                                color="inherit"
+                                variant="contained"
                                 sx={{
                                     display: { xs: "none", sm: "inline-flex" },
-                                    borderColor: alpha(theme.palette.common.white, 0.6),
-                                    color: "#ffffff"
+                                    borderRadius: 2.25,
+                                    px: 2.4,
+                                    bgcolor: isDark ? primaryAccent : "#0F172A",
+                                    color: isDark ? "#08111f" : "#FFFFFF",
+                                    "&:hover": {
+                                        bgcolor: isDark ? alpha(primaryAccent, 0.9) : alpha("#0F172A", 0.92)
+                                    }
                                 }}
                             >
-                                Apply for membership
+                                Apply now
                             </Button>
-                            <Button
-                                component="a"
-                                href={contactHref}
-                                variant="contained"
-                                endIcon={<ArrowForwardRoundedIcon />}
-                                sx={{
-                                    display: { xs: "none", md: "inline-flex" },
-                                    ...(isDark
-                                        ? {
-                                              bgcolor: accentColor,
-                                              color: "#1a1a1a",
-                                              "&:hover": { bgcolor: alpha(accentColor, 0.86) }
-                                          }
-                                        : {})
-                                }}
-                            >
-                                Book demo
-                            </Button>
-                            <IconButton
-                                color="inherit"
-                                size="small"
-                                sx={{ display: { xs: "inline-flex", md: "none" } }}
-                                onClick={() => setMobileNavOpen(true)}
-                            >
+                            <IconButton sx={{ display: { xs: "inline-flex", md: "none" } }} onClick={() => setMobileNavOpen(true)}>
                                 <MenuRoundedIcon />
                             </IconButton>
                         </Stack>
@@ -449,53 +254,30 @@ export function LandingPage() {
                 onClose={() => setMobileNavOpen(false)}
                 PaperProps={{
                     sx: {
-                        mt: "64px",
+                        mt: "68px",
                         borderRadius: 0,
-                        borderBottom: `1px solid ${theme.palette.divider}`
+                        borderBottom: `1px solid ${theme.palette.divider}`,
+                        bgcolor: glassSurface,
+                        backdropFilter: "blur(20px)"
                     }
                 }}
             >
-                <Box sx={{ px: 1.5, py: 1 }}>
+                <Box sx={{ px: 1.5, py: 1.25 }}>
                     <List disablePadding>
-                        {[
-                            { label: "Solutions", href: "#solutions" },
-                            { label: "Go Live Steps", href: "#readiness" },
-                            { label: "Why Different", href: "#why-different" },
-                            { label: "Plans", href: "#plans" },
-                            { label: "How It Works", href: "#how-it-works" },
-                            { label: "Contact", href: "#contact" }
-                        ].map((item) => (
+                        {navItems.map((item) => (
                             <ListItemButton
                                 key={item.href}
                                 component="a"
                                 href={item.href}
                                 onClick={() => setMobileNavOpen(false)}
-                                sx={{ borderRadius: 1 }}
+                                sx={{ borderRadius: 2 }}
                             >
                                 <ListItemText primary={item.label} />
                             </ListItemButton>
                         ))}
                     </List>
-                    <Stack direction="row" spacing={1} sx={{ px: 1, py: 1.5 }}>
-                        <Button
-                            component={RouterLink}
-                            to="/signin"
-                            variant="outlined"
-                            fullWidth
-                            onClick={() => setMobileNavOpen(false)}
-                            sx={
-                                isDark
-                                    ? {
-                                          borderColor: alpha(accentColor, 0.5),
-                                          color: accentColor,
-                                          "&:hover": {
-                                              borderColor: alpha(accentColor, 0.8),
-                                              bgcolor: alpha(accentColor, 0.12)
-                                          }
-                                      }
-                                    : undefined
-                            }
-                        >
+                    <Stack direction="row" spacing={1} sx={{ px: 1, py: 1.25 }}>
+                        <Button component={RouterLink} to="/signin" variant="outlined" fullWidth onClick={() => setMobileNavOpen(false)}>
                             Sign in
                         </Button>
                         <Button
@@ -504,394 +286,265 @@ export function LandingPage() {
                             variant="contained"
                             fullWidth
                             onClick={() => setMobileNavOpen(false)}
-                            sx={
-                                isDark
-                                    ? {
-                                          bgcolor: accentColor,
-                                          color: "#1a1a1a",
-                                          "&:hover": { bgcolor: alpha(accentColor, 0.86) }
-                                      }
-                                    : undefined
-                            }
+                            sx={{
+                                bgcolor: isDark ? primaryAccent : "#0F172A",
+                                color: isDark ? "#08111f" : "#FFFFFF"
+                            }}
                         >
                             Apply now
-                        </Button>
-                        <Button
-                            component="a"
-                            href={contactHref}
-                            variant="contained"
-                            fullWidth
-                            onClick={() => setMobileNavOpen(false)}
-                            sx={
-                                isDark
-                                    ? {
-                                          bgcolor: accentColor,
-                                          color: "#1a1a1a",
-                                          "&:hover": { bgcolor: alpha(accentColor, 0.86) }
-                                      }
-                                    : undefined
-                            }
-                        >
-                            Book demo
                         </Button>
                     </Stack>
                 </Box>
             </Drawer>
 
-            <Container maxWidth="xl" sx={{ py: { xs: 4, md: 6 } }}>
-                <Box
-                    sx={{
-                        position: "relative",
-                        overflow: "hidden",
-                        borderRadius: 3,
-                        px: { xs: 2.25, md: 4.5 },
-                        py: { xs: 4, md: 6.5 },
-                        mb: { xs: 4, md: 5 },
-                        backgroundImage: `linear-gradient(135deg, ${
-                            mode === "light"
-                                ? "rgba(8, 18, 44, 0.78), rgba(16, 44, 74, 0.5)"
-                                : "rgba(6, 10, 18, 0.88), rgba(25, 34, 42, 0.72)"
-                        }), url('/13321.jpg')`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                        border: `1px solid ${alpha("#ffffff", isDark ? 0.14 : 0.28)}`,
-                        boxShadow: `0 30px 70px ${alpha(theme.palette.common.black, mode === "light" ? 0.14 : 0.36)}`,
-                        "&::after": {
-                            content: '""',
-                            position: "absolute",
-                            inset: 0,
-                            background:
-                                mode === "light"
-                                    ? "linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0))"
-                                    : "linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0))",
-                            pointerEvents: "none"
-                        },
-                        "&::before": {
-                            content: '""',
-                            position: "absolute",
-                            width: 420,
-                            height: 420,
-                            borderRadius: "50%",
-                            top: -220,
-                            right: -120,
-                            background: isDark
-                                ? "radial-gradient(circle, rgba(199,162,95,0.24), rgba(199,162,95,0) 65%)"
-                                : "radial-gradient(circle, rgba(115,134,255,0.3), rgba(115,134,255,0) 65%)",
-                            pointerEvents: "none"
-                        }
-                    }}
-                >
-                <Grid container spacing={4} alignItems="center" sx={{ position: "relative", zIndex: 1 }}>
-                    <Grid size={{ xs: 12, lg: 7 }}>
-                        <Stack spacing={3}>
-                            <Chip
-                                icon={<VerifiedRoundedIcon />}
-                                label="Simple, guided SACCOS platform"
-                                sx={{
-                                    alignSelf: "flex-start",
-                                    bgcolor: alpha("#ffffff", 0.12),
-                                    color: "#ffffff",
-                                    fontWeight: 700
-                                }}
-                            />
-                            <Typography
-                                variant="h2"
-                                sx={{
-                                    color: "#ffffff",
-                                    fontSize: { xs: "2.15rem", md: "3.9rem" },
-                                    lineHeight: 1.04,
-                                    letterSpacing: { xs: -1.3, md: -2.2 },
-                                    fontWeight: 800,
-                                    maxWidth: 820
-                                }}
-                            >
-                                Run your SACCOS from one simple system.
-                            </Typography>
-                            <Typography
-                                variant="h6"
-                                sx={{
-                                    maxWidth: 720,
-                                    fontWeight: 500,
-                                    lineHeight: 1.6,
-                                    color: alpha("#ffffff", 0.86)
-                                }}
-                            >
-                                Manage members, loans, cash, approvals, and reports in one place.
-                                Your team follows clear steps, so daily operations are faster and safer.
-                            </Typography>
-                            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                                <Button
-                                    component="a"
-                                    href={contactHref}
-                                    size="large"
-                                    variant="contained"
-                                    endIcon={<ArrowForwardRoundedIcon />}
-                                    sx={{
-                                        bgcolor: "#ffffff",
-                                        color: accentColor,
-                                        "&:hover": { bgcolor: alpha("#ffffff", 0.92) }
-                                    }}
-                                >
-                                    Book a demo
-                                </Button>
-                                <Button
-                                    component="a"
-                                    href="#plans"
-                                    size="large"
-                                    variant="outlined"
-                                    sx={{
-                                        borderColor: alpha("#ffffff", 0.4),
-                                        color: "#ffffff",
-                                        "&:hover": { borderColor: alpha("#ffffff", 0.7), bgcolor: alpha("#ffffff", 0.08) }
-                                    }}
-                                >
-                                    Explore plans
-                                </Button>
-                                <Button
-                                    component={RouterLink}
-                                    to="/signup"
-                                    size="large"
-                                    variant="outlined"
-                                    sx={{
-                                        borderColor: alpha("#ffffff", 0.4),
-                                        color: "#ffffff",
-                                        "&:hover": { borderColor: alpha("#ffffff", 0.7), bgcolor: alpha("#ffffff", 0.08) }
-                                    }}
-                                >
-                                    Apply for membership
-                                </Button>
-                            </Stack>
-                            <Stack direction={{ xs: "column", md: "row" }} spacing={2.5} sx={{ pt: 1 }}>
-                                <Stack direction="row" spacing={1.5} alignItems="center">
-                                    <SecurityRoundedIcon sx={{ color: "#ffffff" }} />
-                                    <Typography variant="body1" sx={{ color: alpha("#ffffff", 0.82) }}>
-                                        Separate workspace per SACCOS
-                                    </Typography>
-                                </Stack>
-                                <Stack direction="row" spacing={1.5} alignItems="center">
-                                    <HealthAndSafetyRoundedIcon sx={{ color: "#ffffff" }} />
-                                    <Typography variant="body1" sx={{ color: alpha("#ffffff", 0.82) }}>
-                                        Clear records for every transaction
-                                    </Typography>
-                                </Stack>
-                                    <Stack direction="row" spacing={1.5} alignItems="center">
-                                        <InsightsRoundedIcon sx={{ color: "#ffffff" }} />
-                                        <Typography variant="body1" sx={{ color: alpha("#ffffff", 0.82) }}>
-                                        Easy to scale branch by branch
-                                        </Typography>
-                                    </Stack>
-                                </Stack>
-                        </Stack>
-                    </Grid>
-
-                    <Grid size={{ xs: 12, lg: 5 }}>
+            <Container maxWidth="xl" sx={{ py: { xs: 4.5, md: 6 } }}>
+                <Grid id="overview" container spacing={2.5} alignItems="stretch">
+                    <Grid size={{ xs: 12, lg: 8 }}>
                         <Paper
+                            elevation={0}
                             sx={{
+                                height: "100%",
                                 p: { xs: 2.5, md: 3.5 },
                                 borderRadius: 2.5,
-                                background:
-                                    mode === "light"
-                                        ? "linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(247,249,255,0.92) 100%)"
-                                        : "linear-gradient(180deg, rgba(26,31,41,0.94) 0%, rgba(20,24,34,0.92) 100%)",
-                                backdropFilter: "blur(8px)",
-                                border: `1px solid ${alpha(theme.palette.divider, isDark ? 0.42 : 0.82)}`,
-                                boxShadow: `0 30px 60px ${alpha(theme.palette.common.black, mode === "light" ? 0.1 : 0.32)}`
+                                border: `1px solid ${borderColor}`,
+                                bgcolor: sectionSurface,
+                                boxShadow: pageShadow,
+                                background: isDark
+                                    ? `linear-gradient(140deg, ${alpha("#0F172A", 0.96)} 0%, ${alpha("#10213C", 0.92)} 52%, ${alpha("#0B1630", 0.96)} 100%)`
+                                    : `linear-gradient(145deg, ${alpha("#FFFFFF", 0.98)} 0%, ${alpha("#F4F8FF", 0.98)} 55%, ${alpha("#EEF4FF", 0.98)} 100%)`,
+                                position: "relative",
+                                overflow: "hidden",
+                                "&::after": {
+                                    content: '""',
+                                    position: "absolute",
+                                    inset: 0,
+                                    background: isDark
+                                        ? `radial-gradient(circle at 82% 14%, ${alpha(primaryAccent, 0.18)} 0%, transparent 28%)`
+                                        : `radial-gradient(circle at 84% 16%, ${alpha("#B8D8FF", 0.52)} 0%, transparent 28%)`,
+                                    pointerEvents: "none"
+                                }
                             }}
                         >
-                            <Stack spacing={2.5}>
-                                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                    <Box>
-                                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                                            Start here
+                            <Grid container spacing={2.25} sx={{ position: "relative", zIndex: 1 }}>
+                                <Grid size={{ xs: 12, md: 7.25 }}>
+                                    <Stack spacing={2}>
+                                        <Chip
+                                            label="Single-tenant SACCO system"
+                                            sx={{
+                                                alignSelf: "flex-start",
+                                                height: 34,
+                                                borderRadius: 1.5,
+                                                bgcolor: isDark ? alpha(primaryAccent, 0.16) : alpha(primaryAccent, 0.08),
+                                                color: primaryAccent,
+                                                fontWeight: 700
+                                            }}
+                                        />
+                                        <Typography
+                                            variant="h1"
+                                            sx={{
+                                                fontSize: { xs: "2.45rem", md: "4rem" },
+                                                lineHeight: 0.96,
+                                                letterSpacing: "-0.055em",
+                                                fontWeight: 800,
+                                                maxWidth: 660
+                                            }}
+                                        >
+                                            Run your SACCO from one digital workspace.
                                         </Typography>
-                                        <Typography variant="h5">Go live in 4 simple steps</Typography>
-                                    </Box>
-                                    <Chip
-                                        label="Guided setup"
-                                        variant="outlined"
-                                        sx={{
-                                            borderColor: alpha(accentColor, isDark ? 0.66 : 0.48),
-                                            color: accentColor
-                                        }}
-                                    />
-                                </Stack>
-
-                                <Grid container spacing={1.5}>
-                                    {onboardingSteps.map((step) => (
-                        <Grid key={step.step} size={{ xs: 12, sm: 6 }}>
-                                            <MotionCard
+                                        <Typography
+                                            variant="h6"
+                                            sx={{
+                                                color: "text.secondary",
+                                                fontWeight: 500,
+                                                lineHeight: 1.62,
+                                                maxWidth: 620
+                                            }}
+                                        >
+                                            Manage members, deposits, shares, loans, repayments, approvals, revenue, and reports in one production-ready system built for daily branch work.
+                                        </Typography>
+                                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.4}>
+                                            <Button
+                                                component={RouterLink}
+                                                to="/signup"
+                                                variant="contained"
+                                                endIcon={<ArrowForwardRoundedIcon />}
                                                 sx={{
-                                                    height: "100%",
-                                                    borderRadius: 2,
-                                                    bgcolor: alpha(accentColor, isDark ? 0.15 : 0.04)
+                                                    borderRadius: 1.75,
+                                                    px: 2.5,
+                                                    minHeight: 46,
+                                                    bgcolor: isDark ? primaryAccent : "#0F172A",
+                                                    color: isDark ? "#08111f" : "#FFFFFF"
                                                 }}
                                             >
-                                                <CardContent sx={{ p: 2.25 }}>
-                                                    <Typography variant="caption" sx={{ fontWeight: 800, color: accentColor }}>
-                                                        {step.step}
-                                                    </Typography>
-                                                    <Typography variant="subtitle1" sx={{ mt: 0.5, fontWeight: 700 }}>
-                                                        {step.title}
-                                                    </Typography>
-                                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                                        {step.description}
-                                                    </Typography>
-                                                </CardContent>
-                                            </MotionCard>
+                                                Start membership
+                                            </Button>
+                                            <Button component={RouterLink} to="/signin" variant="outlined" sx={{ borderRadius: 1.75, minHeight: 46, px: 2.5 }}>
+                                                Staff sign in
+                                            </Button>
+                                            <Button component="a" href={contactHref} variant="text" sx={{ borderRadius: 1.75, minHeight: 46, px: 2 }}>
+                                                Request a walkthrough
+                                            </Button>
+                                        </Stack>
+                                        <Grid container spacing={1}>
+                                            {[
+                                                "Branch manager, teller, loan officer, auditor, and member roles",
+                                                "Member portal with self-service contribution and repayment flows",
+                                                "Approval-aware lending and finance operations"
+                                            ].map((point) => (
+                                                <Grid key={point} size={{ xs: 12, sm: 6, md: 12 }}>
+                                                    <Stack direction="row" spacing={1.1} alignItems="flex-start">
+                                                        <CheckCircleRoundedIcon sx={{ mt: 0.15, color: secondaryAccent, fontSize: 20 }} />
+                                                        <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.65 }}>
+                                                            {point}
+                                                        </Typography>
+                                                    </Stack>
+                                                </Grid>
+                                            ))}
                                         </Grid>
-                                    ))}
+                                    </Stack>
                                 </Grid>
 
-                                <Divider />
+                                <Grid size={{ xs: 12, md: 4.75 }}>
+                                    <Paper
+                                        elevation={0}
+                                        sx={{
+                                            height: "100%",
+                                            p: 2.1,
+                                            borderRadius: 2.25,
+                                            border: `1px solid ${borderColor}`,
+                                            bgcolor: isDark ? alpha("#13233A", 0.92) : alpha("#F8FBFF", 0.98),
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            justifyContent: "space-between",
+                                            boxShadow: isDark
+                                                ? "inset 0 1px 0 rgba(255,255,255,0.04)"
+                                                : "inset 0 1px 0 rgba(255,255,255,0.8)"
+                                        }}
+                                    >
+                                        <Stack spacing={2.2}>
+                                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                                <Typography variant="overline" sx={{ color: primaryAccent, fontWeight: 800, letterSpacing: "0.16em" }}>
+                                                    OPERATING MODEL
+                                                </Typography>
+                                                <Chip
+                                                    label="Live-ready"
+                                                    sx={{
+                                                        height: 32,
+                                                        borderRadius: 1.25,
+                                                        bgcolor: isDark ? alpha(secondaryAccent, 0.16) : alpha(secondaryAccent, 0.12),
+                                                        color: secondaryAccent,
+                                                        fontWeight: 700
+                                                    }}
+                                                />
+                                            </Stack>
+                                            <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08 }}>
+                                                One system for one SACCO team.
+                                            </Typography>
+                                            <Typography variant="body1" sx={{ color: "text.secondary", lineHeight: 1.75 }}>
+                                                Every workflow is aligned to one SACCO deployment, so staff and members operate inside one clear, accountable system.
+                                            </Typography>
+                                        </Stack>
+                                        <Grid container spacing={1} sx={{ mt: 1.6 }}>
+                                            {quickStats.map((item) => (
+                                                <Grid key={item.label} size={{ xs: 12, sm: 4 }}>
+                                                    <Paper
+                                                        elevation={0}
+                                                        sx={{
+                                                            p: 1.25,
+                                                            borderRadius: 1.75,
+                                                            border: `1px solid ${borderColor}`,
+                                                            bgcolor: isDark ? alpha("#FFFFFF", 0.035) : alpha("#FFFFFF", 0.88)
+                                                        }}
+                                                    >
+                                                        <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: "-0.04em" }}>
+                                                            {item.value}
+                                                        </Typography>
+                                                        <Typography variant="body2" sx={{ mt: 0.8, color: "text.secondary" }}>
+                                                            {item.label}
+                                                        </Typography>
+                                                    </Paper>
+                                                </Grid>
+                                            ))}
+                                        </Grid>
+                                    </Paper>
+                                </Grid>
+                            </Grid>
+                        </Paper>
+                    </Grid>
 
-                                <Stack spacing={1.25}>
-                                    {[
-                                        "We help you choose the right plan for your size",
-                                        "Your workspace is set up with secure staff logins",
-                                        "Your team starts with a clear day-to-day workflow"
-                                    ].map((item) => (
-                                        <Stack key={item} direction="row" spacing={1.25} alignItems="flex-start">
-                                            <CheckCircleRoundedIcon color="success" fontSize="small" sx={{ mt: 0.2 }} />
-                                            <Typography variant="body2" color="text.secondary">
+                    <Grid size={{ xs: 12, lg: 4 }}>
+                        <Paper
+                            elevation={0}
+                            sx={{
+                                height: "100%",
+                                p: { xs: 2.5, md: 3 },
+                                borderRadius: 2.5,
+                                border: `1px solid ${borderColor}`,
+                                bgcolor: sectionSurface,
+                                boxShadow: pageShadow
+                            }}
+                        >
+                            <Stack spacing={2.25}>
+                                <Typography variant="overline" sx={{ color: primaryAccent, fontWeight: 800, letterSpacing: "0.16em" }}>
+                                    WORKSPACE COVERAGE
+                                </Typography>
+                                <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08 }}>
+                                    Everything your team needs in one place.
+                                </Typography>
+                                <Stack spacing={1.35}>
+                                    {workspaceAreas.map((item) => (
+                                        <Stack key={item} direction="row" spacing={1.2} alignItems="flex-start">
+                                            <CheckCircleRoundedIcon sx={{ mt: 0.15, color: secondaryAccent, fontSize: 18 }} />
+                                            <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.65 }}>
                                                 {item}
                                             </Typography>
                                         </Stack>
                                     ))}
                                 </Stack>
+                                <Divider />
+                                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                                    <Button component={RouterLink} to="/signup" variant="contained" fullWidth sx={{ borderRadius: 1.75, minHeight: 46 }}>
+                                        Apply for membership
+                                    </Button>
+                                    {whatsappHref ? (
+                                        <Button component="a" href={whatsappHref} target="_blank" rel="noreferrer" variant="outlined" fullWidth sx={{ borderRadius: 1.75, minHeight: 46 }}>
+                                            WhatsApp
+                                        </Button>
+                                    ) : null}
+                                </Stack>
                             </Stack>
                         </Paper>
                     </Grid>
                 </Grid>
-                </Box>
 
-                <Grid container spacing={2} sx={{ mt: { xs: 4, md: 5 } }}>
-                    {[
-                        { value: "4", label: "Steps to go live", caption: "from first demo to team access" },
-                        { value: "1", label: "Platform for all teams", caption: "members, loans, cash, approvals, and reports" },
-                        { value: "0", label: "Paper chasing", caption: "replace manual follow-up with clear workflows" }
-                    ].map((stat) => (
-                        <Grid key={stat.label} size={{ xs: 12, md: 4 }}>
-                            <Paper sx={{ ...sectionCardSx, p: 3 }}>
-                                <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: -1.1 }}>
-                                    {stat.value}
-                                </Typography>
-                                <Typography variant="h6" sx={{ mt: 0.6, fontWeight: 700 }}>
-                                    {stat.label}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                    {stat.caption}
-                                </Typography>
-                            </Paper>
-                        </Grid>
-                    ))}
-                </Grid>
-            </Container>
-
-            <Box id="readiness" sx={{ py: { xs: 7, md: 9 } }}>
-                <Container maxWidth="xl">
-                    <Stack spacing={1} sx={{ mb: 4 }}>
-                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                            Go-live checklist
-                        </Typography>
-                        <Typography variant="h3" sx={{ maxWidth: 860 }}>
-                            A simple plan to move from setup to daily operations.
-                        </Typography>
-                        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 860 }}>
-                            We guide setup, access, training, and rollout so your team can start quickly and operate with confidence.
-                        </Typography>
-                    </Stack>
-
-                    <Grid container spacing={2}>
-                        {enterpriseReadinessPhases.map((item) => (
-                            <Grid key={item.phase} size={{ xs: 12, md: 6, lg: 3 }}>
-                                <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
-                                    <CardContent sx={{ p: 2.75 }}>
-                                        <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
-                                            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                                                {item.phase}
-                                            </Typography>
-                                            <Chip
-                                                size="small"
-                                                label={item.priority}
-                                                sx={{
-                                                    fontWeight: 700,
-                                                    bgcolor: alpha(accentColor, isDark ? 0.18 : 0.08),
-                                                    color: accentColor,
-                                                    border: `1px solid ${alpha(accentColor, isDark ? 0.42 : 0.24)}`
-                                                }}
-                                            />
-                                        </Stack>
-                                        <Typography variant="subtitle1" sx={{ mt: 1.1, fontWeight: 700 }}>
-                                            {item.title}
-                                        </Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.2, lineHeight: 1.75 }}>
-                                            {item.copy}
-                                        </Typography>
-                                    </CardContent>
-                                </MotionCard>
-                            </Grid>
-                        ))}
-                    </Grid>
-                </Container>
-            </Box>
-
-            <Box
-                id="solutions"
-                sx={{
-                    py: { xs: 7, md: 9 },
-                    background: isDark
-                        ? "linear-gradient(180deg, rgba(9, 14, 22, 0) 0%, rgba(26, 29, 31, 0.42) 100%)"
-                        : "linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(231, 241, 255, 0.42) 100%)"
-                }}
-            >
-                <Container maxWidth="xl">
-                    <Stack spacing={1} sx={{ mb: 4 }}>
-                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                            What you get
-                        </Typography>
-                        <Typography variant="h3" sx={{ maxWidth: 760 }}>
-                            Everything your SACCOS team needs in one place.
-                        </Typography>
-                        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 760 }}>
-                            Use one system for daily work, leadership visibility, and better member service.
-                        </Typography>
-                    </Stack>
-
-                    <Grid container spacing={2} sx={{ mb: 3 }}>
-                        {buyerValuePillars.map((item) => (
-                            <Grid key={item.title} size={{ xs: 12, sm: 6, lg: 3 }}>
-                                <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
-                                    <CardContent sx={{ p: 2.75 }}>
-                                        <Box sx={{ color: accentColor, lineHeight: 0 }}>{item.icon}</Box>
-                                        <Typography variant="h6" sx={{ mt: 1.5 }}>
-                                            {item.title}
-                                        </Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                            {item.copy}
-                                        </Typography>
-                                    </CardContent>
-                                </MotionCard>
-                            </Grid>
-                        ))}
-                    </Grid>
-
+                <Box id="capabilities" sx={{ pt: { xs: 6, md: 7.5 } }}>
                     <Stack spacing={1} sx={{ mb: 3 }}>
-                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                            Core features
+                        <Typography variant="overline" sx={{ color: primaryAccent, fontWeight: 800, letterSpacing: "0.16em" }}>
+                            CAPABILITIES
                         </Typography>
-                        <Typography variant="h4" sx={{ maxWidth: 760 }}>
-                            Tools your team can understand on day one.
+                        <Typography variant="h3" sx={{ maxWidth: 820, fontWeight: 800 }}>
+                            A modern operating surface for member service, lending, collection, and control.
                         </Typography>
-                        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 760 }}>
-                            Each section is built for real branch work, with fewer clicks and clearer steps.
+                        <Typography variant="body1" sx={{ color: "text.secondary", maxWidth: 820, lineHeight: 1.75 }}>
+                            The product is organized around actual SACCO workflows instead of generic admin menus, so each team member sees what they need to execute with less confusion and better accountability.
                         </Typography>
                     </Stack>
 
                     <Grid container spacing={2}>
-                        {productModules.map((module) => (
-                            <Grid key={module.title} size={{ xs: 12, md: 6, lg: 4 }}>
-                                <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
-                                    <CardContent sx={{ p: 3 }}>
+                        {coreCapabilities.map((item) => (
+                            <Grid key={item.title} size={{ xs: 12, md: 6, xl: 4 }}>
+                                <Paper
+                                    elevation={0}
+                                    sx={{
+                                        height: "100%",
+                                        p: 2.6,
+                                        borderRadius: 3.5,
+                                        border: `1px solid ${borderColor}`,
+                                        bgcolor: sectionSurface,
+                                        boxShadow: pageShadow
+                                    }}
+                                >
+                                    <Stack spacing={1.6}>
                                         <Box
                                             sx={{
                                                 width: 52,
@@ -899,401 +552,325 @@ export function LandingPage() {
                                                 borderRadius: 2.5,
                                                 display: "grid",
                                                 placeItems: "center",
-                                                bgcolor: alpha(accentColor, isDark ? 0.2 : 0.1),
-                                                color: accentColor,
-                                                mb: 2
+                                                bgcolor: isDark ? alpha(primaryAccent, 0.16) : alpha(primaryAccent, 0.1),
+                                                color: primaryAccent
                                             }}
                                         >
-                                            {module.icon}
+                                            {item.icon}
                                         </Box>
-                                        <Typography variant="h6">{module.title}</Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1.25, lineHeight: 1.75 }}>
-                                            {module.copy}
+                                        <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                                            {item.title}
                                         </Typography>
-                                    </CardContent>
-                                </MotionCard>
-                            </Grid>
-                        ))}
-                    </Grid>
-                </Container>
-            </Box>
-
-            <Box
-                id="why-different"
-                sx={{
-                    py: { xs: 7, md: 9 },
-                    background: isDark
-                        ? "linear-gradient(180deg, rgba(28, 31, 40, 0.34), rgba(14, 18, 28, 0.5))"
-                        : "linear-gradient(180deg, rgba(51, 99, 255, 0.08), rgba(51, 99, 255, 0.03))"
-                }}
-            >
-                <Container maxWidth="xl">
-                    <Grid container spacing={4} alignItems="stretch">
-                        <Grid size={{ xs: 12, lg: 6 }}>
-                            <Paper sx={{ ...sectionCardSx, p: { xs: 3, md: 4 }, height: "100%" }}>
-                                <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                                    Why teams choose this platform
-                                </Typography>
-                                <Typography variant="h4" sx={{ mt: 1, mb: 1.5 }}>
-                                    Rules are built in, so mistakes are reduced.
-                                </Typography>
-                                <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 620 }}>
-                                    Instead of relying on manual follow-up, the system guides each step and blocks risky actions.
-                                </Typography>
-
-                                <Stack spacing={1.75}>
-                                    {whyDifferentPoints.map((point) => (
-                                        <Stack key={point} direction="row" spacing={1.5} alignItems="flex-start">
-                                            <LockRoundedIcon fontSize="small" sx={{ mt: 0.2, color: accentColor }} />
-                                            <Typography variant="body2" color="text.secondary">
-                                                {point}
-                                            </Typography>
-                                        </Stack>
-                                    ))}
-                                </Stack>
-                            </Paper>
-                        </Grid>
-
-                        <Grid size={{ xs: 12, lg: 6 }}>
-                            <Paper sx={{ ...sectionCardSx, p: { xs: 3, md: 4 }, height: "100%" }}>
-                                <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                                    What this means for your SACCOS
-                                </Typography>
-                                <Typography variant="h4" sx={{ mt: 1, mb: 3 }}>
-                                    Safer operations and clearer accountability every day.
-                                </Typography>
-
-                                <Grid container spacing={2}>
-                                    {[
-                                        {
-                                            title: "Correct role enforcement",
-                                            copy: "No sensitive action executes without a role that is explicitly authorized.",
-                                            icon: <GavelRoundedIcon sx={{ color: accentColor }} />
-                                        },
-                                        {
-                                            title: "Traceable operation chain",
-                                            copy: "Each key step can be reviewed from request to final posting.",
-                                            icon: <InsightsRoundedIcon sx={{ color: accentColor }} />
-                                        },
-                                        {
-                                            title: "Balanced accounting integrity",
-                                            copy: "Posting paths are tied to controlled accounting logic and balanced journal outcomes.",
-                                            icon: <HealthAndSafetyRoundedIcon sx={{ color: accentColor }} />
-                                        },
-                                        {
-                                            title: "Approval-gated execution",
-                                            copy: "High-risk steps like disbursement stay blocked until required approvals are complete.",
-                                            icon: <SecurityRoundedIcon sx={{ color: accentColor }} />
-                                        }
-                                    ].map((item) => (
-                                        <Grid key={item.title} size={{ xs: 12, sm: 6 }}>
-                                            <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
-                                                <CardContent sx={{ p: 2.5 }}>
-                                                    {item.icon}
-                                                    <Typography variant="subtitle1" sx={{ mt: 1.5, fontWeight: 700 }}>
-                                                        {item.title}
-                                                    </Typography>
-                                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                                        {item.copy}
-                                                    </Typography>
-                                                </CardContent>
-                                            </MotionCard>
-                                        </Grid>
-                                    ))}
-                                </Grid>
-                            </Paper>
-                        </Grid>
-                    </Grid>
-                </Container>
-            </Box>
-
-            <Box id="plans" sx={{ py: { xs: 7, md: 9 } }}>
-                <Container maxWidth="xl">
-                    <Stack spacing={1} sx={{ mb: 4 }}>
-                        <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                            Plans
-                        </Typography>
-                        <Typography variant="h3">Choose the plan that fits your SACCOS today.</Typography>
-                        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 760 }}>
-                            We guide plan selection based on your branch size, workflows, and growth goals.
-                        </Typography>
-                    </Stack>
-
-                    <Grid container spacing={2}>
-                        {planCards.map((plan) => (
-                            <Grid key={plan.code} size={{ xs: 12, md: 4 }}>
-                                <Paper
-                                    sx={{
-                                        ...sectionCardSx,
-                                        height: "100%",
-                                        p: 3,
-                                        position: "relative",
-                                        overflow: "hidden",
-                                        borderColor: plan.highlight ? alpha(accentColor, 0.8) : cardBorder,
-                                        boxShadow: plan.highlight
-                                            ? `0 24px 50px ${alpha(accentColor, 0.24)}`
-                                            : undefined
-                                    }}
-                                >
-                                    {plan.highlight ? (
-                                        <Chip
-                                            label="Most requested"
-                                            sx={{
-                                                position: "absolute",
-                                                top: 20,
-                                                right: 20,
-                                                fontWeight: 700,
-                                                bgcolor: alpha(accentColor, isDark ? 0.24 : 0.14),
-                                                color: accentColor,
-                                                border: `1px solid ${alpha(accentColor, isDark ? 0.5 : 0.32)}`
-                                            }}
-                                        />
-                                    ) : null}
-                                    <Typography variant="h5">{plan.code}</Typography>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1.25, minHeight: 72 }}>
-                                        {plan.description}
-                                    </Typography>
-                                    <Divider sx={{ my: 2.5 }} />
-                                    <Stack spacing={1.5}>
-                                        {plan.features.map((feature) => (
-                                            <Stack key={feature} direction="row" spacing={1.25} alignItems="flex-start">
-                                                <CheckCircleRoundedIcon fontSize="small" sx={{ mt: 0.2, color: accentColor }} />
-                                                <Typography variant="body2" color="text.secondary">
-                                                    {feature}
-                                                </Typography>
-                                            </Stack>
-                                        ))}
+                                        <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.7 }}>
+                                            {item.copy}
+                                        </Typography>
                                     </Stack>
                                 </Paper>
                             </Grid>
                         ))}
                     </Grid>
-                </Container>
-            </Box>
+                </Box>
 
-            <Box id="how-it-works" sx={{ py: { xs: 7, md: 9 } }}>
-                <Container maxWidth="xl">
-                    <Paper sx={{ ...sectionCardSx, p: { xs: 3, md: 4 } }}>
-                        <Grid container spacing={4}>
+                <Box id="member-experience" sx={{ pt: { xs: 6, md: 7.5 } }}>
+                    <Grid container spacing={2.5} alignItems="stretch">
+                        <Grid size={{ xs: 12, lg: 6 }}>
+                            <Paper
+                                elevation={0}
+                                sx={{
+                                    height: "100%",
+                                    p: { xs: 3, md: 3.5 },
+                                    borderRadius: 4,
+                                    border: `1px solid ${borderColor}`,
+                                    bgcolor: sectionSurface,
+                                    boxShadow: pageShadow
+                                }}
+                            >
+                                <Stack spacing={2}>
+                                    <Typography variant="overline" sx={{ color: primaryAccent, fontWeight: 800, letterSpacing: "0.16em" }}>
+                                        MEMBER EXPERIENCE
+                                    </Typography>
+                                    <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08 }}>
+                                        From application to active membership, the journey is structured and visible.
+                                    </Typography>
+                                    <Typography variant="body1" sx={{ color: "text.secondary", lineHeight: 1.75 }}>
+                                        Members do not depend entirely on branch staff for every action. The system supports application, payment, contribution, repayment, and statement visibility through the member portal.
+                                    </Typography>
+                                    <Stack spacing={1.4}>
+                                        {memberJourney.map((item, index) => (
+                                            <Stack key={item} direction="row" spacing={1.3} alignItems="flex-start">
+                                                <Paper
+                                                    elevation={0}
+                                                    sx={{
+                                                        width: 30,
+                                                        height: 30,
+                                                        borderRadius: 999,
+                                                        display: "grid",
+                                                        placeItems: "center",
+                                                        bgcolor: isDark ? alpha(secondaryAccent, 0.18) : alpha(secondaryAccent, 0.14),
+                                                        color: secondaryAccent,
+                                                        fontWeight: 800,
+                                                        flexShrink: 0
+                                                    }}
+                                                >
+                                                    <Typography variant="caption" sx={{ fontWeight: 800 }}>
+                                                        {index + 1}
+                                                    </Typography>
+                                                </Paper>
+                                                <Typography variant="body2" sx={{ color: "text.secondary", lineHeight: 1.7, pt: 0.45 }}>
+                                                    {item}
+                                                </Typography>
+                                            </Stack>
+                                        ))}
+                                    </Stack>
+                                </Stack>
+                            </Paper>
+                        </Grid>
+
+                        <Grid size={{ xs: 12, lg: 6 }}>
+                            <Paper
+                                elevation={0}
+                                sx={{
+                                    height: "100%",
+                                    p: { xs: 3, md: 3.5 },
+                                    borderRadius: 4,
+                                    border: `1px solid ${borderColor}`,
+                                    bgcolor: sectionSurface,
+                                    boxShadow: pageShadow
+                                }}
+                            >
+                                <Stack spacing={2}>
+                                    <Typography variant="overline" sx={{ color: primaryAccent, fontWeight: 800, letterSpacing: "0.16em" }}>
+                                        OPERATING PRINCIPLES
+                                    </Typography>
+                                    <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08 }}>
+                                        The system is positioned for operational clarity, not feature noise.
+                                    </Typography>
+                                    <Grid container spacing={1.5}>
+                                        {operatingPrinciples.map((item) => (
+                                            <Grid key={item.title} size={{ xs: 12 }}>
+                                                <Paper
+                                                    elevation={0}
+                                                    sx={{
+                                                        p: 2,
+                                                        borderRadius: 2.75,
+                                                        border: `1px solid ${borderColor}`,
+                                                        bgcolor: isDark ? alpha("#FFFFFF", 0.03) : alpha("#F7FAFF", 0.96)
+                                                    }}
+                                                >
+                                                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                                        {item.title}
+                                                    </Typography>
+                                                    <Typography variant="body2" sx={{ mt: 0.75, color: "text.secondary", lineHeight: 1.7 }}>
+                                                        {item.copy}
+                                                    </Typography>
+                                                </Paper>
+                                            </Grid>
+                                        ))}
+                                    </Grid>
+                                </Stack>
+                            </Paper>
+                        </Grid>
+                    </Grid>
+                </Box>
+
+                <Box id="controls" sx={{ pt: { xs: 6, md: 7.5 } }}>
+                    <Paper
+                        elevation={0}
+                        sx={{
+                            p: { xs: 3, md: 4 },
+                            borderRadius: 4,
+                            border: `1px solid ${borderColor}`,
+                            bgcolor: sectionSurface,
+                            boxShadow: pageShadow
+                        }}
+                    >
+                        <Grid container spacing={3}>
                             <Grid size={{ xs: 12, lg: 5 }}>
-                                <Typography variant="overline" sx={{ fontWeight: 800, color: accentColor }}>
-                                    How it works
-                                </Typography>
-                                <Typography variant="h3" sx={{ mt: 1.25 }}>
-                                    See one loan journey step by step.
-                                </Typography>
-                                <Typography variant="body1" color="text.secondary" sx={{ mt: 2 }}>
-                                    From member registration to loan disbursement and reporting, every step is clear and traceable.
-                                </Typography>
-                                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 3 }}>
-                                    <Button
-                                        component="a"
-                                        href={contactHref}
-                                        variant="contained"
-                                        sx={
-                                            isDark
-                                                ? {
-                                                      bgcolor: accentColor,
-                                                      color: "#1a1a1a",
-                                                      "&:hover": { bgcolor: alpha(accentColor, 0.86) }
-                                                  }
-                                                : undefined
-                                        }
-                                    >
-                                        Book demo
-                                    </Button>
-                                    {whatsappHref ? (
-                                        <Button
-                                            component="a"
-                                            href={whatsappHref}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            variant="outlined"
-                                            sx={
-                                                isDark
-                                                    ? {
-                                                          borderColor: alpha(accentColor, 0.5),
-                                                          color: accentColor,
-                                                          "&:hover": {
-                                                              borderColor: alpha(accentColor, 0.8),
-                                                              bgcolor: alpha(accentColor, 0.12)
-                                                          }
-                                                      }
-                                                    : undefined
-                                            }
-                                        >
-                                            WhatsApp
-                                        </Button>
-                                    ) : null}
+                                <Stack spacing={1.5}>
+                                    <Typography variant="overline" sx={{ color: primaryAccent, fontWeight: 800, letterSpacing: "0.16em" }}>
+                                        CONTROL LAYER
+                                    </Typography>
+                                    <Typography variant="h3" sx={{ fontWeight: 800, lineHeight: 1.02 }}>
+                                        Controls, traceability, and accountability are part of the product story.
+                                    </Typography>
+                                    <Typography variant="body1" sx={{ color: "text.secondary", lineHeight: 1.8 }}>
+                                        This is important for SACCO leadership. The product supports controlled disbursement, approval-aware posting, branch-scoped access, and reporting that follows real financial activity.
+                                    </Typography>
                                 </Stack>
                             </Grid>
+
                             <Grid size={{ xs: 12, lg: 7 }}>
-                                <Grid container spacing={2}>
-                                    {demoStorySteps.map((step) => (
-                                        <Grid key={step.step} size={{ xs: 12, md: 6 }}>
-                                            <MotionCard sx={{ ...sectionCardSx, height: "100%" }}>
-                                                <CardContent sx={{ p: 2.5 }}>
-                                                    <Typography variant="h4" sx={{ fontWeight: 800, color: accentColor }}>
-                                                        {step.step}
-                                                    </Typography>
-                                                    <Typography variant="subtitle1" sx={{ mt: 1, fontWeight: 700 }}>
-                                                        {step.title}
-                                                    </Typography>
-                                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                                        {step.description}
-                                                    </Typography>
-                                                </CardContent>
-                                            </MotionCard>
+                                <Grid container spacing={1.5}>
+                                    {[
+                                        {
+                                            icon: <LockRoundedIcon />,
+                                            title: "Role-bound execution",
+                                            copy: "Sensitive actions are constrained to the right role and branch scope."
+                                        },
+                                        {
+                                            icon: <SupportAgentRoundedIcon />,
+                                            title: "Operational guidance",
+                                            copy: "The system reduces manual follow-up by guiding staff through the expected flow."
+                                        },
+                                        {
+                                            icon: <ShieldRoundedIcon />,
+                                            title: "Approval-aware finance",
+                                            copy: "High-risk lending and finance actions respect approval state before execution."
+                                        },
+                                        {
+                                            icon: <ReceiptLongRoundedIcon />,
+                                            title: "Posted activity visibility",
+                                            copy: "Management can review revenue, statements, history, and operational outcomes with less ambiguity."
+                                        }
+                                    ].map((item) => (
+                                        <Grid key={item.title} size={{ xs: 12, sm: 6 }}>
+                                            <Paper
+                                                elevation={0}
+                                                sx={{
+                                                    height: "100%",
+                                                    p: 2.2,
+                                                    borderRadius: 3,
+                                                    border: `1px solid ${borderColor}`,
+                                                    bgcolor: isDark ? alpha("#FFFFFF", 0.03) : alpha("#F8FBFF", 0.96)
+                                                }}
+                                            >
+                                                <Box sx={{ color: primaryAccent, lineHeight: 0 }}>{item.icon}</Box>
+                                                <Typography variant="subtitle1" sx={{ mt: 1.3, fontWeight: 800 }}>
+                                                    {item.title}
+                                                </Typography>
+                                                <Typography variant="body2" sx={{ mt: 0.8, color: "text.secondary", lineHeight: 1.7 }}>
+                                                    {item.copy}
+                                                </Typography>
+                                            </Paper>
                                         </Grid>
                                     ))}
                                 </Grid>
                             </Grid>
                         </Grid>
                     </Paper>
-                </Container>
-            </Box>
+                </Box>
 
-            <Container maxWidth="xl" id="contact" sx={{ pb: { xs: 6, md: 8 } }}>
-                <Paper
-                    sx={{
-                        p: { xs: 3, md: 4 },
-                        borderRadius: 3,
-                        border: `1px solid ${alpha(theme.palette.divider, isDark ? 0.36 : 0.22)}`,
-                        background: isDark
-                            ? "linear-gradient(135deg, rgba(26, 35, 50, 0.92) 0%, rgba(55, 77, 88, 0.82) 58%, rgba(123, 95, 52, 0.78) 120%)"
-                            : `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 120%)`,
-                        color: "#ffffff"
-                    }}
-                >
-                    <Grid container spacing={3} alignItems="center">
-                        <Grid size={{ xs: 12, lg: 8 }}>
-                            <Typography variant="overline" sx={{ color: alpha("#ffffff", 0.76), fontWeight: 800 }}>
-                                Ready to get started?
-                            </Typography>
-                            <Typography variant="h3" sx={{ mt: 1 }}>
-                                Talk to us and choose the best plan for your SACCOS.
-                            </Typography>
-                            <Typography variant="body1" sx={{ mt: 1.5, color: alpha("#ffffff", 0.82), maxWidth: 780 }}>
-                                We help you choose a plan, set up your workspace, and onboard your first team members.
-                            </Typography>
+                <Box id="contact" sx={{ pt: { xs: 6, md: 7.5 }, pb: { xs: 2, md: 1 } }}>
+                    <Paper
+                        elevation={0}
+                        sx={{
+                            p: { xs: 3, md: 4 },
+                            borderRadius: 4,
+                            border: `1px solid ${borderColor}`,
+                            color: isDark ? "#F8FAFC" : "#0F172A",
+                            background: isDark
+                                ? `linear-gradient(135deg, ${alpha("#0D1728", 0.96)} 0%, ${alpha("#13253F", 0.96)} 52%, ${alpha("#0F1D34", 0.96)} 100%)`
+                                : `linear-gradient(135deg, ${alpha("#FFFFFF", 0.98)} 0%, ${alpha("#EDF5FF", 0.98)} 44%, ${alpha("#E4F0FF", 0.98)} 100%)`,
+                            boxShadow: pageShadow
+                        }}
+                    >
+                        <Grid container spacing={3} alignItems="center">
+                            <Grid size={{ xs: 12, lg: 8 }}>
+                                <Typography variant="overline" sx={{ color: primaryAccent, fontWeight: 800, letterSpacing: "0.16em" }}>
+                                    GET STARTED
+                                </Typography>
+                                <Typography variant="h3" sx={{ mt: 1, fontWeight: 800, lineHeight: 1.03 }}>
+                                    Ready to start your membership journey or access your workspace?
+                                </Typography>
+                                <Typography variant="body1" sx={{ mt: 1.25, color: isDark ? alpha("#FFFFFF", 0.78) : "text.secondary", maxWidth: 760, lineHeight: 1.8 }}>
+                                    Apply for membership, sign in to continue operations, or contact the SACCO team for guidance on onboarding, support, and service access.
+                                </Typography>
+                            </Grid>
+                            <Grid size={{ xs: 12, lg: 4 }}>
+                                <Stack spacing={1.25}>
+                                    <Button component={RouterLink} to="/signup" variant="contained" size="large" sx={{ borderRadius: 2.25 }}>
+                                        Apply for membership
+                                    </Button>
+                                    <Button component={RouterLink} to="/signin" variant="outlined" size="large" sx={{ borderRadius: 2.25 }}>
+                                        Existing user sign in
+                                    </Button>
+                                    <Button component="a" href={contactHref} variant="text" size="large" sx={{ borderRadius: 2.25 }}>
+                                        Contact {ownerName}
+                                    </Button>
+                                </Stack>
+                            </Grid>
                         </Grid>
-                        <Grid size={{ xs: 12, lg: 4 }}>
-                            <Stack spacing={1.5}>
-                                <Button
-                                    component="a"
-                                    href={contactHref}
-                                    size="large"
-                                    variant="contained"
-                                    sx={{
-                                        bgcolor: "#ffffff",
-                                        color: accentColor,
-                                        "&:hover": { bgcolor: alpha("#ffffff", 0.92) }
-                                    }}
-                                >
-                                    Contact {ownerName}
-                                </Button>
-                                <Button
-                                    component={RouterLink}
-                                    to="/signin"
-                                    size="large"
-                                    variant="outlined"
-                                    sx={{
-                                        borderColor: alpha("#ffffff", 0.42),
-                                        color: "#ffffff"
-                                    }}
-                                >
-                                    Existing client sign in
-                                </Button>
-                            </Stack>
-                        </Grid>
-                    </Grid>
-                </Paper>
+                    </Paper>
+                </Box>
             </Container>
 
             <Box
                 component="footer"
                 sx={{
-                    borderTop: `1px solid ${theme.palette.divider}`,
+                    borderTop: `1px solid ${alpha(theme.palette.divider, isDark ? 0.3 : 0.85)}`,
                     py: 4,
-                    bgcolor: isDark ? alpha(theme.palette.background.paper, 0.4) : alpha("#ffffff", 0.7)
+                    bgcolor: isDark ? alpha("#0B1220", 0.7) : alpha("#FFFFFF", 0.76),
+                    backdropFilter: "blur(12px)"
                 }}
             >
                 <Container maxWidth="xl">
                     <Grid container spacing={3}>
                         <Grid size={{ xs: 12, md: 5 }}>
-                            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5 }}>
+                            <Stack direction="row" spacing={1.2} alignItems="center" sx={{ mb: 1.3 }}>
                                 <Box
                                     sx={{
-                                        width: 40,
-                                        height: 40,
-                                        borderRadius: 1.5,
-                                        bgcolor: "#ffffff",
+                                        width: 38,
+                                        height: 38,
+                                        borderRadius: 2,
+                                        bgcolor: "#FFFFFF",
                                         display: "grid",
                                         placeItems: "center",
-                                        border: `1px solid ${alpha(accentColor, 0.24)}`
+                                        border: `1px solid ${alpha(primaryAccent, 0.24)}`
                                     }}
                                 >
-                                    <Box
-                                        component="img"
-                                        src={logoSrc}
-                                        alt="SMART SACCOS logo"
-                                        sx={{ width: 24, height: 24, objectFit: "contain" }}
-                                    />
+                                    <Box component="img" src={logoSrc} alt={`${ownerCompany} logo`} sx={{ width: 24, height: 24, objectFit: "contain" }} />
                                 </Box>
-                                <Typography variant="h6">{ownerCompany}</Typography>
+                                <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                                    {ownerCompany}
+                                </Typography>
                             </Stack>
-                            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 520 }}>
-                                One simple platform for members, loans, cash, approvals, and reports.
+                            <Typography variant="body2" sx={{ color: "text.secondary", maxWidth: 520, lineHeight: 1.75 }}>
+                                One focused SACCO system for member operations, lending, collections, controls, and reporting.
                             </Typography>
                         </Grid>
 
                         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.25 }}>
-                                Product
+                            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.2 }}>
+                                Navigation
                             </Typography>
                             <Stack spacing={0.8}>
-                                <Typography component="a" href="#solutions" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
-                                    Solutions
-                                </Typography>
-                                <Typography component="a" href="#readiness" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
-                                    Go live steps
-                                </Typography>
-                                <Typography component="a" href="#why-different" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
-                                    Why different
-                                </Typography>
-                                <Typography component="a" href="#plans" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
-                                    Plans
-                                </Typography>
-                                <Typography component="a" href="#how-it-works" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
-                                    How it works
-                                </Typography>
-                                <Typography component={RouterLink} to="/signin" variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
+                                {navItems.map((item) => (
+                                    <Typography key={item.href} component="a" href={item.href} variant="body2" sx={{ color: "text.secondary", textDecoration: "none" }}>
+                                        {item.label}
+                                    </Typography>
+                                ))}
+                                <Typography component={RouterLink} to="/signin" variant="body2" sx={{ color: "text.secondary", textDecoration: "none" }}>
                                     Sign in
                                 </Typography>
                             </Stack>
                         </Grid>
 
                         <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.25 }}>
-                                Contact the owner
+                            <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.2 }}>
+                                Contact
                             </Typography>
                             <Stack spacing={0.8}>
-                                <Typography variant="body2" color="text.secondary">
+                                <Typography variant="body2" sx={{ color: "text.secondary" }}>
                                     {ownerName}
                                 </Typography>
                                 {ownerEmail ? (
-                                    <Typography component="a" href={`mailto:${ownerEmail}`} variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
+                                    <Typography component="a" href={`mailto:${ownerEmail}`} variant="body2" sx={{ color: "text.secondary", textDecoration: "none" }}>
                                         {ownerEmail}
                                     </Typography>
                                 ) : null}
                                 {ownerPhone ? (
-                                    <Typography component="a" href={`tel:${ownerPhone}`} variant="body2" color="text.secondary" sx={{ textDecoration: "none" }}>
+                                    <Typography component="a" href={`tel:${ownerPhone}`} variant="body2" sx={{ color: "text.secondary", textDecoration: "none" }}>
                                         {ownerPhone}
                                     </Typography>
                                 ) : null}
-                                {!ownerEmail && !ownerPhone ? (
-                                    <Typography variant="body2" color="text.secondary">
-                                        Configure owner contact in frontend env for production deployments.
+                                {whatsappHref ? (
+                                    <Typography component="a" href={whatsappHref} target="_blank" rel="noreferrer" variant="body2" sx={{ color: "text.secondary", textDecoration: "none" }}>
+                                        WhatsApp
+                                    </Typography>
+                                ) : null}
+                                {!ownerEmail && !ownerPhone && !whatsappHref ? (
+                                    <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                                        Configure contact details in frontend env for production deployment.
                                     </Typography>
                                 ) : null}
                             </Stack>
