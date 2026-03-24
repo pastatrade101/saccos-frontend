@@ -14,7 +14,7 @@ import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { FormField } from "../components/FormField";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";

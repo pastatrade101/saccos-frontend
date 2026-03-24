@@ -24,7 +24,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { FormField } from "../components/FormField";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { useToast } from "../components/Toast";

@@ -72,7 +72,7 @@ import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { ChartPanel } from "../components/ChartPanel";
 import { DataTable, type Column } from "../components/DataTable";
 import { MemberOverview, type MemberAlertItem } from "../components/member-overview";
@@ -89,8 +89,10 @@ import {
     type LoanProductsResponse,
     type LoansResponse,
     type LoanSchedulesResponse,
+    type LoanTransactionsResponse,
     type MemberAccountsResponse,
     type MembersResponse,
+    type MemberApplicationResponse,
     type StatementsResponse,
     type GuarantorConsentRequest,
     type GuarantorRequestItem,
@@ -103,8 +105,9 @@ import {
 } from "../lib/endpoints";
 import { brandColors, darkThemeColors } from "../theme/colors";
 import { useUI } from "../ui/UIProvider";
-import type { Loan, LoanApplication, LoanProduct, LoanSchedule, Member, MemberAccount, PaymentOrder, StatementRow } from "../types/api";
-import { downloadMemberStatementPdf } from "../utils/memberStatementPdf";
+import type { Loan, LoanApplication, LoanProduct, LoanSchedule, LoanTransaction, Member, MemberAccount, MemberApplication, MemberApplicationStatus, PaymentOrder, StatementRow } from "../types/api";
+import { downloadLoanStatementPdf, downloadMemberStatementPdf } from "../utils/memberStatementPdf";
+import { memberApplicationStatusLabels } from "../utils/member-application-status";
 import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
 type LoanRepaymentFrequency = "daily" | "weekly" | "monthly";
@@ -293,7 +296,8 @@ const loanApplicationSchema = z.object({
 type LoanApplicationValues = z.infer<typeof loanApplicationSchema>;
 
 const contributionPaymentSchema = z.object({
-    account_id: z.string().uuid("Select an account."),
+    account_id: z.string().uuid("Select an account.").optional().or(z.literal("")),
+    loan_id: z.string().uuid("Select a loan.").optional().or(z.literal("")),
     amount: z.coerce.number().positive("Enter a contribution amount.").multipleOf(0.01, "Use up to two decimal places."),
     provider: z.enum(["airtel", "vodacom", "tigo", "halopesa"]),
     msisdn: z.string().trim().min(9, "Phone number is required.").max(20, "Phone number is too long."),
@@ -301,7 +305,7 @@ const contributionPaymentSchema = z.object({
 });
 
 type ContributionPaymentValues = z.infer<typeof contributionPaymentSchema>;
-type MemberPaymentPurpose = "share_contribution" | "savings_deposit";
+type MemberPaymentPurpose = "share_contribution" | "savings_deposit" | "membership_fee" | "loan_repayment";
 type DateRangePreset = "month" | "quarter" | "year" | "custom";
 
 interface DateRangeState {
@@ -420,7 +424,15 @@ function formatTxType(type: string) {
 }
 
 function formatPaymentPurpose(purpose: string) {
-    return purpose === "savings_deposit" ? "Savings deposit" : purpose === "share_contribution" ? "Share contribution" : purpose.replace(/_/g, " ");
+    return purpose === "savings_deposit"
+        ? "Savings deposit"
+        : purpose === "share_contribution"
+            ? "Share contribution"
+            : purpose === "membership_fee"
+                ? "Membership fee"
+                : purpose === "loan_repayment"
+                    ? "Loan repayment"
+                : purpose.replace(/_/g, " ");
 }
 
 function formatPaymentStatus(status: string) {
@@ -431,6 +443,26 @@ function getAuditReference(row: StatementRow) {
     return row.reference || `AUD-${row.transaction_id.slice(0, 8).toUpperCase()}`;
 }
 
+function getMemberApplicationMessage(status: MemberApplicationStatus) {
+    switch (status) {
+        case "draft":
+            return "Complete and submit your application so the branch can start the review.";
+        case "submitted":
+        case "under_review":
+            return "Your application is under review. You will receive a notification once the branch responds.";
+        case "approved_pending_payment":
+            return "You are approved. Please complete the membership fee payment to unlock your accounts.";
+        case "approved":
+            return "Your application is approved and your membership is being activated.";
+        case "rejected":
+            return "Your application was rejected. Please reach out to your branch for next steps.";
+        case "cancelled":
+            return "Your application was cancelled. Contact your branch to reopen it or start a new request.";
+        default:
+            return "Your application is being processed. We will update you soon.";
+    }
+}
+
 function estimatePenaltyForSchedule(schedule: LoanSchedule) {
     if (schedule.status !== "overdue") {
         return 0;
@@ -438,6 +470,62 @@ function estimatePenaltyForSchedule(schedule: LoanSchedule) {
 
     const outstanding = Math.max(schedule.principal_due - schedule.principal_paid, 0) + Math.max(schedule.interest_due - schedule.interest_paid, 0);
     return outstanding * 0.02;
+}
+
+function getLoanScheduleOutstanding(schedule: LoanSchedule) {
+    const principalOutstanding = Math.max(Number(schedule.principal_due || 0) - Number(schedule.principal_paid || 0), 0);
+    const interestOutstanding = Math.max(Number(schedule.interest_due || 0) - Number(schedule.interest_paid || 0), 0);
+
+    return {
+        principalOutstanding,
+        interestOutstanding,
+        totalOutstanding: principalOutstanding + interestOutstanding
+    };
+}
+
+function buildRepaymentInsights(loan: Loan | null, schedules: LoanSchedule[], amount: number) {
+    const normalizedAmount = Math.max(Number(amount || 0), 0);
+    const orderedSchedules = [...schedules].sort(
+        (left, right) =>
+            new Date(left.due_date).getTime() - new Date(right.due_date).getTime()
+            || left.installment_number - right.installment_number
+    );
+    const today = new Date().toISOString().slice(0, 10);
+    const overdueSchedules = orderedSchedules.filter((schedule) => schedule.due_date < today);
+    const nextDueSchedule = orderedSchedules[0] || null;
+    const overdueAmount = overdueSchedules.reduce((sum, schedule) => sum + getLoanScheduleOutstanding(schedule).totalOutstanding, 0);
+    const nextDueAmount = nextDueSchedule ? getLoanScheduleOutstanding(nextDueSchedule).totalOutstanding : 0;
+    const scheduledInterestOutstanding = orderedSchedules.reduce((sum, schedule) => sum + getLoanScheduleOutstanding(schedule).interestOutstanding, 0);
+    const scheduledPrincipalOutstanding = orderedSchedules.reduce((sum, schedule) => sum + getLoanScheduleOutstanding(schedule).principalOutstanding, 0);
+    const payableInterest = Math.max(Number(loan?.accrued_interest || 0), scheduledInterestOutstanding);
+    const outstandingBalance = Number(loan?.outstanding_principal || 0) + payableInterest;
+    const dueNowAmount = overdueAmount > 0 ? overdueAmount : nextDueAmount;
+    const recommendedAmount = dueNowAmount > 0 ? Math.min(dueNowAmount, outstandingBalance) : outstandingBalance;
+    const interestAllocation = Math.min(normalizedAmount, payableInterest);
+    const principalAllocation = Math.min(Math.max(normalizedAmount - interestAllocation, 0), Number(loan?.outstanding_principal || 0));
+    const excessOverOutstanding = Math.max(normalizedAmount - outstandingBalance, 0);
+    const shortfallAmount = dueNowAmount > 0 ? Math.max(dueNowAmount - normalizedAmount, 0) : 0;
+    const extraAmount = dueNowAmount > 0 ? Math.max(normalizedAmount - dueNowAmount, 0) : 0;
+
+    return {
+        overdueSchedules,
+        nextDueSchedule,
+        overdueAmount,
+        nextDueAmount,
+        dueNowAmount,
+        scheduledInterestOutstanding,
+        scheduledPrincipalOutstanding,
+        payableInterest,
+        outstandingBalance,
+        recommendedAmount,
+        interestAllocation,
+        principalAllocation,
+        excessOverOutstanding,
+        shortfallAmount,
+        extraAmount,
+        enteredAmount: normalizedAmount,
+        matchesDueNow: dueNowAmount > 0 && Math.abs(normalizedAmount - dueNowAmount) < 0.005
+    };
 }
 
 const contributionProviderOptions: Array<{ value: ContributionPaymentValues["provider"]; label: string; helper: string }> = [
@@ -509,32 +597,64 @@ function getToneStyles(tone: MetricCardProps["tone"], mode: "light" | "dark") {
     if (tone === "success") {
         return {
             color: brandColors.success,
-            bg: alpha(brandColors.success, 0.1)
+            bg: alpha(brandColors.success, mode === "dark" ? 0.16 : 0.1),
+            softBg: mode === "dark"
+                ? `linear-gradient(180deg, ${alpha(brandColors.success, 0.14)} 0%, ${alpha(darkThemeColors.paper, 0.82)} 100%)`
+                : `linear-gradient(180deg, ${alpha("#F3FBF6", 0.98)} 0%, ${alpha("#FFFFFF", 0.96)} 100%)`,
+            border: alpha(brandColors.success, mode === "dark" ? 0.24 : 0.16),
+            shadow: mode === "dark"
+                ? `0 14px 28px ${alpha(brandColors.success, 0.08)}`
+                : `0 14px 28px ${alpha(brandColors.success, 0.09)}`,
+            glow: alpha(brandColors.success, mode === "dark" ? 0.18 : 0.12)
         };
     }
 
     if (tone === "warning") {
         return {
             color: brandColors.warning,
-            bg: alpha(brandColors.warning, 0.12)
+            bg: alpha(brandColors.warning, mode === "dark" ? 0.18 : 0.12),
+            softBg: mode === "dark"
+                ? `linear-gradient(180deg, ${alpha(brandColors.warning, 0.14)} 0%, ${alpha(darkThemeColors.paper, 0.82)} 100%)`
+                : `linear-gradient(180deg, ${alpha("#FFF8EB", 0.98)} 0%, ${alpha("#FFFFFF", 0.96)} 100%)`,
+            border: alpha(brandColors.warning, mode === "dark" ? 0.24 : 0.16),
+            shadow: mode === "dark"
+                ? `0 14px 28px ${alpha(brandColors.warning, 0.08)}`
+                : `0 14px 28px ${alpha(brandColors.warning, 0.1)}`,
+            glow: alpha(brandColors.warning, mode === "dark" ? 0.2 : 0.12)
         };
     }
 
     if (tone === "danger") {
         return {
             color: brandColors.danger,
-            bg: alpha(brandColors.danger, 0.1)
+            bg: alpha(brandColors.danger, mode === "dark" ? 0.16 : 0.1),
+            softBg: mode === "dark"
+                ? `linear-gradient(180deg, ${alpha(brandColors.danger, 0.12)} 0%, ${alpha(darkThemeColors.paper, 0.84)} 100%)`
+                : `linear-gradient(180deg, ${alpha("#FFF4F4", 0.98)} 0%, ${alpha("#FFFFFF", 0.96)} 100%)`,
+            border: alpha(brandColors.danger, mode === "dark" ? 0.22 : 0.15),
+            shadow: mode === "dark"
+                ? `0 14px 28px ${alpha(brandColors.danger, 0.08)}`
+                : `0 14px 28px ${alpha(brandColors.danger, 0.08)}`,
+            glow: alpha(brandColors.danger, mode === "dark" ? 0.18 : 0.1)
         };
     }
 
     const primaryTone = mode === "dark" ? DARK_MEMBER_ACCENT : brandColors.primary[700];
-    const primaryToneBg = mode === "dark"
-        ? alpha(DARK_MEMBER_ACCENT, 0.2)
-        : alpha(brandColors.primary[500], 0.1);
+    const primaryTint = mode === "dark" ? DARK_MEMBER_ACCENT : brandColors.primary[500];
 
     return {
         color: primaryTone,
-        bg: primaryToneBg
+        bg: mode === "dark"
+            ? alpha(DARK_MEMBER_ACCENT, 0.2)
+            : alpha(brandColors.primary[500], 0.1),
+        softBg: mode === "dark"
+            ? `linear-gradient(180deg, ${alpha(DARK_MEMBER_ACCENT, 0.16)} 0%, ${alpha(darkThemeColors.paper, 0.82)} 100%)`
+            : `linear-gradient(180deg, ${alpha("#F3F7FF", 0.98)} 0%, ${alpha("#FFFFFF", 0.96)} 100%)`,
+        border: alpha(primaryTint, mode === "dark" ? 0.24 : 0.16),
+        shadow: mode === "dark"
+            ? `0 14px 28px ${alpha(primaryTint, 0.08)}`
+            : `0 14px 28px ${alpha(primaryTint, 0.1)}`,
+        glow: alpha(primaryTint, mode === "dark" ? 0.2 : 0.12)
     };
 }
 
@@ -543,18 +663,39 @@ function MetricCard({ icon: Icon, label, value, helper, tone, delta }: MetricCar
     const toneStyles = getToneStyles(tone, theme.palette.mode);
 
     return (
-        <MotionCard variant="outlined" sx={contentCardSx}>
+        <MotionCard
+            variant="outlined"
+            sx={{
+                ...contentCardSx,
+                overflow: "hidden",
+                position: "relative",
+                background: toneStyles.softBg,
+                borderColor: toneStyles.border,
+                boxShadow: toneStyles.shadow,
+                "&::before": {
+                    content: '""',
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 4,
+                    background: `linear-gradient(90deg, ${toneStyles.color}, ${toneStyles.glow})`
+                }
+            }}
+        >
             <CardContent sx={{ p: 2.25 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1.5}>
                     <Box
                         sx={{
-                            width: 42,
-                            height: 42,
-                            borderRadius: 2,
+                            width: 46,
+                            height: 46,
+                            borderRadius: 2.2,
                             display: "grid",
                             placeItems: "center",
                             bgcolor: toneStyles.bg,
-                            color: toneStyles.color
+                            color: toneStyles.color,
+                            border: `1px solid ${toneStyles.border}`,
+                            boxShadow: `inset 0 1px 0 ${alpha("#FFFFFF", theme.palette.mode === "dark" ? 0.02 : 0.5)}`
                         }}
                     >
                         <Icon fontSize="small" />
@@ -563,7 +704,12 @@ function MetricCard({ icon: Icon, label, value, helper, tone, delta }: MetricCar
                         variant="caption"
                         sx={{
                             fontWeight: 700,
-                            color: toneStyles.color
+                            color: toneStyles.color,
+                            bgcolor: alpha(toneStyles.color, theme.palette.mode === "dark" ? 0.14 : 0.08),
+                            px: 1,
+                            py: 0.45,
+                            borderRadius: 99,
+                            border: `1px solid ${alpha(toneStyles.color, theme.palette.mode === "dark" ? 0.18 : 0.12)}`
                         }}
                     >
                         {delta || "Live"}
@@ -592,7 +738,19 @@ function AccountSummaryCard({ icon: Icon, label, value, helper, tone, delta }: M
             variant="outlined"
             sx={{
                 ...contentCardSx,
-                height: "100%"
+                height: "100%",
+                overflow: "hidden",
+                background: toneStyles.softBg,
+                borderColor: toneStyles.border,
+                boxShadow: toneStyles.shadow,
+                position: "relative",
+                "&::before": {
+                    content: '""',
+                    position: "absolute",
+                    inset: "0 auto 0 0",
+                    width: 4,
+                    background: `linear-gradient(180deg, ${toneStyles.color}, ${toneStyles.glow})`
+                }
             }}
         >
             <CardContent sx={{ p: 2.25, height: "100%", display: "flex" }}>
@@ -605,18 +763,20 @@ function AccountSummaryCard({ icon: Icon, label, value, helper, tone, delta }: M
                                 borderRadius: 1.25,
                                 bgcolor: toneStyles.bg,
                                 color: toneStyles.color,
-                                fontWeight: 700
+                                fontWeight: 700,
+                                border: `1px solid ${toneStyles.border}`
                             }}
                         />
                         <Box
                             sx={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 1.3,
+                                width: 38,
+                                height: 38,
+                                borderRadius: 1.5,
                                 display: "grid",
                                 placeItems: "center",
                                 bgcolor: toneStyles.bg,
-                                color: toneStyles.color
+                                color: toneStyles.color,
+                                border: `1px solid ${toneStyles.border}`
                             }}
                         >
                             <Icon fontSize="small" />
@@ -651,6 +811,7 @@ export function MemberPortalPage() {
     const { pushToast } = useToast();
     const { theme: themeMode, toggleTheme } = useUI();
     const [memberRecord, setMemberRecord] = useState<Member | null>(null);
+    const [memberApplication, setMemberApplication] = useState<MemberApplication | null>(null);
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
     const [memberId, setMemberId] = useState("");
     const [loans, setLoans] = useState<Loan[]>([]);
@@ -660,6 +821,7 @@ export function MemberPortalPage() {
     const [guarantorRequests, setGuarantorRequests] = useState<GuarantorRequestItem[]>([]);
     const [processingGuarantorRequestId, setProcessingGuarantorRequestId] = useState<string | null>(null);
     const [statements, setStatements] = useState<StatementRow[]>([]);
+    const [loanTransactions, setLoanTransactions] = useState<LoanTransaction[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [warning, setWarning] = useState<string | null>(null);
@@ -720,12 +882,20 @@ export function MemberPortalPage() {
         resolver: zodResolver(contributionPaymentSchema),
         defaultValues: {
             account_id: "",
+            loan_id: "",
             amount: 0,
             provider: "vodacom",
             msisdn: profile?.phone || "",
             description: ""
         }
     });
+    const requiresMembershipFeePayment = memberApplication?.status === "approved_pending_payment";
+    const canUsePortalPayments = canUsePortalDeposits || requiresMembershipFeePayment;
+    const membershipFeeOutstanding = Math.max(
+        Number(memberApplication?.membership_fee_amount || 0) - Number(memberApplication?.membership_fee_paid || 0),
+        0
+    );
+    const canShowMembershipFeePaymentOption = requiresMembershipFeePayment && membershipFeeOutstanding > 0;
     const selectedLoanProductId = loanApplicationForm.watch("product_id");
     const requestedLoanTerm = loanApplicationForm.watch("requested_term_count");
     const requestedLoanAmount = loanApplicationForm.watch("requested_amount");
@@ -738,17 +908,50 @@ export function MemberPortalPage() {
         () => resolveLoanEligibilityPolicy(selectedLoanProduct),
         [selectedLoanProduct]
     );
+    const latestStatementBalanceByAccountId = useMemo(() => {
+        const latestBalances = new Map<string, { createdAt: number; runningBalance: number }>();
+
+        for (const row of statements) {
+            const createdAt = new Date(row.created_at || row.transaction_date || 0).getTime();
+            const current = latestBalances.get(row.account_id);
+
+            if (!current || createdAt >= current.createdAt) {
+                latestBalances.set(row.account_id, {
+                    createdAt,
+                    runningBalance: Number(row.running_balance || 0)
+                });
+            }
+        }
+
+        return new Map(
+            Array.from(latestBalances.entries()).map(([accountId, entry]) => [accountId, entry.runningBalance])
+        );
+    }, [statements]);
     const savingsEligibilityBalance = useMemo(
         () => accounts
             .filter((account) => account.status === "active" && account.product_type === "savings")
-            .reduce((sum, account) => sum + Number(account.available_balance || 0), 0),
-        [accounts]
+            .reduce(
+                (sum, account) => sum + (
+                    latestStatementBalanceByAccountId.has(account.id)
+                        ? Number(latestStatementBalanceByAccountId.get(account.id) || 0)
+                        : Number(account.available_balance || 0)
+                ),
+                0
+            ),
+        [accounts, latestStatementBalanceByAccountId]
     );
     const sharesEligibilityBalance = useMemo(
         () => accounts
             .filter((account) => account.status === "active" && account.product_type === "shares")
-            .reduce((sum, account) => sum + Number(account.available_balance || 0), 0),
-        [accounts]
+            .reduce(
+                (sum, account) => sum + (
+                    latestStatementBalanceByAccountId.has(account.id)
+                        ? Number(latestStatementBalanceByAccountId.get(account.id) || 0)
+                        : Number(account.available_balance || 0)
+                ),
+                0
+            ),
+        [accounts, latestStatementBalanceByAccountId]
     );
     const selectedLoanEligibleAmount = useMemo(() => {
         if (!selectedLoanProduct) {
@@ -906,6 +1109,8 @@ export function MemberPortalPage() {
     const normalizedPaymentOrders = useMemo(() => paymentOrders.map((order) => normalizeContributionOrder(order)), [paymentOrders]);
     const latestSharePaymentOrder = normalizedPaymentOrders.find((order) => order.purpose === "share_contribution") || null;
     const latestSavingsPaymentOrder = normalizedPaymentOrders.find((order) => order.purpose === "savings_deposit") || null;
+    const latestMembershipFeePaymentOrder = normalizedPaymentOrders.find((order) => order.purpose === "membership_fee") || null;
+    const latestLoanRepaymentPaymentOrder = normalizedPaymentOrders.find((order) => order.purpose === "loan_repayment") || null;
     const trackedContributionOrder = useMemo(() => {
         if (!activeContributionOrderId) {
             return null;
@@ -916,20 +1121,47 @@ export function MemberPortalPage() {
             (normalizedPaymentOrder?.id === activeContributionOrderId ? normalizedPaymentOrder : null)
         );
     }, [activeContributionOrderId, normalizedPaymentOrder, normalizedPaymentOrders]);
-    const activePaymentPurpose = trackedContributionOrder?.purpose === "savings_deposit" ? "savings_deposit" : paymentFlowPurpose;
+    const activePaymentPurpose = trackedContributionOrder?.purpose === "savings_deposit"
+        || trackedContributionOrder?.purpose === "membership_fee"
+        || trackedContributionOrder?.purpose === "share_contribution"
+        || trackedContributionOrder?.purpose === "loan_repayment"
+        ? trackedContributionOrder.purpose
+        : paymentFlowPurpose;
     const activePaymentCopy = activePaymentPurpose === "savings_deposit"
         ? {
             noun: "savings deposit",
             title: "Savings Deposit",
             accountLabel: "Savings Account",
-            emptyAccountMessage: "No savings account is currently available for this member profile."
+            amountLabel: "Deposit Amount",
+            helperText: "Amount to push to your phone.",
+            emptyAccountMessage: "A savings account will be prepared automatically when this deposit starts."
         }
-        : {
-            noun: "share contribution",
-            title: "Share Contribution",
-            accountLabel: "Share Account",
-            emptyAccountMessage: "No share account is currently available for this member profile."
-        };
+        : activePaymentPurpose === "membership_fee"
+            ? {
+                noun: "membership fee payment",
+                title: "Membership Fee",
+                accountLabel: "Savings Account",
+                amountLabel: "Membership Fee Amount",
+                helperText: "This amount settles the outstanding membership fee.",
+                emptyAccountMessage: "A savings account will be prepared automatically when the membership fee payment starts."
+            }
+            : activePaymentPurpose === "loan_repayment"
+                ? {
+                    noun: "loan repayment",
+                    title: "Loan Repayment",
+                    accountLabel: "Loan Facility",
+                    amountLabel: "Repayment Amount",
+                    helperText: "Enter any amount up to the outstanding balance. The system allocates interest first, then principal.",
+                    emptyAccountMessage: "No repayable loan is linked to this member profile right now."
+                }
+            : {
+                noun: "share contribution",
+                title: "Share Contribution",
+                accountLabel: "Share Account",
+                amountLabel: "Deposit Amount",
+                helperText: "Amount to push to your phone.",
+                emptyAccountMessage: "A share account will be prepared automatically when this contribution starts."
+            };
     const contributionFlowState = submittingContribution ? "initiating" : trackedContributionOrder?.status || null;
     const gatewayStillConfirming = contributionFlowState === "pending" && trackedContributionOrder?.error_code === "AZAMPAY_TIMEOUT";
     const contributionFlowProgress = contributionFlowState === "initiating"
@@ -961,6 +1193,8 @@ export function MemberPortalPage() {
                 : contributionFlowState === "posted"
                     ? activePaymentPurpose === "savings_deposit"
                         ? "Savings posted"
+                        : activePaymentPurpose === "loan_repayment"
+                            ? "Loan repayment posted"
                         : "Contribution posted"
                     : contributionFlowState === "failed"
                         ? "Payment failed"
@@ -976,10 +1210,18 @@ export function MemberPortalPage() {
             : contributionFlowState === "paid"
                 ? activePaymentPurpose === "savings_deposit"
                     ? "Azam Pay confirmed the payment. The backend is now posting the savings deposit into your account."
+                    : activePaymentPurpose === "membership_fee"
+                        ? "Azam Pay confirmed the payment. The backend is now posting the membership fee and activating your membership."
+                        : activePaymentPurpose === "loan_repayment"
+                            ? "Azam Pay confirmed the payment. The backend is now allocating the repayment into interest and principal."
                     : "Azam Pay confirmed the payment. The backend is now posting the contribution into your share account."
                 : contributionFlowState === "posted"
                     ? activePaymentPurpose === "savings_deposit"
                         ? "The savings deposit is now reflected in your account and statement history."
+                        : activePaymentPurpose === "membership_fee"
+                            ? "The membership fee is posted and your membership is being activated."
+                            : activePaymentPurpose === "loan_repayment"
+                                ? "The repayment is now posted against your loan schedule and statement history."
                         : "The contribution is now reflected in your account and statement history."
                     : contributionFlowState === "failed"
                         ? trackedContributionOrder?.error_message || "Azam Pay reported a payment failure."
@@ -1006,7 +1248,11 @@ export function MemberPortalPage() {
         ? "Creating the Azam Pay request..."
         : contributionFlowState === "pending"
             ? "Waiting for the mobile money approval and Azam callback..."
-            : "Payment is confirmed. Posting the deposit in the background...";
+            : activePaymentPurpose === "membership_fee"
+                ? "Payment is confirmed. Posting the membership fee in the background..."
+                : activePaymentPurpose === "loan_repayment"
+                    ? "Payment is confirmed. Posting the loan repayment in the background..."
+                : "Payment is confirmed. Posting the deposit in the background...";
 
     const profileMenuOpen = Boolean(profileMenuAnchor);
     const m3MenuTokens = useMemo(() => {
@@ -1041,8 +1287,8 @@ export function MemberPortalPage() {
         handleProfileMenuClose();
     };
 
-    const openDepositDialog = (purpose: MemberPaymentPurpose = "share_contribution") => {
-        if (!canUsePortalDeposits) {
+    const openDepositDialog = (purpose: MemberPaymentPurpose = "share_contribution", loanId?: string | null) => {
+        if (!canUsePortalPayments) {
             pushToast({
                 title: "Deposits unavailable",
                 message: "Your current plan does not include mobile-money deposit integration.",
@@ -1051,20 +1297,70 @@ export function MemberPortalPage() {
             return;
         }
 
+        if (purpose === "loan_repayment" && !portalRepaymentLoans.length) {
+            pushToast({
+                title: "No active loan",
+                message: "There is no active or in-arrears loan available for self-service repayment.",
+                type: "error"
+            });
+            return;
+        }
+
         setPaymentFlowPurpose(purpose);
-        const latestOrder = purpose === "savings_deposit" ? latestSavingsPaymentOrder : latestSharePaymentOrder;
+        const latestOrder = purpose === "savings_deposit"
+            ? latestSavingsPaymentOrder
+            : purpose === "membership_fee"
+                ? latestMembershipFeePaymentOrder
+                : purpose === "loan_repayment"
+                    ? latestLoanRepaymentPaymentOrder
+                : latestSharePaymentOrder;
         if (latestOrder && ["pending", "paid"].includes(latestOrder.status)) {
             setActiveContributionOrderId(latestOrder.id);
         } else {
             setActiveContributionOrderId(null);
         }
+        if (purpose === "membership_fee") {
+            contributionPaymentForm.setValue("amount", membershipFeeOutstanding, { shouldValidate: true });
+            contributionPaymentForm.setValue("description", "Membership fee payment", { shouldValidate: true });
+            contributionPaymentForm.setValue("loan_id", "", { shouldValidate: false });
+        } else if (purpose === "loan_repayment") {
+            setLoanRepaymentDefaults(loanId);
+            contributionPaymentForm.setValue("account_id", "", { shouldValidate: false });
+        } else {
+            contributionPaymentForm.setValue("loan_id", "", { shouldValidate: false });
+        }
         setShowContributionDialog(true);
+    };
+
+    const setLoanRepaymentDefaults = (loanIdOverride?: string | null) => {
+        const nextLoan =
+            (loanIdOverride ? portalRepaymentLoans.find((loan) => loan.id === loanIdOverride) : null)
+            || selectedRepaymentLoan
+            || portalRepaymentLoans[0]
+            || null;
+        const nextSchedules = loanSchedules.filter((schedule) => schedule.loan_id === nextLoan?.id && schedule.status !== "paid");
+        const nextInsights = buildRepaymentInsights(nextLoan, nextSchedules, 0);
+
+        contributionPaymentForm.reset({
+            account_id: "",
+            loan_id: nextLoan?.id || "",
+            amount: nextInsights.recommendedAmount > 0 ? Number(nextInsights.recommendedAmount.toFixed(2)) : 0,
+            provider: contributionPaymentForm.getValues("provider") || "vodacom",
+            msisdn: contributionPaymentForm.getValues("msisdn") || profile?.phone || "",
+            description: nextLoan ? `Loan repayment for ${nextLoan.loan_number}` : ""
+        });
     };
 
     const prepareAnotherContribution = () => {
         setActiveContributionOrderId(null);
+        if (paymentFlowPurpose === "loan_repayment") {
+            setLoanRepaymentDefaults(contributionPaymentForm.getValues("loan_id"));
+            return;
+        }
+
         contributionPaymentForm.reset({
             account_id: contributionPaymentForm.getValues("account_id"),
+            loan_id: "",
             amount: 0,
             provider: contributionPaymentForm.getValues("provider") || "vodacom",
             msisdn: contributionPaymentForm.getValues("msisdn") || profile?.phone || "",
@@ -1073,12 +1369,65 @@ export function MemberPortalPage() {
     };
 
     const refreshMemberContributionData = async (targetMemberId = memberId) => {
-        if (!profile?.tenant_id || !targetMemberId) {
+        if (!profile?.tenant_id) {
             return;
         }
 
-        const [accountsResult, statementsResult] = await Promise.allSettled([
+        const [membersResult, applicationResult] = await Promise.allSettled([
+            api.get<MembersResponse>(endpoints.members.list(), {
+                params: {
+                    tenant_id: profile.tenant_id,
+                    page: 1,
+                    limit: 100
+                }
+            }),
+            api.get<MemberApplicationResponse>(endpoints.memberApplications.me(), {
+                params: {
+                    tenant_id: profile.tenant_id
+                }
+            })
+        ]);
+
+        let resolvedMemberId = targetMemberId;
+
+        if (membersResult.status === "fulfilled") {
+            const refreshedMember =
+                (membersResult.value.data.data || []).find((member: Member) => member.user_id === (user?.id || "")) ||
+                membersResult.value.data.data?.[0] ||
+                null;
+            setMemberRecord(refreshedMember);
+            setMemberId(refreshedMember?.id || "");
+            resolvedMemberId = refreshedMember?.id || resolvedMemberId;
+        }
+
+        if (applicationResult.status === "fulfilled") {
+            setMemberApplication(applicationResult.value.data.data || null);
+        }
+
+        if (!resolvedMemberId) {
+            setAccounts([]);
+            setStatements([]);
+            setLoanTransactions([]);
+            return;
+        }
+
+        const [accountsResult, loansResult, schedulesResult, statementsResult, loanTransactionsResult] = await Promise.allSettled([
             api.get<MemberAccountsResponse>(endpoints.members.accounts(), {
+                params: {
+                    tenant_id: profile.tenant_id,
+                    page: 1,
+                    limit: 100
+                }
+            }),
+            api.get<LoansResponse>(endpoints.finance.loanPortfolio(), {
+                params: {
+                    tenant_id: profile.tenant_id,
+                    member_id: resolvedMemberId,
+                    page: 1,
+                    limit: 100
+                }
+            }),
+            api.get<LoanSchedulesResponse>(endpoints.finance.loanSchedules(), {
                 params: {
                     tenant_id: profile.tenant_id,
                     page: 1,
@@ -1088,7 +1437,14 @@ export function MemberPortalPage() {
             api.get<StatementsResponse>(endpoints.finance.statements(), {
                 params: {
                     tenant_id: profile.tenant_id,
-                    member_id: targetMemberId,
+                    member_id: resolvedMemberId,
+                    page: 1,
+                    limit: 100
+                }
+            }),
+            api.get<LoanTransactionsResponse>(endpoints.finance.loanTransactions(), {
+                params: {
+                    tenant_id: profile.tenant_id,
                     page: 1,
                     limit: 100
                 }
@@ -1099,8 +1455,20 @@ export function MemberPortalPage() {
             setAccounts(accountsResult.value.data.data || []);
         }
 
+        if (loansResult.status === "fulfilled") {
+            setLoans(loansResult.value.data.data || []);
+        }
+
+        if (schedulesResult.status === "fulfilled") {
+            setLoanSchedules(schedulesResult.value.data.data || []);
+        }
+
         if (statementsResult.status === "fulfilled") {
             setStatements(statementsResult.value.data.data || []);
+        }
+
+        if (loanTransactionsResult.status === "fulfilled") {
+            setLoanTransactions(loanTransactionsResult.value.data.data || []);
         }
     };
 
@@ -1116,18 +1484,28 @@ export function MemberPortalPage() {
             );
             const nextOrder = mergePaymentOrder(data.data.order);
 
-            if (data.data.reconciled && nextOrder.status === "posted") {
-                setLastPaymentToastStatus("posted");
-                await refreshMemberContributionData(nextOrder.member_id);
-                pushToast({
-                    title: nextOrder.purpose === "savings_deposit" ? "Savings posted" : "Contribution posted",
-                    message: nextOrder.purpose === "savings_deposit"
-                        ? "The paid Azam Pay order has been posted into your savings account."
-                        : "The paid Azam Pay order has been posted into your share account.",
-                    type: "success"
-                });
-                return;
-            }
+                if (data.data.reconciled && nextOrder.status === "posted") {
+                    setLastPaymentToastStatus("posted");
+                    await refreshMemberContributionData(nextOrder.member_id);
+                    pushToast({
+                        title: nextOrder.purpose === "savings_deposit"
+                            ? "Savings posted"
+                            : nextOrder.purpose === "membership_fee"
+                                ? "Membership activated"
+                                : nextOrder.purpose === "loan_repayment"
+                                    ? "Repayment posted"
+                                : "Contribution posted",
+                        message: nextOrder.purpose === "savings_deposit"
+                            ? "The paid Azam Pay order has been posted into your savings account."
+                            : nextOrder.purpose === "membership_fee"
+                                ? "The paid Azam Pay order has posted the membership fee and activated your member profile."
+                                : nextOrder.purpose === "loan_repayment"
+                                    ? "The paid Azam Pay order has been posted into your loan and statements."
+                                : "The paid Azam Pay order has been posted into your share account.",
+                        type: "success"
+                    });
+                    return;
+                }
 
             pushToast({
                 title: "No new posting yet",
@@ -1162,7 +1540,8 @@ export function MemberPortalPage() {
         try {
             const payload: InitiateContributionPaymentRequest = {
                 tenant_id: profile.tenant_id,
-                account_id: values.account_id,
+                account_id: paymentFlowPurpose === "loan_repayment" ? undefined : values.account_id || undefined,
+                loan_id: paymentFlowPurpose === "loan_repayment" ? values.loan_id || undefined : undefined,
                 amount: Number(values.amount),
                 provider: values.provider,
                 msisdn: values.msisdn.trim(),
@@ -1172,7 +1551,11 @@ export function MemberPortalPage() {
             const { data } = await api.post<InitiateContributionPaymentResponse>(
                 paymentFlowPurpose === "savings_deposit"
                     ? endpoints.memberPayments.initiateSavings()
-                    : endpoints.memberPayments.initiateContribution(),
+                    : paymentFlowPurpose === "membership_fee"
+                        ? endpoints.memberPayments.initiateMembershipFee()
+                        : paymentFlowPurpose === "loan_repayment"
+                            ? endpoints.memberPayments.initiateLoanRepayment()
+                        : endpoints.memberPayments.initiateContribution(),
                 payload,
                 { timeout: 70000 }
             );
@@ -1180,29 +1563,56 @@ export function MemberPortalPage() {
             const pendingConfirmation = data.data.processing_state === "pending_confirmation";
             setActiveContributionOrderId(nextOrder.id);
             setLastPaymentToastStatus(nextOrder.status);
-            contributionPaymentForm.reset({
-                account_id: values.account_id,
-                amount: 0,
-                provider: values.provider,
-                msisdn: values.msisdn,
-                description: ""
-            });
+            if (paymentFlowPurpose === "loan_repayment") {
+                setLoanRepaymentDefaults(values.loan_id);
+            } else {
+                contributionPaymentForm.reset({
+                    account_id: values.account_id,
+                    loan_id: "",
+                    amount: paymentFlowPurpose === "membership_fee" ? membershipFeeOutstanding : 0,
+                    provider: values.provider,
+                    msisdn: values.msisdn,
+                    description: ""
+                });
+            }
             pushToast({
-                title: pendingConfirmation ? "Azam Pay still processing" : paymentFlowPurpose === "savings_deposit" ? "Savings payment initiated" : "Payment initiated",
+                title: pendingConfirmation
+                    ? "Azam Pay still processing"
+                    : paymentFlowPurpose === "savings_deposit"
+                        ? "Savings payment initiated"
+                        : paymentFlowPurpose === "membership_fee"
+                            ? "Membership fee initiated"
+                            : paymentFlowPurpose === "loan_repayment"
+                                ? "Loan repayment initiated"
+                            : "Payment initiated",
                 message: pendingConfirmation
                     ? "Azam Pay did not respond in time, but the order is still being tracked. Keep the dialog open while callback confirmation arrives."
                     : paymentFlowPurpose === "savings_deposit"
                         ? "Approve the Azam Pay prompt on your phone. The savings deposit will post automatically after confirmation."
+                        : paymentFlowPurpose === "membership_fee"
+                            ? "Approve the Azam Pay prompt on your phone. The membership fee will post automatically after confirmation."
+                            : paymentFlowPurpose === "loan_repayment"
+                                ? "Approve the Azam Pay prompt on your phone. The repayment will post automatically into your loan after confirmation."
                         : "Approve the Azam Pay prompt on your phone. The contribution will post automatically after confirmation.",
                 type: "success"
             });
         } catch (error) {
             pushToast({
-                title: paymentFlowPurpose === "savings_deposit" ? "Savings payment failed" : "Payment initiation failed",
+                title: paymentFlowPurpose === "savings_deposit"
+                    ? "Savings payment failed"
+                    : paymentFlowPurpose === "membership_fee"
+                        ? "Membership fee payment failed"
+                        : paymentFlowPurpose === "loan_repayment"
+                            ? "Loan repayment failed"
+                        : "Payment initiation failed",
                 message: getApiErrorMessage(
                     error,
                     paymentFlowPurpose === "savings_deposit"
                         ? "Unable to start the Azam Pay savings deposit."
+                        : paymentFlowPurpose === "membership_fee"
+                            ? "Unable to start the Azam Pay membership fee payment."
+                            : paymentFlowPurpose === "loan_repayment"
+                                ? "Unable to start the Azam Pay loan repayment."
                         : "Unable to start the Azam Pay contribution."
                 ),
                 type: "error"
@@ -1224,6 +1634,17 @@ export function MemberPortalPage() {
             setWarning(null);
 
             try {
+                let applicationData: MemberApplication | null = null;
+                try {
+                    const { data: applicationResponse } = await api.get<MemberApplicationResponse>(endpoints.memberApplications.me(), {
+                        params: { tenant_id: profile.tenant_id }
+                    });
+                    applicationData = applicationResponse.data || null;
+                } catch (applicationError) {
+                    setMemberApplication(null);
+                    setWarning(getApiErrorMessage(applicationError, "Unable to load your membership application."));
+                }
+
                 const { data: membersResponse } = await api.get<MembersResponse>(endpoints.members.list(), {
                     params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
                 });
@@ -1241,13 +1662,17 @@ export function MemberPortalPage() {
                     setLoanApplications([]);
                     setGuarantorRequests([]);
                     setStatements([]);
+                    setLoanTransactions([]);
                     setPaymentOrders([]);
                     setPaymentOrder(null);
+                    setMemberApplication(applicationData);
                     return;
                 }
 
                 setMemberRecord(memberRecord);
                 setMemberId(memberRecord.id);
+                setMemberApplication(applicationData);
+                const canUseMemberPayments = canUsePortalDeposits || applicationData?.status === "approved_pending_payment";
 
                 const results = await Promise.allSettled([
                     api.get<MemberAccountsResponse>(endpoints.members.accounts(), {
@@ -1290,14 +1715,17 @@ export function MemberPortalPage() {
                     api.get<StatementsResponse>(endpoints.finance.statements(), {
                         params: { tenant_id: profile.tenant_id, member_id: memberRecord.id, page: 1, limit: 100 }
                     }),
-                    canUsePortalDeposits
+                    api.get<LoanTransactionsResponse>(endpoints.finance.loanTransactions(), {
+                        params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
+                    }),
+                    canUseMemberPayments
                         ? api.get<PaymentOrdersResponse>(endpoints.memberPayments.listOrders(), {
                             params: { tenant_id: profile.tenant_id, page: 1, limit: 100 }
                         })
                         : Promise.resolve(null)
                 ]);
 
-                const [accountsResult, loansResult, schedulesResult, productsResult, applicationsResult, guarantorRequestsResult, statementsResult, paymentOrdersResult] = results;
+                const [accountsResult, loansResult, schedulesResult, productsResult, applicationsResult, guarantorRequestsResult, statementsResult, loanTransactionsResult, paymentOrdersResult] = results;
                 const issues: string[] = [];
 
                 if (accountsResult.status === "fulfilled") {
@@ -1349,7 +1777,14 @@ export function MemberPortalPage() {
                     issues.push(getApiErrorMessage(statementsResult.reason, "Transactions unavailable."));
                 }
 
-                if (!canUsePortalDeposits) {
+                if (loanTransactionsResult.status === "fulfilled") {
+                    setLoanTransactions(loanTransactionsResult.value.data.data || []);
+                } else {
+                    setLoanTransactions([]);
+                    issues.push(getApiErrorMessage(loanTransactionsResult.reason, "Loan transactions unavailable."));
+                }
+
+                if (!canUseMemberPayments) {
                     setPaymentOrders([]);
                     setPaymentOrder(null);
                 } else if (paymentOrdersResult.status === "fulfilled" && paymentOrdersResult.value) {
@@ -1395,14 +1830,14 @@ export function MemberPortalPage() {
     }, [profile?.phone]);
 
     useEffect(() => {
-        if (!canUsePortalDeposits && activeSection === "member-payments") {
+        if (!canUsePortalPayments && activeSection === "member-payments") {
             setActiveSection("member-overview");
         }
 
-        if (!canUsePortalDeposits && showContributionDialog) {
+        if (!canUsePortalPayments && showContributionDialog) {
             setShowContributionDialog(false);
         }
-    }, [activeSection, canUsePortalDeposits, showContributionDialog]);
+    }, [activeSection, canUsePortalPayments, showContributionDialog]);
 
     const savingsAccounts = useMemo(() => accounts.filter((account) => account.product_type === "savings"), [accounts]);
     const totalSavings = useMemo(
@@ -1425,7 +1860,16 @@ export function MemberPortalPage() {
         [accounts]
     );
     const shareAccounts = useMemo(() => accounts.filter((account) => account.product_type === "shares"), [accounts]);
-    const paymentTargetAccounts = paymentFlowPurpose === "savings_deposit" ? savingsAccounts : shareAccounts;
+    const portalRepaymentLoans = useMemo(
+        () => loans.filter((loan) => ["active", "in_arrears"].includes(loan.status) && (loan.outstanding_principal + loan.accrued_interest) > 0),
+        [loans]
+    );
+    const canShowLoanRepaymentOption = canUsePortalDeposits && portalRepaymentLoans.length > 0;
+    const paymentTargetAccounts = paymentFlowPurpose === "share_contribution"
+        ? shareAccounts
+        : paymentFlowPurpose === "loan_repayment"
+            ? []
+            : savingsAccounts;
     const paymentAccountOptions = useMemo(
         () =>
             paymentTargetAccounts.map((account) => ({
@@ -1435,17 +1879,54 @@ export function MemberPortalPage() {
             })),
         [paymentTargetAccounts]
     );
+    const watchedContributionAmount = contributionPaymentForm.watch("amount");
     const selectedContributionAccountId = contributionPaymentForm.watch("account_id");
     const selectedContributionAccount = useMemo(
         () => paymentTargetAccounts.find((account) => account.id === selectedContributionAccountId) || paymentTargetAccounts[0] || null,
         [paymentTargetAccounts, selectedContributionAccountId]
+    );
+    const selectedRepaymentLoanId = contributionPaymentForm.watch("loan_id");
+    const selectedRepaymentLoan = useMemo(
+        () => portalRepaymentLoans.find((loan) => loan.id === selectedRepaymentLoanId) || portalRepaymentLoans[0] || null,
+        [portalRepaymentLoans, selectedRepaymentLoanId]
+    );
+    const selectedRepaymentSchedules = useMemo(
+        () => loanSchedules.filter((schedule) => schedule.loan_id === selectedRepaymentLoan?.id && schedule.status !== "paid"),
+        [loanSchedules, selectedRepaymentLoan?.id]
+    );
+    const repaymentInsights = useMemo(
+        () => buildRepaymentInsights(selectedRepaymentLoan, selectedRepaymentSchedules, watchedContributionAmount),
+        [selectedRepaymentLoan, selectedRepaymentSchedules, watchedContributionAmount]
+    );
+    const repaymentLoanOptions = useMemo(
+        () =>
+            portalRepaymentLoans.map((loan) => ({
+                value: loan.id,
+                label: loan.loan_number,
+                secondary: `${formatCurrency(loan.outstanding_principal + loan.accrued_interest)} outstanding`
+            })),
+        [portalRepaymentLoans]
     );
     const selectedContributionProvider = contributionProviderOptions.find(
         (option) => option.value === contributionPaymentForm.watch("provider")
     ) || contributionProviderOptions[0];
 
     useEffect(() => {
-        if (contributionFlowState) {
+        if (!canShowMembershipFeePaymentOption && paymentFlowPurpose === "membership_fee") {
+            setPaymentFlowPurpose("share_contribution");
+            setActiveContributionOrderId(null);
+        }
+    }, [canShowMembershipFeePaymentOption, paymentFlowPurpose]);
+
+    useEffect(() => {
+        if (!canShowLoanRepaymentOption && paymentFlowPurpose === "loan_repayment") {
+            setPaymentFlowPurpose("share_contribution");
+            setActiveContributionOrderId(null);
+        }
+    }, [canShowLoanRepaymentOption, paymentFlowPurpose]);
+
+    useEffect(() => {
+        if (contributionFlowState || paymentFlowPurpose === "loan_repayment") {
             return;
         }
 
@@ -1458,6 +1939,20 @@ export function MemberPortalPage() {
 
         contributionPaymentForm.setValue("account_id", paymentTargetAccounts[0]?.id || "", { shouldValidate: true });
     }, [contributionFlowState, contributionPaymentForm, paymentFlowPurpose, paymentTargetAccounts]);
+    useEffect(() => {
+        if (contributionFlowState || paymentFlowPurpose !== "loan_repayment") {
+            return;
+        }
+
+        const currentLoanId = contributionPaymentForm.getValues("loan_id");
+        const hasCurrentLoan = portalRepaymentLoans.some((loan) => loan.id === currentLoanId);
+
+        if (hasCurrentLoan) {
+            return;
+        }
+
+        contributionPaymentForm.setValue("loan_id", portalRepaymentLoans[0]?.id || "", { shouldValidate: true });
+    }, [contributionFlowState, contributionPaymentForm, paymentFlowPurpose, portalRepaymentLoans]);
     const filteredPaymentOrders = useMemo(
         () =>
             normalizedPaymentOrders.filter((order) => {
@@ -1536,8 +2031,8 @@ export function MemberPortalPage() {
         [guarantorRequests]
     );
     const visiblePortalSections = useMemo(
-        () => portalSections.filter((section) => canUsePortalDeposits || section.id !== "member-payments"),
-        [canUsePortalDeposits]
+        () => portalSections.filter((section) => canUsePortalPayments || section.id !== "member-payments"),
+        [canUsePortalPayments]
     );
     const transactionCount = statements.length;
     const balanceTrend = groupBalances(statements);
@@ -1547,7 +2042,7 @@ export function MemberPortalPage() {
     const totalVisibleCapital = totalSavings + totalShareCapital;
     const netPosition = totalVisibleCapital - totalOutstandingLoans;
     const hasOverdueLoan = useMemo(() => loans.some((loan) => loan.status === "in_arrears"), [loans]);
-    const drawerWidth = sidebarOpen ? 272 : 88;
+    const drawerWidth = sidebarOpen ? 296 : 96;
     const chartLabels = balanceTrend.map((entry) => entry.label);
     const chartValues = balanceTrend.map((entry) => entry.balance);
     const savingsTrendLabels = monthlySavingsTrend.map((entry) => entry.label);
@@ -1906,10 +2401,14 @@ export function MemberPortalPage() {
     const latestFilteredTransaction = filteredTransactions[0] || null;
 
     useEffect(() => {
+        if (paymentFlowPurpose === "loan_repayment") {
+            return;
+        }
+
         if (paymentTargetAccounts.length && !paymentTargetAccounts.some((account) => account.id === contributionPaymentForm.getValues("account_id"))) {
             contributionPaymentForm.setValue("account_id", paymentTargetAccounts[0].id, { shouldValidate: true });
         }
-    }, [paymentTargetAccounts]);
+    }, [contributionPaymentForm, paymentFlowPurpose, paymentTargetAccounts]);
 
     useEffect(() => {
         if (!paymentOrder?.id || !["pending", "paid"].includes(paymentOrder.status)) {
@@ -1929,6 +2428,10 @@ export function MemberPortalPage() {
                         title: "Payment confirmed",
                         message: nextOrder.purpose === "savings_deposit"
                             ? "Azam Pay marked the order as paid. The system is now posting it into your savings account."
+                            : nextOrder.purpose === "membership_fee"
+                                ? "Azam Pay marked the order as paid. The system is now posting the membership fee and activating your profile."
+                                : nextOrder.purpose === "loan_repayment"
+                                    ? "Azam Pay marked the order as paid. The system is now allocating the repayment into your loan."
                             : "Azam Pay marked the order as paid. The system is now posting it into your share account.",
                         type: "success"
                     });
@@ -1938,10 +2441,20 @@ export function MemberPortalPage() {
                     setLastPaymentToastStatus("posted");
                     await refreshMemberContributionData(nextOrder.member_id);
                     pushToast({
-                        title: nextOrder.purpose === "savings_deposit" ? "Savings posted" : "Contribution posted",
+                        title: nextOrder.purpose === "savings_deposit"
+                            ? "Savings posted"
+                            : nextOrder.purpose === "membership_fee"
+                                ? "Membership activated"
+                                : nextOrder.purpose === "loan_repayment"
+                                    ? "Repayment posted"
+                                : "Contribution posted",
                         message: nextOrder.purpose === "savings_deposit"
                             ? "Your mobile money savings deposit is now reflected in the system."
-                            : "Your mobile money contribution is now reflected in the system.",
+                            : nextOrder.purpose === "membership_fee"
+                                ? "Your membership fee is posted and your member profile is now active."
+                                : nextOrder.purpose === "loan_repayment"
+                                    ? "Your loan repayment is now reflected in the system."
+                                : "Your mobile money contribution is now reflected in the system.",
                         type: "success"
                     });
                 }
@@ -2141,7 +2654,9 @@ export function MemberPortalPage() {
                         {formatPaymentPurpose(row.purpose)}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                        {row.account_name || row.account_number || row.account_id}
+                        {row.purpose === "loan_repayment"
+                            ? row.loan_number || row.loan_id || "Loan target pending"
+                            : row.account_name || row.account_number || row.account_id}
                     </Typography>
                 </Stack>
             )
@@ -2636,12 +3151,47 @@ export function MemberPortalPage() {
         });
     };
 
+    const handleDownloadLoanStatement = () => {
+        if (!selectedLoan) {
+            pushToast({
+                type: "error",
+                title: "No loan selected",
+                message: "Select a loan facility before exporting the statement."
+            });
+            return;
+        }
+
+        const selectedLoanTransactions = loanTransactions
+            .filter((transaction) => transaction.loan_id === selectedLoan.id && isWithinDateRange(transaction.created_at, loansRange))
+            .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
+
+        if (!filteredLoanSchedules.length && !selectedLoanTransactions.length) {
+            pushToast({
+                type: "error",
+                title: "No loan statement data",
+                message: "No schedules or loan transactions are available for the selected loan in the current range."
+            });
+            return;
+        }
+
+        downloadLoanStatementPdf({
+            memberName: profile?.full_name || "Member",
+            memberEmail: user?.email || null,
+            tenantName: selectedTenantName,
+            branchName: selectedBranchName,
+            generatedBy: profile?.full_name || user?.email || "Member Portal",
+            loan: selectedLoan,
+            schedules: filteredLoanSchedules,
+            transactions: selectedLoanTransactions
+        });
+    };
+
     const renderStatGrid = () => (
         <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
                 <MetricCard
                     icon={WalletRoundedIcon}
-                    label="Savings Accounts"
+                    label="Accounts Live"
                     value={accounts.length.toString().padStart(2, "0")}
                     helper={`${transactionCount} posted entries visible`}
                     tone="primary"
@@ -2684,90 +3234,441 @@ export function MemberPortalPage() {
     const renderHero = () => (
         <MotionCard
             sx={{
-                borderRadius: 2,
-                color: "#fff",
+                borderRadius: 4,
+                height: "100%",
+                color: theme.palette.mode === "dark" ? "#fff" : brandColors.neutral.textPrimary,
                 overflow: "hidden",
-                border: "1px solid rgba(255,255,255,0.06)",
+                border: theme.palette.mode === "dark"
+                    ? "1px solid rgba(255,255,255,0.06)"
+                    : `1px solid ${alpha(brandColors.primary[300], 0.34)}`,
+                position: "relative",
                 background: theme.palette.mode === "dark"
                     ? `linear-gradient(135deg, ${darkThemeColors.elevated}, ${alpha(memberAccentStrong, 0.54)})`
-                    : "linear-gradient(135deg, #0F172A 0%, #0A0573 58%, #1A0FA3 100%)",
-                boxShadow: `0 18px 40px ${alpha(memberAccentStrong, 0.22)}`
+                    : `linear-gradient(135deg, ${alpha("#FFFFFF", 0.99)} 0%, ${alpha("#F8FBFF", 0.98)} 56%, ${alpha("#EEF4FF", 0.96)} 100%)`,
+                boxShadow: theme.palette.mode === "dark"
+                    ? `0 18px 40px ${alpha(memberAccentStrong, 0.22)}`
+                    : `0 18px 40px ${alpha(brandColors.primary[300], 0.18)}`,
+                "&::before": {
+                    content: '""',
+                    position: "absolute",
+                    inset: 0,
+                    background: theme.palette.mode === "dark"
+                        ? `radial-gradient(circle at 18% 18%, ${alpha("#FFFFFF", 0.16)} 0%, transparent 34%),
+                            radial-gradient(circle at 82% 24%, ${alpha(memberAccentAlt, 0.3)} 0%, transparent 28%),
+                            radial-gradient(circle at 75% 78%, ${alpha("#6EA8FF", 0.22)} 0%, transparent 30%)`
+                        : `radial-gradient(circle at 14% 18%, ${alpha(brandColors.primary[100], 0.9)} 0%, transparent 34%),
+                            radial-gradient(circle at 84% 20%, ${alpha(brandColors.accent[100], 0.82)} 0%, transparent 28%),
+                            radial-gradient(circle at 74% 80%, ${alpha(brandColors.primary[300], 0.18)} 0%, transparent 28%)`,
+                    pointerEvents: "none"
+                }
             }}
         >
-            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-                <Stack direction={{ xs: "column", xl: "row" }} spacing={3} justifyContent="space-between">
+            <CardContent sx={{ position: "relative", p: { xs: 3, md: 4 }, height: "100%" }}>
+                <Stack direction={{ xs: "column", xl: "row" }} spacing={3} justifyContent="space-between" sx={{ height: "100%" }}>
                     <Stack spacing={1.25} sx={{ maxWidth: 640 }}>
-                        <Typography variant="overline" sx={{ color: alpha("#FFFFFF", 0.72), letterSpacing: "0.22em" }}>
+                        <Typography
+                            variant="overline"
+                            sx={{
+                                color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.72) : alpha(brandColors.neutral.textSecondary, 0.9),
+                                letterSpacing: "0.22em"
+                            }}
+                        >
                             Member Dashboard
                         </Typography>
                         <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1.05 }}>
                             Welcome back, {profile?.full_name?.split(" ")[0] || "Member"}.
                         </Typography>
-                        <Typography variant="body1" sx={{ color: alpha("#FFFFFF", 0.78), maxWidth: 560 }}>
+                        <Typography
+                            variant="body1"
+                            sx={{
+                                color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.78) : brandColors.neutral.textSecondary,
+                                maxWidth: 560
+                            }}
+                        >
                             Track your savings, share capital, loan obligations, and contribution history from one secure workspace tied to {selectedTenantName || "your SACCOS"}.
                         </Typography>
                         <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap" sx={{ pt: 1 }}>
                             <Chip
                                 label={selectedBranchName || "Assigned branch"}
                                 sx={{
-                                    bgcolor: alpha("#FFFFFF", 0.12),
-                                    color: "#fff",
+                                    bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.12) : alpha(brandColors.primary[100], 0.92),
+                                    color: theme.palette.mode === "dark" ? "#fff" : brandColors.primary[900],
                                     borderRadius: 1.5,
-                                    backdropFilter: "blur(10px)"
+                                    backdropFilter: "blur(10px)",
+                                    border: theme.palette.mode === "dark" ? "none" : `1px solid ${alpha(brandColors.primary[300], 0.36)}`,
+                                    fontWeight: 700
                                 }}
                             />
                             <Chip
                                 label={hasNoVisibleFinancialData ? "Awaiting first posted activity" : "Financial activity visible"}
                                 sx={{
-                                    bgcolor: hasNoVisibleFinancialData ? alpha("#FFFFFF", 0.08) : alpha(brandColors.success, 0.18),
-                                    color: "#fff",
+                                    bgcolor: theme.palette.mode === "dark"
+                                        ? hasNoVisibleFinancialData ? alpha("#FFFFFF", 0.08) : alpha(brandColors.success, 0.18)
+                                        : hasNoVisibleFinancialData ? alpha(brandColors.warning, 0.12) : alpha(brandColors.success, 0.12),
+                                    color: theme.palette.mode === "dark"
+                                        ? "#fff"
+                                        : hasNoVisibleFinancialData ? "#9A6700" : brandColors.success,
                                     borderRadius: 1.5
                                 }}
                             />
                         </Stack>
                     </Stack>
-                    <Stack
-                        direction={{ xs: "column", sm: "row" }}
-                        spacing={1.5}
-                        alignItems={{ xs: "stretch", sm: "center" }}
-                        justifyContent={{ sm: "flex-start", xl: "flex-end" }}
-                        useFlexGap
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            minWidth: { xs: "100%", xl: 320 },
+                            maxWidth: 360,
+                            p: 2,
+                            borderRadius: 3,
+                            bgcolor: theme.palette.mode === "dark" ? alpha("#030712", 0.2) : alpha("#FFFFFF", 0.9),
+                            borderColor: theme.palette.mode === "dark"
+                                ? alpha("#FFFFFF", 0.12)
+                                : alpha(brandColors.primary[300], 0.34),
+                            backdropFilter: "blur(16px)",
+                            boxShadow: theme.palette.mode === "dark"
+                                ? "none"
+                                : `0 12px 28px ${alpha(brandColors.primary[300], 0.12)}`
+                        }}
                     >
-                        <Button
-                            variant="contained"
-                            onClick={() => handleSectionSelect("member-accounts")}
-                            endIcon={<EastRoundedIcon />}
+                        <Stack spacing={1.6}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography
+                                    variant="overline"
+                                    sx={{
+                                        color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.68) : alpha(brandColors.neutral.textSecondary, 0.9),
+                                        letterSpacing: "0.18em"
+                                    }}
+                                >
+                                    Today
+                                </Typography>
+                                <Chip
+                                    size="small"
+                                    label={standing.label}
+                                    sx={{
+                                        bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.12) : alpha(brandColors.primary[100], 0.9),
+                                        color: theme.palette.mode === "dark" ? "#fff" : brandColors.primary[900],
+                                        fontWeight: 700
+                                    }}
+                                />
+                            </Stack>
+                            <Box>
+                                <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.15 }}>
+                                    {nextPaymentDue ? formatDate(nextPaymentDue) : "No installment due"}
+                                </Typography>
+                                <Typography
+                                    variant="body2"
+                                    sx={{
+                                        color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.72) : brandColors.neutral.textSecondary,
+                                        mt: 0.75
+                                    }}
+                                >
+                                    {nextPaymentDue
+                                        ? `Next scheduled loan repayment is ${formatCurrency(monthlyInstallment)}.`
+                                        : "Use this portal to keep savings, contributions, and loan activity moving without visiting the branch."}
+                                </Typography>
+                            </Box>
+                            <Grid container spacing={1.2}>
+                                <Grid size={{ xs: 6 }}>
+                                    <Paper
+                                        sx={{
+                                            p: 1.25,
+                                            borderRadius: 2,
+                                            bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.08) : alpha(brandColors.primary[100], 0.54),
+                                            border: theme.palette.mode === "dark"
+                                                ? `1px solid ${alpha("#FFFFFF", 0.1)}`
+                                                : `1px solid ${alpha(brandColors.primary[300], 0.28)}`
+                                        }}
+                                    >
+                                        <Typography
+                                            variant="caption"
+                                            sx={{ color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.68) : brandColors.neutral.textSecondary }}
+                                        >
+                                            Pending payments
+                                        </Typography>
+                                        <Typography variant="h5" sx={{ mt: 0.45, fontWeight: 800 }}>
+                                            {pendingPaymentCount}
+                                        </Typography>
+                                    </Paper>
+                                </Grid>
+                                <Grid size={{ xs: 6 }}>
+                                    <Paper
+                                        sx={{
+                                            p: 1.25,
+                                            borderRadius: 2,
+                                            bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.08) : alpha(brandColors.primary[100], 0.54),
+                                            border: theme.palette.mode === "dark"
+                                                ? `1px solid ${alpha("#FFFFFF", 0.1)}`
+                                                : `1px solid ${alpha(brandColors.primary[300], 0.28)}`
+                                        }}
+                                    >
+                                        <Typography
+                                            variant="caption"
+                                            sx={{ color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.68) : brandColors.neutral.textSecondary }}
+                                        >
+                                            Active loans
+                                        </Typography>
+                                        <Typography variant="h5" sx={{ mt: 0.45, fontWeight: 800 }}>
+                                            {activeLoanCount}
+                                        </Typography>
+                                    </Paper>
+                                </Grid>
+                            </Grid>
+                            <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                spacing={1.25}
+                                useFlexGap
+                            >
+                                <Button
+                                    variant="contained"
+                                    onClick={() => handleSectionSelect("member-accounts")}
+                                    endIcon={<EastRoundedIcon />}
+                                    sx={{
+                                        borderRadius: 1.8,
+                                        px: 2.4,
+                                        py: 1.1,
+                                        bgcolor: theme.palette.mode === "dark" ? memberAccent : brandColors.primary[700],
+                                        color: "#fff",
+                                        boxShadow: "none",
+                                        fontWeight: 700,
+                                        minHeight: 44,
+                                        "&:hover": {
+                                            bgcolor: theme.palette.mode === "dark" ? memberAccentAlt : brandColors.primary[900],
+                                            boxShadow: "none"
+                                        }
+                                    }}
+                                >
+                                    View Accounts
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    onClick={() => handleSectionSelect("member-loans")}
+                                    endIcon={<NorthEastRoundedIcon />}
+                                    sx={{
+                                        borderRadius: 1.8,
+                                        px: 2.4,
+                                        py: 1.1,
+                                        color: theme.palette.mode === "dark" ? "#fff" : brandColors.primary[900],
+                                        borderColor: theme.palette.mode === "dark"
+                                            ? alpha("#FFFFFF", 0.2)
+                                            : alpha(brandColors.primary[300], 0.42),
+                                        fontWeight: 700,
+                                        minHeight: 44,
+                                        "&:hover": {
+                                            borderColor: theme.palette.mode === "dark"
+                                                ? alpha("#FFFFFF", 0.38)
+                                                : alpha(brandColors.primary[700], 0.46),
+                                            bgcolor: theme.palette.mode === "dark"
+                                                ? alpha("#FFFFFF", 0.05)
+                                                : alpha(brandColors.primary[100], 0.55)
+                                        }
+                                    }}
+                                >
+                                    Review Loans
+                                </Button>
+                            </Stack>
+                        </Stack>
+                    </Paper>
+                </Stack>
+            </CardContent>
+        </MotionCard>
+    );
+
+    const renderSpotlightCard = () => (
+        <MotionCard
+            sx={{
+                borderRadius: 4,
+                height: "100%",
+                overflow: "hidden",
+                color: theme.palette.mode === "dark" ? "#fff" : brandColors.neutral.textPrimary,
+                background: theme.palette.mode === "dark"
+                    ? "linear-gradient(180deg, #030712 0%, #101828 100%)"
+                    : `linear-gradient(180deg, ${alpha("#FFFFFF", 0.99)} 0%, ${alpha("#F8FAFF", 0.98)} 100%)`,
+                border: theme.palette.mode === "dark"
+                    ? "none"
+                    : `1px solid ${alpha(brandColors.primary[300], 0.28)}`,
+                boxShadow: theme.palette.mode === "dark"
+                    ? `0 20px 38px ${alpha("#020617", 0.24)}`
+                    : `0 20px 38px ${alpha(brandColors.primary[300], 0.14)}`
+            }}
+        >
+            <CardContent sx={{ p: { xs: 2.75, md: 3 }, height: "100%" }}>
+                <Stack spacing={2.25} sx={{ height: "100%" }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Stack direction="row" spacing={0.8} alignItems="center">
+                            <Box sx={{ display: "flex", gap: 0.9 }}>
+                                {[0, 1, 2].map((index) => (
+                                    <Box
+                                        key={index}
+                                        sx={{
+                                            width: 9,
+                                            height: 9,
+                                            borderRadius: "50%",
+                                            bgcolor: index === 2
+                                                ? brandColors.success
+                                                : theme.palette.mode === "dark"
+                                                    ? alpha("#FFFFFF", 0.22)
+                                                    : alpha(brandColors.neutral.textMuted, 0.42)
+                                        }}
+                                    />
+                                ))}
+                            </Box>
+                            <Typography
+                                variant="overline"
+                                sx={{
+                                    color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.7) : alpha(brandColors.neutral.textSecondary, 0.86),
+                                    letterSpacing: "0.16em"
+                                }}
+                            >
+                                Member feed
+                            </Typography>
+                        </Stack>
+                        <Chip
+                            size="small"
+                            label={failedPaymentCount ? `${failedPaymentCount} issue${failedPaymentCount === 1 ? "" : "s"}` : "Stable"}
                             sx={{
-                                borderRadius: 1.5,
-                                px: 3,
-                                py: 1.25,
-                                bgcolor: memberAccent,
-                                color: "#fff",
-                                boxShadow: "none",
-                                fontWeight: 700,
-                                minHeight: 46,
-                                "&:hover": { bgcolor: memberAccentAlt, boxShadow: "none" }
+                                bgcolor: failedPaymentCount ? alpha(brandColors.danger, 0.22) : alpha(brandColors.success, 0.18),
+                                color: theme.palette.mode === "dark" ? "#fff" : failedPaymentCount ? brandColors.danger : brandColors.success,
+                                fontWeight: 700
+                            }}
+                        />
+                    </Stack>
+
+                    <Box>
+                        <Typography
+                            variant="overline"
+                            sx={{
+                                color: theme.palette.mode === "dark" ? alpha(memberAccentAlt, 0.92) : brandColors.accent[700],
+                                letterSpacing: "0.18em"
                             }}
                         >
-                            View Accounts
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            onClick={() => handleSectionSelect("member-loans")}
-                            endIcon={<NorthEastRoundedIcon />}
+                            Featured status
+                        </Typography>
+                        <Typography variant="h4" sx={{ mt: 1.2, fontWeight: 800, lineHeight: 1.08 }}>
+                            {hasOverdueLoan
+                                ? "Repayment attention is needed."
+                                : activeLoanCount
+                                    ? "Your active lending position is live."
+                                    : "Your self-service workspace is ready."}
+                        </Typography>
+                        <Typography
+                            variant="body2"
                             sx={{
-                                borderRadius: 1.5,
-                                px: 3,
-                                py: 1.25,
-                                color: "#fff",
-                                borderColor: alpha("#FFFFFF", 0.2),
-                                fontWeight: 700,
-                                minHeight: 46,
-                                "&:hover": { borderColor: alpha("#FFFFFF", 0.38), bgcolor: alpha("#FFFFFF", 0.05) }
+                                mt: 1.15,
+                                color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.72) : brandColors.neutral.textSecondary
                             }}
                         >
-                            Review Loans
-                        </Button>
+                            {hasOverdueLoan
+                                ? "An installment is overdue. Use the portal or branch team to settle the due amount quickly."
+                                : activeLoanCount
+                                    ? "Track obligations, see repayment due dates, and keep collections current from your member dashboard."
+                                    : "Start deposits, contributions, and membership actions from one secure member portal session."}
+                        </Typography>
+                    </Box>
+
+                    <Stack spacing={1.15} sx={{ mt: "auto" }}>
+                        {[
+                            {
+                                icon: EventRoundedIcon,
+                                label: "Next due",
+                                value: nextPaymentDue ? `${formatDate(nextPaymentDue)} · ${formatCurrency(monthlyInstallment)}` : "No due installment"
+                            },
+                            {
+                                icon: WorkspacesRoundedIcon,
+                                label: "Pending mobile money",
+                                value: pendingPaymentCount ? `${pendingPaymentCount} order${pendingPaymentCount === 1 ? "" : "s"} awaiting completion` : "No pending order"
+                            },
+                            {
+                                icon: ApprovalRoundedIcon,
+                                label: "Loan workflow",
+                                value: pendingLoanApplications.length
+                                    ? `${pendingLoanApplications.length} application${pendingLoanApplications.length === 1 ? "" : "s"} in progress`
+                                    : pendingGuarantorRequests.length
+                                        ? `${pendingGuarantorRequests.length} guarantor request${pendingGuarantorRequests.length === 1 ? "" : "s"} awaiting action`
+                                        : "No open loan workflow"
+                            }
+                        ].map((item) => {
+                            const Icon = item.icon;
+
+                            return (
+                                <Paper
+                                    key={item.label}
+                                    variant="outlined"
+                                    sx={{
+                                        p: 1.35,
+                                        borderRadius: 2.2,
+                                        bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.04) : alpha(brandColors.primary[100], 0.42),
+                                        borderColor: theme.palette.mode === "dark"
+                                            ? alpha("#FFFFFF", 0.08)
+                                            : alpha(brandColors.primary[300], 0.24)
+                                    }}
+                                >
+                                    <Stack direction="row" spacing={1.1} alignItems="center">
+                                        <Box
+                                            sx={{
+                                                width: 34,
+                                                height: 34,
+                                                borderRadius: 1.6,
+                                                display: "grid",
+                                                placeItems: "center",
+                                                bgcolor: theme.palette.mode === "dark" ? alpha(memberAccentAlt, 0.16) : alpha(brandColors.accent[500], 0.12),
+                                                color: theme.palette.mode === "dark" ? memberAccentAlt : brandColors.accent[700]
+                                            }}
+                                        >
+                                            <Icon fontSize="small" />
+                                        </Box>
+                                        <Box sx={{ minWidth: 0 }}>
+                                            <Typography
+                                                variant="caption"
+                                                sx={{ color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.58) : brandColors.neutral.textSecondary }}
+                                            >
+                                                {item.label}
+                                            </Typography>
+                                            <Typography
+                                                variant="body2"
+                                                sx={{ color: theme.palette.mode === "dark" ? "#fff" : brandColors.neutral.textPrimary, fontWeight: 600 }}
+                                            >
+                                                {item.value}
+                                            </Typography>
+                                        </Box>
+                                    </Stack>
+                                </Paper>
+                            );
+                        })}
+                    </Stack>
+                </Stack>
+            </CardContent>
+        </MotionCard>
+    );
+
+    const renderSectionLead = () => (
+        <MotionCard
+            variant="outlined"
+            sx={{
+                ...contentCardSx,
+                borderRadius: 3,
+                background: theme.palette.mode === "dark"
+                    ? `linear-gradient(135deg, ${alpha(darkThemeColors.elevated, 0.92)}, ${alpha(memberAccentStrong, 0.18)})`
+                    : `linear-gradient(135deg, ${alpha("#FFFFFF", 0.98)}, ${alpha(brandColors.primary[100], 0.76)})`
+            }}
+        >
+            <CardContent sx={{ p: { xs: 2.25, md: 2.75 } }}>
+                <Stack direction={{ xs: "column", lg: "row" }} spacing={2} justifyContent="space-between" alignItems={{ lg: "center" }}>
+                    <Box sx={{ maxWidth: 720 }}>
+                        <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: "0.16em" }}>
+                            Current section
+                        </Typography>
+                        <Typography variant="h5" sx={{ mt: 0.7, fontWeight: 800, letterSpacing: "-0.02em" }}>
+                            {currentView.label}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>
+                            {currentView.subtitle}
+                        </Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                        <Chip label={selectedBranchName || "Assigned branch"} variant="outlined" />
+                        <Chip label={standing.label} variant="outlined" />
+                        <Chip label={`${pendingPaymentCount} pending payment${pendingPaymentCount === 1 ? "" : "s"}`} variant="outlined" />
+                        <Chip label={`${activeLoanCount} active loan${activeLoanCount === 1 ? "" : "s"}`} variant="outlined" />
                     </Stack>
                 </Stack>
             </CardContent>
@@ -2890,7 +3791,7 @@ export function MemberPortalPage() {
                                     <Button
                                         variant="contained"
                                         onClick={() => openDepositDialog("savings_deposit")}
-                                        disabled={(!savingsAccounts.length && !shareAccounts.length) || submittingContribution}
+                                        disabled={submittingContribution}
                                         sx={
                                             isDarkMode
                                                 ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
@@ -3459,10 +4360,24 @@ export function MemberPortalPage() {
                             </Box>
                         </Stack>
                         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                            {canShowLoanRepaymentOption ? (
+                                <Button
+                                    variant="contained"
+                                    onClick={() => openDepositDialog("loan_repayment", selectedLoan?.id || portalRepaymentLoans[0]?.id || null)}
+                                    disabled={submittingContribution || !portalRepaymentLoans.length}
+                                    sx={
+                                        isDarkMode
+                                            ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                            : undefined
+                                    }
+                                >
+                                    Repay with Azam Pay
+                                </Button>
+                            ) : null}
                             <Button
                                 variant="outlined"
                                 startIcon={<DownloadRoundedIcon />}
-                                onClick={() => handleDownloadFilteredStatement(loanRepaymentHistory, "Loan statement")}
+                                onClick={handleDownloadLoanStatement}
                             >
                                 Download Loan Statement PDF
                             </Button>
@@ -3471,6 +4386,49 @@ export function MemberPortalPage() {
                             </Button>
                         </Stack>
                     </Stack>
+                    {latestLoanRepaymentPaymentOrder ? (
+                        <Alert
+                            severity={
+                                latestLoanRepaymentPaymentOrder.status === "posted"
+                                    ? "success"
+                                    : latestLoanRepaymentPaymentOrder.status === "failed"
+                                        ? "error"
+                                        : latestLoanRepaymentPaymentOrder.status === "expired"
+                                            ? "warning"
+                                            : "info"
+                            }
+                            variant="outlined"
+                            sx={{ mt: 2, alignItems: "flex-start" }}
+                        >
+                            <Stack spacing={0.5}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                    {latestLoanRepaymentPaymentOrder.status === "posted"
+                                        ? "Latest repayment posted"
+                                        : latestLoanRepaymentPaymentOrder.status === "paid"
+                                            ? "Payment received, posting in progress"
+                                            : latestLoanRepaymentPaymentOrder.status === "pending"
+                                                ? "Awaiting member approval"
+                                                : latestLoanRepaymentPaymentOrder.status === "failed"
+                                                    ? "Repayment failed"
+                                                    : latestLoanRepaymentPaymentOrder.status === "expired"
+                                                        ? "Repayment expired"
+                                                        : `Order ${latestLoanRepaymentPaymentOrder.status.replace(/_/g, " ")}`}
+                                </Typography>
+                                <Typography variant="body2">
+                                    {formatCurrency(latestLoanRepaymentPaymentOrder.amount)} via {latestLoanRepaymentPaymentOrder.provider.toUpperCase()} · Ref {latestLoanRepaymentPaymentOrder.provider_ref || latestLoanRepaymentPaymentOrder.external_id}
+                                </Typography>
+                                <Typography variant="body2">
+                                    Loan: {latestLoanRepaymentPaymentOrder.loan_number || latestLoanRepaymentPaymentOrder.loan_id || "Unknown loan"}
+                                </Typography>
+                                {latestLoanRepaymentPaymentOrder.journal_id ? (
+                                    <Typography variant="body2">Journal posted: {latestLoanRepaymentPaymentOrder.journal_id}</Typography>
+                                ) : null}
+                                {latestLoanRepaymentPaymentOrder.error_message ? (
+                                    <Typography variant="body2">{latestLoanRepaymentPaymentOrder.error_message}</Typography>
+                                ) : null}
+                            </Stack>
+                        </Alert>
+                    ) : null}
                     <Grid container spacing={2} sx={{ mt: 1 }}>
                         <Grid size={{ xs: 12, md: 4 }}>
                             <MetricCard
@@ -3728,8 +4686,8 @@ export function MemberPortalPage() {
                 </CardContent>
             </MotionCard>
 
-            <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <Grid container spacing={2} alignItems="stretch">
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }} sx={{ display: "flex" }}>
                     <AccountSummaryCard
                         icon={TimelineRoundedIcon}
                         label="Filtered Transactions"
@@ -3738,7 +4696,7 @@ export function MemberPortalPage() {
                         tone="primary"
                     />
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }} sx={{ display: "flex" }}>
                     <AccountSummaryCard
                         icon={WalletRoundedIcon}
                         label="Latest Balance"
@@ -3747,7 +4705,7 @@ export function MemberPortalPage() {
                         tone="success"
                     />
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }} sx={{ display: "flex" }}>
                     <AccountSummaryCard
                         icon={FlagRoundedIcon}
                         label="Disputed Flags"
@@ -3756,16 +4714,16 @@ export function MemberPortalPage() {
                         tone={disputedTransactionIds.length ? "warning" : "primary"}
                     />
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                    <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%" }}>
+                <Grid size={{ xs: 12, sm: 6, lg: 3 }} sx={{ display: "flex" }}>
+                    <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%", width: 1 }}>
                         <CardContent sx={{ p: 2.25, height: "100%", display: "flex" }}>
-                            <Stack spacing={1.25} sx={{ width: 1 }}>
-                                <Stack direction="row" spacing={1} alignItems="center">
+                            <Stack spacing={1.4} sx={{ width: 1 }}>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center">
                                     <Box
                                         sx={{
-                                            width: 32,
-                                            height: 32,
-                                            borderRadius: 1.25,
+                                            width: 38,
+                                            height: 38,
+                                            borderRadius: 1.5,
                                             display: "grid",
                                             placeItems: "center",
                                             bgcolor: alpha(runningBalanceMismatches ? brandColors.warning : brandColors.success, 0.14),
@@ -3774,23 +4732,32 @@ export function MemberPortalPage() {
                                     >
                                         <TaskAltRoundedIcon fontSize="small" />
                                     </Box>
-                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                        Running Balance Validation
-                                    </Typography>
+                                    <Chip
+                                        label={runningBalanceMismatches ? "Check required" : "Validated"}
+                                        color={runningBalanceMismatches ? "warning" : "success"}
+                                        variant={runningBalanceMismatches ? "filled" : "outlined"}
+                                        size="small"
+                                        sx={{ fontWeight: 700 }}
+                                    />
                                 </Stack>
-                                <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
-                                <Chip
-                                    label={runningBalanceMismatches ? "Check required" : "Validated"}
-                                    color={runningBalanceMismatches ? "warning" : "success"}
-                                    variant={runningBalanceMismatches ? "filled" : "outlined"}
-                                    size="small"
-                                />
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                    Running Balance Validation
+                                </Typography>
                                 <Typography variant="body2" color="text.secondary">
                                     {runningBalanceMismatches
                                         ? `${runningBalanceMismatches} mismatch(es) detected`
                                         : "No mismatches detected in current filter."}
                                 </Typography>
-                            </Stack>
+                                <Box sx={{ mt: "auto", height: 4, borderRadius: 999, bgcolor: alpha(runningBalanceMismatches ? brandColors.warning : brandColors.success, 0.16) }}>
+                                    <Box
+                                        sx={{
+                                            height: 1,
+                                            width: runningBalanceMismatches ? "42%" : "100%",
+                                            borderRadius: 999,
+                                            bgcolor: runningBalanceMismatches ? brandColors.warning : brandColors.success
+                                        }}
+                                    />
+                                </Box>
                             </Stack>
                         </CardContent>
                     </MotionCard>
@@ -3967,7 +4934,7 @@ export function MemberPortalPage() {
                                     <Button
                                         variant="contained"
                                         onClick={() => openDepositDialog("share_contribution")}
-                                        disabled={(!shareAccounts.length && !savingsAccounts.length) || submittingContribution}
+                                        disabled={submittingContribution}
                                         sx={
                                             isDarkMode
                                                 ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
@@ -4037,8 +5004,8 @@ export function MemberPortalPage() {
                     </MotionCard>
                 ) : null}
 
-                <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                <Grid container spacing={2} alignItems="stretch">
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }} sx={{ display: "flex" }}>
                         <AccountSummaryCard
                             icon={SavingsRoundedIcon}
                             label="Share Capital"
@@ -4047,7 +5014,7 @@ export function MemberPortalPage() {
                             tone="warning"
                         />
                     </Grid>
-                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }} sx={{ display: "flex" }}>
                         <AccountSummaryCard
                             icon={TrendingUpRoundedIcon}
                             label="Period Contributions"
@@ -4056,7 +5023,7 @@ export function MemberPortalPage() {
                             tone={contributionComplianceRatio >= 100 ? "success" : "warning"}
                         />
                     </Grid>
-                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }} sx={{ display: "flex" }}>
                         <AccountSummaryCard
                             icon={AccountBalanceWalletRoundedIcon}
                             label="Dividend Credits"
@@ -4065,16 +5032,16 @@ export function MemberPortalPage() {
                             tone="success"
                         />
                     </Grid>
-                    <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-                        <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%" }}>
+                    <Grid size={{ xs: 12, sm: 6, lg: 3 }} sx={{ display: "flex" }}>
+                        <MotionCard variant="outlined" sx={{ ...contentCardSx, height: "100%", width: 1 }}>
                             <CardContent sx={{ p: 2.25, height: "100%", display: "flex" }}>
-                                <Stack spacing={1.15} sx={{ width: 1 }}>
-                                    <Stack direction="row" spacing={1} alignItems="center">
+                                <Stack spacing={1.4} sx={{ width: 1 }}>
+                                    <Stack direction="row" justifyContent="space-between" alignItems="center">
                                         <Box
                                             sx={{
-                                                width: 32,
-                                                height: 32,
-                                                borderRadius: 1.25,
+                                                width: 38,
+                                                height: 38,
+                                                borderRadius: 1.5,
                                                 display: "grid",
                                                 placeItems: "center",
                                                 bgcolor: alpha(scheduleToneColor, 0.14),
@@ -4083,11 +5050,6 @@ export function MemberPortalPage() {
                                         >
                                             <TaskAltRoundedIcon fontSize="small" />
                                         </Box>
-                                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                            Compliance & Schedule
-                                        </Typography>
-                                    </Stack>
-                                    <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap" }}>
                                         <Chip
                                             size="small"
                                             label={contributionComplianceStatus}
@@ -4098,10 +5060,13 @@ export function MemberPortalPage() {
                                                 fontWeight: 700
                                             }}
                                         />
-                                        <Typography variant="body2" color="text.secondary">
-                                            {contributionComplianceRatio.toFixed(1)}% target coverage
-                                        </Typography>
                                     </Stack>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                        Compliance & Schedule
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {contributionComplianceRatio.toFixed(1)}% target coverage
+                                    </Typography>
                                     <LinearProgress
                                         variant="determinate"
                                         value={contributionExpected > 0 ? complianceCapped : 0}
@@ -4114,7 +5079,7 @@ export function MemberPortalPage() {
                                             }
                                         }}
                                     />
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: "auto" }}>
                                         Schedule: <Box component="span" sx={{ color: scheduleToneColor, fontWeight: 700 }}>{contributionScheduleStatus}</Box>
                                         {nextContributionDue ? ` • next due ${formatDate(nextContributionDue)}` : ""}
                                     </Typography>
@@ -4441,6 +5406,8 @@ export function MemberPortalPage() {
                                     <MenuItem value="all">All payments</MenuItem>
                                     <MenuItem value="share_contribution">Share contributions</MenuItem>
                                     <MenuItem value="savings_deposit">Savings deposits</MenuItem>
+                                    <MenuItem value="membership_fee">Membership fees</MenuItem>
+                                    <MenuItem value="loan_repayment">Loan repayments</MenuItem>
                                 </TextField>
                                 <TextField
                                     select
@@ -4508,17 +5475,17 @@ export function MemberPortalPage() {
                 display: "flex",
                 flexDirection: "column",
                 background: theme.palette.mode === "dark"
-                    ? `linear-gradient(180deg, ${alpha("#091224", 0.98)} 0%, ${alpha(darkThemeColors.paper, 0.98)} 100%)`
-                    : "linear-gradient(180deg, #FFFFFF 0%, #F7FAFF 100%)",
+                    ? `linear-gradient(180deg, ${alpha("#091224", 0.98)} 0%, ${alpha(darkThemeColors.paper, 0.98)} 44%, ${alpha("#0B1324", 0.98)} 100%)`
+                    : "linear-gradient(180deg, #FFFFFF 0%, #F6FAFF 46%, #F3F7FF 100%)",
                 borderRight: mobile ? "none" : `1px solid ${alpha(theme.palette.divider, 0.72)}`,
                 boxShadow: mobile ? "none" : "inset -1px 0 0 rgba(15, 23, 42, 0.04)"
             }}
         >
             <Box
                 sx={{
-                    px: collapsed ? 1.5 : 2.25,
-                    py: collapsed ? 1.75 : 2,
-                    minHeight: 82,
+                    px: collapsed ? 1.5 : 2.1,
+                    py: collapsed ? 1.75 : 2.2,
+                    minHeight: 88,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: collapsed ? "center" : "space-between",
@@ -4581,7 +5548,7 @@ export function MemberPortalPage() {
                                 {selectedTenantName || "Member Portal"}
                             </Typography>
                             <Typography variant="caption" color="text.secondary" sx={{ letterSpacing: 0.2 }}>
-                                Personal finance workspace
+                                Digital member workspace
                             </Typography>
                         </Box>
                     </Stack>
@@ -4592,6 +5559,59 @@ export function MemberPortalPage() {
                     </IconButton>
                 ) : null}
             </Box>
+
+            {!collapsed ? (
+                <Box sx={{ px: 1.35, pt: 1.55 }}>
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            p: 1.45,
+                            borderRadius: 3,
+                            bgcolor: theme.palette.mode === "dark"
+                                ? alpha("#0F1A2B", 0.62)
+                                : alpha("#FFFFFF", 0.94),
+                            borderColor: alpha(theme.palette.divider, 0.72),
+                            boxShadow: `0 14px 28px ${alpha(memberAccentStrong, 0.08)}`
+                        }}
+                    >
+                        <Stack direction="row" spacing={1.1} alignItems="center">
+                            <Avatar
+                                sx={{
+                                    width: 42,
+                                    height: 42,
+                                    borderRadius: 1.6,
+                                    bgcolor: alpha(memberAccent, 0.16),
+                                    color: memberAccentStrong,
+                                    fontWeight: 800
+                                }}
+                            >
+                                {(profile?.full_name || "M").slice(0, 1).toUpperCase()}
+                            </Avatar>
+                            <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 800 }} noWrap>
+                                    {profile?.full_name || "Member"}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" noWrap>
+                                    {selectedBranchName || "Assigned branch"}
+                                </Typography>
+                            </Box>
+                        </Stack>
+                        <Stack direction="row" spacing={0.9} useFlexGap flexWrap="wrap" sx={{ mt: 1.35 }}>
+                            <Chip label={formatRole(profile?.role || "member")} size="small" variant="outlined" />
+                            <Chip
+                                label={hasNoVisibleFinancialData ? "Awaiting activity" : "Live activity"}
+                                size="small"
+                                sx={{
+                                    bgcolor: hasNoVisibleFinancialData ? alpha(theme.palette.info.main, 0.1) : alpha(brandColors.success, 0.12),
+                                    color: hasNoVisibleFinancialData ? theme.palette.info.main : brandColors.success,
+                                    border: "none",
+                                    fontWeight: 700
+                                }}
+                            />
+                        </Stack>
+                    </Paper>
+                </Box>
+            ) : null}
 
             <Box sx={{ px: collapsed ? 0.85 : 1.35, py: 1.7 }}>
                 {!collapsed ? (
@@ -4606,11 +5626,11 @@ export function MemberPortalPage() {
                 <Paper
                     sx={{
                         p: collapsed ? 0.65 : 0.85,
-                        borderRadius: 2.4,
+                        borderRadius: 3.2,
                         border: "none",
                         boxShadow: "none",
                         bgcolor: theme.palette.mode === "dark"
-                            ? alpha("#0F1A2B", 0.46)
+                            ? alpha("#0F1A2B", 0.54)
                             : alpha("#F8FBFF", 0.96)
                     }}
                 >
@@ -4629,7 +5649,7 @@ export function MemberPortalPage() {
                                         overflow: "hidden",
                                         mb: 0.7,
                                         minHeight: collapsed ? 48 : 58,
-                                        borderRadius: 2,
+                                        borderRadius: 2.4,
                                         justifyContent: collapsed ? "center" : "flex-start",
                                         px: collapsed ? 0.85 : 1.15,
                                         transition: "all 180ms ease",
@@ -4718,7 +5738,7 @@ export function MemberPortalPage() {
                     variant="outlined"
                     sx={{
                         ...contentCardSx,
-                        borderRadius: 2.2,
+                        borderRadius: 3,
                         borderColor: alpha(theme.palette.divider, 0.75),
                         bgcolor: theme.palette.mode === "dark"
                             ? alpha("#0E1727", 0.64)
@@ -4747,7 +5767,7 @@ export function MemberPortalPage() {
                                     color="text.secondary"
                                     sx={{ display: "block", textAlign: "center", lineHeight: 1.45, fontSize: 11 }}
                                 >
-                                    © 2026 All rights reserved.
+                                    Real-time balances, loan tracking, and self-service payments in one place.
                                 </Typography>
                             </Stack>
                         )}
@@ -4776,6 +5796,12 @@ export function MemberPortalPage() {
             sx={{
                 minHeight: "100vh",
                 bgcolor: theme.palette.mode === "dark" ? darkThemeColors.background : brandColors.neutral.background,
+                backgroundImage: theme.palette.mode === "dark"
+                    ? `radial-gradient(circle at 14% 18%, ${alpha(memberAccentStrong, 0.18)} 0%, transparent 30%),
+                        radial-gradient(circle at 84% 10%, ${alpha("#1FA8E6", 0.14)} 0%, transparent 24%)`
+                    : `radial-gradient(circle at 12% 12%, ${alpha(brandColors.primary[100], 0.95)} 0%, transparent 28%),
+                        radial-gradient(circle at 88% 8%, ${alpha(brandColors.accent[100], 0.86)} 0%, transparent 24%)`,
+                backgroundAttachment: { xs: "scroll", lg: "fixed" },
                 color: "text.primary",
                 ...(isDarkMode
                     ? {
@@ -4800,7 +5826,7 @@ export function MemberPortalPage() {
                     top: 0,
                     left: 0,
                     bottom: 0,
-                    width: sidebarOpen ? 272 : 88,
+                    width: drawerWidth,
                     transition: "width 220ms ease",
                     zIndex: theme.zIndex.drawer,
                     bgcolor: theme.palette.mode === "dark" ? darkThemeColors.paper : "#fff"
@@ -4814,7 +5840,7 @@ export function MemberPortalPage() {
                 onClose={() => setMobileMenuOpen(false)}
                 PaperProps={{
                     sx: {
-                        width: 304,
+                        width: 320,
                         bgcolor: theme.palette.mode === "dark" ? darkThemeColors.paper : "#fff"
                     }
                 }}
@@ -4837,8 +5863,8 @@ export function MemberPortalPage() {
                         top: 0,
                         zIndex: theme.zIndex.appBar,
                         px: { xs: 2, md: 3.5 },
-                        py: 1.5,
-                        borderBottom: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+                        py: 1.35,
+                        borderBottom: `1px solid ${alpha(theme.palette.divider, 0.72)}`,
                         bgcolor: theme.palette.mode === "dark"
                             ? alpha(darkThemeColors.paper, 0.94)
                             : alpha("#FFFFFF", 0.92),
@@ -4862,14 +5888,9 @@ export function MemberPortalPage() {
                             >
                                 <MenuRoundedIcon />
                             </IconButton>
-                            <Box>
-                                <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                                    {currentView.label}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    {currentView.subtitle}
-                                </Typography>
-                            </Box>
+                            <Typography variant="overline" sx={{ color: "text.secondary", letterSpacing: "0.18em", fontWeight: 700 }}>
+                                Member Workspace
+                            </Typography>
                         </Stack>
 
                         <Stack direction="row" spacing={1.25} alignItems="center">
@@ -4881,8 +5902,8 @@ export function MemberPortalPage() {
                                     gap: 1,
                                     px: 1.5,
                                     py: 0.5,
-                                    borderRadius: 1.5,
-                                    minWidth: 220,
+                                    borderRadius: 99,
+                                    minWidth: 240,
                                     bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.02) : "#fff"
                                 }}
                             >
@@ -5097,7 +6118,15 @@ export function MemberPortalPage() {
                     </Box>
                 </Menu>
 
-                <Box sx={{ px: { xs: 2, md: 3.5 }, py: { xs: 2.5, md: 3.5 }, pb: { xs: 10, lg: 4 } }}>
+                <Box
+                    sx={{
+                        px: { xs: 2, md: 3.5 },
+                        py: { xs: 2.5, md: 3.5 },
+                        pb: { xs: 10, lg: 4 },
+                        maxWidth: 1600,
+                        mx: "auto"
+                    }}
+                >
                     <Stack spacing={3}>
                         {warning ? (
                             <Alert severity="warning" sx={{ borderRadius: 2 }}>
@@ -5109,6 +6138,78 @@ export function MemberPortalPage() {
                                 No posted member financial activity is visible yet for this login. The dashboard will populate after this member has linked accounts with deposits, share contributions, loans, or statement activity.
                             </Alert>
                         ) : null}
+                        {memberApplication && (!memberRecord || memberApplication.status === "approved_pending_payment") ? (
+                            <MotionCard variant="outlined" sx={contentCardSx}>
+                                <CardContent>
+                                    <Stack spacing={1.25}>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                                            <Box>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                    Membership Application Status
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    Application {memberApplication.application_no}
+                                                </Typography>
+                                            </Box>
+                                            <Chip
+                                                size="small"
+                                                label={memberApplicationStatusLabels[memberApplication.status]}
+                                                sx={{ borderRadius: 1.25 }}
+                                            />
+                                        </Stack>
+                                        <Divider />
+                                        <Stack spacing={0.35}>
+                                            <Typography variant="body2">
+                                                <strong>Status:</strong> {memberApplicationStatusLabels[memberApplication.status]}
+                                            </Typography>
+                                            <Typography variant="body2">
+                                                <strong>Branch:</strong>{" "}
+                                                {memberApplication.branch_name || selectedBranchName || "Branch pending"}
+                                            </Typography>
+                                            <Typography variant="body2">
+                                                <strong>Membership Fee:</strong> {formatCurrency(memberApplication.membership_fee_amount || 0)}
+                                            </Typography>
+                                            {memberApplication.membership_fee_paid ? (
+                                                <Typography variant="body2">
+                                                    <strong>Paid:</strong> {formatCurrency(memberApplication.membership_fee_paid)}
+                                                </Typography>
+                                            ) : null}
+                                        </Stack>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                            {getMemberApplicationMessage(memberApplication.status)}
+                                        </Typography>
+                                        {memberApplication.status === "approved_pending_payment" ? (
+                                            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.1} sx={{ pt: 0.5 }}>
+                                                <Button
+                                                    variant="contained"
+                                                    onClick={() => openDepositDialog("membership_fee")}
+                                                    disabled={submittingContribution || membershipFeeOutstanding <= 0}
+                                                >
+                                                    Pay Membership Fee
+                                                </Button>
+                                                <Typography variant="body2" color="text.secondary" sx={{ alignSelf: "center" }}>
+                                                    Outstanding: {formatCurrency(membershipFeeOutstanding)}
+                                                </Typography>
+                                            </Stack>
+                                        ) : null}
+                                    </Stack>
+                                </CardContent>
+                            </MotionCard>
+                        ) : null}
+                        {activeSection === "member-overview" ? (
+                            <>
+                                <Grid container spacing={2.5} alignItems="stretch">
+                                    <Grid size={{ xs: 12, xl: 8 }} sx={{ display: "flex" }}>
+                                        {renderHero()}
+                                    </Grid>
+                                    <Grid size={{ xs: 12, xl: 4 }} sx={{ display: "flex" }}>
+                                        {renderSpotlightCard()}
+                                    </Grid>
+                                </Grid>
+                                {renderStatGrid()}
+                            </>
+                        ) : null}
+                        {activeSection !== "member-overview" ? renderSectionLead() : null}
                         {renderActiveView()}
                     </Stack>
                 </Box>
@@ -5118,11 +6219,15 @@ export function MemberPortalPage() {
                 <DialogTitle sx={{ pb: 1.25 }}>
                     <Stack spacing={0.6}>
                         <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
-                            {contributionFlowState ? `${activePaymentCopy.title} Payment Progress` : "Make Deposit"}
+                            {contributionFlowState ? `${activePaymentCopy.title} Payment Progress` : `Start ${activePaymentCopy.title}`}
                         </Typography>
                         {!contributionFlowState ? (
                             <Typography variant="body2" color="text.secondary">
-                                Choose where the money should land, approve the mobile money prompt, and let the system post it automatically.
+                                {paymentFlowPurpose === "membership_fee"
+                                    ? "Approve the mobile money prompt and let the system post the membership fee automatically after confirmation."
+                                    : paymentFlowPurpose === "loan_repayment"
+                                        ? "Choose the loan, review the repayment split, approve the mobile money prompt, and let the system post the repayment automatically."
+                                    : "Choose where the money should land, approve the mobile money prompt, and let the system post it automatically."}
                             </Typography>
                         ) : null}
                     </Stack>
@@ -5135,8 +6240,13 @@ export function MemberPortalPage() {
                             </Typography>
                             <Typography variant="body2">{contributionFlowMessage}</Typography>
                         </Alert>
-                        {!paymentTargetAccounts.length ? (
-                            <Alert severity="warning" variant="outlined">
+                        {paymentFlowPurpose !== "loan_repayment" && !paymentTargetAccounts.length ? (
+                            <Alert severity="info" variant="outlined">
+                                {activePaymentCopy.emptyAccountMessage}
+                            </Alert>
+                        ) : null}
+                        {paymentFlowPurpose === "loan_repayment" && !portalRepaymentLoans.length ? (
+                            <Alert severity="info" variant="outlined">
                                 {activePaymentCopy.emptyAccountMessage}
                             </Alert>
                         ) : null}
@@ -5156,7 +6266,13 @@ export function MemberPortalPage() {
                                                 variant={contributionApprovalStepState === "idle" ? "outlined" : "filled"}
                                             />
                                             <Chip
-                                                label="3. System posts deposit"
+                                                label={
+                                                    activePaymentPurpose === "membership_fee"
+                                                        ? "3. System posts fee"
+                                                        : activePaymentPurpose === "loan_repayment"
+                                                            ? "3. System posts repayment"
+                                                            : "3. System posts deposit"
+                                                }
                                                 color={contributionPostingStepState === "complete" ? "success" : contributionPostingStepState === "active" ? "primary" : "default"}
                                                 variant={contributionPostingStepState === "idle" ? "outlined" : "filled"}
                                             />
@@ -5182,6 +6298,11 @@ export function MemberPortalPage() {
                                                 <Typography variant="body2" color="text.secondary">
                                                     Reference: {trackedContributionOrder.provider_ref || trackedContributionOrder.external_id}
                                                 </Typography>
+                                                {trackedContributionOrder.purpose === "loan_repayment" ? (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        Loan: {trackedContributionOrder.loan_number || trackedContributionOrder.loan_id || "Unknown loan"}
+                                                    </Typography>
+                                                ) : null}
                                                 {trackedContributionOrder.journal_id ? (
                                                     <Typography variant="body2" color="text.secondary">
                                                         Journal: {trackedContributionOrder.journal_id}
@@ -5212,32 +6333,215 @@ export function MemberPortalPage() {
                                         <Grid size={{ xs: 12, md: 4 }}>
                                             <TextField
                                                 select
-                                                label="Deposit Type"
+                                                label="Payment Type"
                                                 fullWidth
                                                 size="small"
                                                 value={paymentFlowPurpose}
                                                 onChange={(event) => {
-                                                    setPaymentFlowPurpose(event.target.value as MemberPaymentPurpose);
+                                                    const nextPurpose = event.target.value as MemberPaymentPurpose;
+                                                    setPaymentFlowPurpose(nextPurpose);
                                                     setActiveContributionOrderId(null);
+                                                    if (nextPurpose === "membership_fee") {
+                                                        contributionPaymentForm.setValue("amount", membershipFeeOutstanding, { shouldValidate: true });
+                                                        contributionPaymentForm.setValue("description", "Membership fee payment", { shouldValidate: true });
+                                                        contributionPaymentForm.setValue("loan_id", "", { shouldValidate: false });
+                                                    } else if (nextPurpose === "loan_repayment") {
+                                                        const nextLoan = selectedLoan || portalRepaymentLoans[0] || null;
+                                                        const nextSchedules = loanSchedules.filter((schedule) => schedule.loan_id === nextLoan?.id && schedule.status !== "paid");
+                                                        const nextInsights = buildRepaymentInsights(nextLoan, nextSchedules, 0);
+                                                        contributionPaymentForm.setValue("account_id", "", { shouldValidate: false });
+                                                        contributionPaymentForm.setValue("loan_id", nextLoan?.id || "", { shouldValidate: true });
+                                                        contributionPaymentForm.setValue("amount", Number(nextInsights.recommendedAmount.toFixed(2)), { shouldValidate: true });
+                                                        contributionPaymentForm.setValue("description", nextLoan ? `Loan repayment for ${nextLoan.loan_number}` : "", { shouldValidate: true });
+                                                    }
                                                 }}
                                             >
                                                 <MenuItem value="share_contribution">Contribution</MenuItem>
                                                 <MenuItem value="savings_deposit">Savings</MenuItem>
+                                                {canShowMembershipFeePaymentOption ? (
+                                                    <MenuItem value="membership_fee">Membership fee</MenuItem>
+                                                ) : null}
+                                                {canShowLoanRepaymentOption ? (
+                                                    <MenuItem value="loan_repayment">Loan repayment</MenuItem>
+                                                ) : null}
                                             </TextField>
                                         </Grid>
                                         <Grid size={{ xs: 12, md: 8 }}>
-                                            <SearchableSelect
-                                                value={contributionPaymentForm.watch("account_id")}
-                                                options={paymentAccountOptions}
-                                                onChange={(value) => contributionPaymentForm.setValue("account_id", value, { shouldValidate: true })}
-                                                label={activePaymentCopy.accountLabel}
-                                                size="small"
-                                                error={Boolean(contributionPaymentForm.formState.errors.account_id)}
-                                                helperText={contributionPaymentForm.formState.errors.account_id?.message || "Choose the exact account that should receive this deposit."}
-                                                placeholder={`Search ${activePaymentCopy.accountLabel.toLowerCase()}...`}
-                                            />
+                                            {paymentFlowPurpose === "loan_repayment" ? (
+                                                !repaymentLoanOptions.length ? (
+                                                    <Alert severity="info" variant="outlined" sx={{ height: "100%", display: "flex", alignItems: "center" }}>
+                                                        No active or in-arrears loan is available for self-service repayment right now.
+                                                    </Alert>
+                                                ) : (
+                                                    <SearchableSelect
+                                                        value={contributionPaymentForm.watch("loan_id") || ""}
+                                                        options={repaymentLoanOptions}
+                                                        onChange={(value) => {
+                                                            const nextLoan = portalRepaymentLoans.find((loan) => loan.id === value) || null;
+                                                            const nextSchedules = loanSchedules.filter((schedule) => schedule.loan_id === nextLoan?.id && schedule.status !== "paid");
+                                                            const nextInsights = buildRepaymentInsights(nextLoan, nextSchedules, 0);
+                                                            contributionPaymentForm.setValue("loan_id", value, { shouldValidate: true });
+                                                            contributionPaymentForm.setValue("amount", Number(nextInsights.recommendedAmount.toFixed(2)), { shouldValidate: true });
+                                                            contributionPaymentForm.setValue("description", nextLoan ? `Loan repayment for ${nextLoan.loan_number}` : "", { shouldValidate: true });
+                                                        }}
+                                                        label={activePaymentCopy.accountLabel}
+                                                        size="small"
+                                                        error={Boolean(contributionPaymentForm.formState.errors.loan_id)}
+                                                        helperText={
+                                                            contributionPaymentForm.formState.errors.loan_id?.message
+                                                            || "Choose the loan that should receive this repayment."
+                                                        }
+                                                        placeholder="Search loan facility..."
+                                                    />
+                                                )
+                                            ) : !paymentAccountOptions.length ? (
+                                                <Alert severity="info" variant="outlined" sx={{ height: "100%", display: "flex", alignItems: "center" }}>
+                                                    {paymentFlowPurpose === "membership_fee"
+                                                        ? "The backend will resolve or create the savings account for this membership-fee payment automatically."
+                                                        : paymentFlowPurpose === "savings_deposit"
+                                                            ? "The backend will resolve or create the savings account for this deposit automatically."
+                                                            : "The backend will resolve or create the share account for this contribution automatically."}
+                                                </Alert>
+                                            ) : (
+                                                <SearchableSelect
+                                                    value={contributionPaymentForm.watch("account_id") || ""}
+                                                    options={paymentAccountOptions}
+                                                    onChange={(value) => contributionPaymentForm.setValue("account_id", value, { shouldValidate: true })}
+                                                    label={activePaymentCopy.accountLabel}
+                                                    size="small"
+                                                    error={Boolean(contributionPaymentForm.formState.errors.account_id)}
+                                                    helperText={
+                                                        contributionPaymentForm.formState.errors.account_id?.message
+                                                        || (paymentFlowPurpose === "membership_fee"
+                                                            ? "Choose the savings account used to anchor this membership fee payment."
+                                                            : paymentFlowPurpose === "savings_deposit"
+                                                                ? "Choose the exact savings account that should receive this deposit."
+                                                                : "Choose the exact share account that should receive this contribution.")
+                                                    }
+                                                    placeholder={`Search ${activePaymentCopy.accountLabel.toLowerCase()}...`}
+                                                />
+                                            )}
                                         </Grid>
-                                        {selectedContributionAccount ? (
+                                        {paymentFlowPurpose === "loan_repayment" && selectedRepaymentLoan ? (
+                                            <Grid size={{ xs: 12 }}>
+                                                <Stack spacing={1.4}>
+                                                    <Stack
+                                                        direction={{ xs: "column", sm: "row" }}
+                                                        spacing={1}
+                                                        useFlexGap
+                                                        sx={{
+                                                            mt: 0.5,
+                                                            p: 1.5,
+                                                            borderRadius: 2,
+                                                            background: isDarkMode
+                                                                ? `linear-gradient(135deg, ${alpha(DARK_MEMBER_ACCENT, 0.28)}, ${alpha(theme.palette.background.paper, 0.82)})`
+                                                                : `linear-gradient(135deg, ${alpha(memberAccent, 0.12)}, ${alpha("#ffffff", 0.95)})`,
+                                                            border: `1px solid ${alpha(memberAccent, isDarkMode ? 0.28 : 0.18)}`
+                                                        }}
+                                                    >
+                                                        <Chip
+                                                            size="small"
+                                                            label={selectedRepaymentLoan.status === "in_arrears" ? "In arrears" : "Active loan"}
+                                                            color={selectedRepaymentLoan.status === "in_arrears" ? "warning" : "default"}
+                                                            sx={{
+                                                                fontWeight: 800,
+                                                                alignSelf: "flex-start",
+                                                                bgcolor: alpha(memberAccent, isDarkMode ? 0.2 : 0.14),
+                                                                color: memberAccentStrong
+                                                            }}
+                                                        />
+                                                        <Stack spacing={0.15} sx={{ minWidth: 0, flex: 1 }}>
+                                                            <Typography
+                                                                variant="subtitle1"
+                                                                sx={{
+                                                                    fontWeight: 800,
+                                                                    color: memberAccentStrong,
+                                                                    lineHeight: 1.15
+                                                                }}
+                                                            >
+                                                                {selectedRepaymentLoan.loan_number}
+                                                            </Typography>
+                                                            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+                                                                Outstanding principal {formatCurrency(selectedRepaymentLoan.outstanding_principal)} · Accrued interest {formatCurrency(selectedRepaymentLoan.accrued_interest)}
+                                                            </Typography>
+                                                        </Stack>
+                                                        <Box
+                                                            sx={{
+                                                                px: 1.4,
+                                                                py: 0.9,
+                                                                borderRadius: 1.5,
+                                                                minWidth: { xs: "100%", sm: 210 },
+                                                                bgcolor: alpha(memberAccentStrong, isDarkMode ? 0.18 : 0.1),
+                                                                border: `1px solid ${alpha(memberAccentStrong, isDarkMode ? 0.3 : 0.16)}`
+                                                            }}
+                                                        >
+                                                            <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 700, letterSpacing: 0.4 }}>
+                                                                OUTSTANDING
+                                                            </Typography>
+                                                            <Typography
+                                                                variant="h6"
+                                                                sx={{
+                                                                    fontWeight: 900,
+                                                                    color: memberAccentStrong,
+                                                                    lineHeight: 1.1
+                                                                }}
+                                                            >
+                                                                {formatCurrency(repaymentInsights.outstandingBalance)}
+                                                            </Typography>
+                                                        </Box>
+                                                    </Stack>
+                                                    <Grid container spacing={1.25}>
+                                                        <Grid size={{ xs: 12, md: 4 }}>
+                                                            <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 1.5, height: "100%" }}>
+                                                                <Typography variant="caption" color="text.secondary">Due now</Typography>
+                                                                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                                                    {formatCurrency(repaymentInsights.dueNowAmount)}
+                                                                </Typography>
+                                                                <Typography variant="body2" color="text.secondary">
+                                                                    Next due {formatDate(repaymentInsights.nextDueSchedule?.due_date || null)}
+                                                                </Typography>
+                                                            </Paper>
+                                                        </Grid>
+                                                        <Grid size={{ xs: 12, md: 4 }}>
+                                                            <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 1.5, height: "100%" }}>
+                                                                <Typography variant="caption" color="text.secondary">Interest to clear first</Typography>
+                                                                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                                                    {formatCurrency(repaymentInsights.payableInterest)}
+                                                                </Typography>
+                                                                <Typography variant="body2" color="text.secondary">
+                                                                    Principal outstanding {formatCurrency(selectedRepaymentLoan.outstanding_principal)}
+                                                                </Typography>
+                                                            </Paper>
+                                                        </Grid>
+                                                        <Grid size={{ xs: 12, md: 4 }}>
+                                                            <Paper variant="outlined" sx={{ p: 1.2, borderRadius: 1.5, height: "100%" }}>
+                                                                <Typography variant="caption" color="text.secondary">Recommended amount</Typography>
+                                                                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                                                    {formatCurrency(repaymentInsights.recommendedAmount)}
+                                                                </Typography>
+                                                                <Stack direction="row" spacing={0.75} sx={{ mt: 0.8 }}>
+                                                                    <Button
+                                                                        size="small"
+                                                                        variant="outlined"
+                                                                        onClick={() => contributionPaymentForm.setValue("amount", Number(repaymentInsights.dueNowAmount.toFixed(2)), { shouldValidate: true })}
+                                                                        disabled={repaymentInsights.dueNowAmount <= 0}
+                                                                    >
+                                                                        Use Due Now
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="small"
+                                                                        variant="outlined"
+                                                                        onClick={() => contributionPaymentForm.setValue("amount", Number(repaymentInsights.outstandingBalance.toFixed(2)), { shouldValidate: true })}
+                                                                    >
+                                                                        Clear Loan
+                                                                    </Button>
+                                                                </Stack>
+                                                            </Paper>
+                                                        </Grid>
+                                                    </Grid>
+                                                </Stack>
+                                            </Grid>
+                                        ) : selectedContributionAccount ? (
                                             <Grid size={{ xs: 12 }}>
                                                 <Stack
                                                     direction={{ xs: "column", sm: "row" }}
@@ -5310,12 +6614,20 @@ export function MemberPortalPage() {
                                 <Grid container spacing={2}>
                                     <Grid size={{ xs: 12, md: 4 }}>
                                         <TextField
-                                            label="Deposit Amount"
+                                            label={activePaymentCopy.amountLabel}
                                             type="number"
                                             fullWidth
                                             {...contributionPaymentForm.register("amount")}
+                                            disabled={paymentFlowPurpose === "membership_fee"}
                                             error={Boolean(contributionPaymentForm.formState.errors.amount)}
-                                            helperText={contributionPaymentForm.formState.errors.amount?.message || "Amount to push to your phone."}
+                                            helperText={
+                                                contributionPaymentForm.formState.errors.amount?.message
+                                                || (paymentFlowPurpose === "loan_repayment"
+                                                    ? repaymentInsights.excessOverOutstanding > 0
+                                                        ? `Entered amount exceeds the outstanding balance by ${formatCurrency(repaymentInsights.excessOverOutstanding)}.`
+                                                        : activePaymentCopy.helperText
+                                                    : activePaymentCopy.helperText)
+                                            }
                                         />
                                     </Grid>
                                     <Grid size={{ xs: 12, md: 4 }}>
@@ -5349,6 +6661,48 @@ export function MemberPortalPage() {
                                         />
                                     </Grid>
                                 </Grid>
+                                {paymentFlowPurpose === "loan_repayment" && selectedRepaymentLoan ? (
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            p: 1.25,
+                                            borderRadius: 1.5,
+                                            bgcolor: alpha(theme.palette.info.main, isDarkMode ? 0.1 : 0.04),
+                                            borderColor: alpha(theme.palette.info.main, isDarkMode ? 0.24 : 0.14)
+                                        }}
+                                    >
+                                        <Stack spacing={1}>
+                                            <Stack direction={{ xs: "column", md: "row" }} spacing={1.25} useFlexGap>
+                                                <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 140 }}>
+                                                    Repayment allocation
+                                                </Typography>
+                                                <Stack spacing={0.45}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        Interest component: {formatCurrency(repaymentInsights.interestAllocation)}
+                                                    </Typography>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        Principal component: {formatCurrency(repaymentInsights.principalAllocation)}
+                                                    </Typography>
+                                                    {repaymentInsights.shortfallAmount > 0 ? (
+                                                        <Typography variant="body2" color="warning.main">
+                                                            Shortfall against current due amount: {formatCurrency(repaymentInsights.shortfallAmount)}
+                                                        </Typography>
+                                                    ) : null}
+                                                    {repaymentInsights.extraAmount > 0 && repaymentInsights.excessOverOutstanding <= 0 ? (
+                                                        <Typography variant="body2" color="success.main">
+                                                            Extra over current due: {formatCurrency(repaymentInsights.extraAmount)} and it will reduce principal early.
+                                                        </Typography>
+                                                    ) : null}
+                                                    {repaymentInsights.matchesDueNow && repaymentInsights.dueNowAmount > 0 ? (
+                                                        <Typography variant="body2" color="success.main">
+                                                            Entered amount matches the amount currently due.
+                                                        </Typography>
+                                                    ) : null}
+                                                </Stack>
+                                            </Stack>
+                                        </Stack>
+                                    </Paper>
+                                ) : null}
                                 <Paper
                                     variant="outlined"
                                     sx={{
@@ -5402,14 +6756,25 @@ export function MemberPortalPage() {
                                 variant="contained"
                                 type="submit"
                                 form="member-contribution-form"
-                                disabled={submittingContribution || !paymentTargetAccounts.length}
+                                disabled={
+                                    submittingContribution
+                                    || (paymentFlowPurpose === "loan_repayment" && (!selectedRepaymentLoan || repaymentInsights.excessOverOutstanding > 0))
+                                }
                                 sx={
                                     isDarkMode
                                         ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
                                         : undefined
                                 }
                             >
-                                {submittingContribution ? "Starting..." : "Start Deposit"}
+                                {submittingContribution
+                                    ? "Starting..."
+                                    : paymentFlowPurpose === "membership_fee"
+                                        ? "Start Membership Fee Payment"
+                                        : paymentFlowPurpose === "loan_repayment"
+                                            ? "Start Loan Repayment"
+                                        : paymentFlowPurpose === "savings_deposit"
+                                            ? "Start Savings Deposit"
+                                            : "Start Share Contribution"}
                             </Button>
                         </>
                     )}
@@ -5450,7 +6815,12 @@ export function MemberPortalPage() {
                                         {selectedPaymentReceipt.provider.toUpperCase()} · {selectedPaymentReceipt.currency}
                                     </Typography>
                                     <Divider />
-                                    <Typography variant="body2"><strong>Account:</strong> {selectedPaymentReceipt.account_name || selectedPaymentReceipt.account_number || selectedPaymentReceipt.account_id}</Typography>
+                                    <Typography variant="body2">
+                                        <strong>{selectedPaymentReceipt.purpose === "loan_repayment" ? "Loan" : "Account"}:</strong>{" "}
+                                        {selectedPaymentReceipt.purpose === "loan_repayment"
+                                            ? selectedPaymentReceipt.loan_number || selectedPaymentReceipt.loan_id
+                                            : selectedPaymentReceipt.account_name || selectedPaymentReceipt.account_number || selectedPaymentReceipt.account_id}
+                                    </Typography>
                                     <Typography variant="body2"><strong>Reference:</strong> {selectedPaymentReceipt.provider_ref || selectedPaymentReceipt.external_id}</Typography>
                                     <Typography variant="body2"><strong>Initiated:</strong> {formatDate(selectedPaymentReceipt.created_at)}</Typography>
                                     {selectedPaymentReceipt.paid_at ? (

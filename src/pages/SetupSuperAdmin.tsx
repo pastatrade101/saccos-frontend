@@ -4,7 +4,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "react-router-dom";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { FormField } from "../components/FormField";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
@@ -91,8 +91,8 @@ export function SetupSuperAdminPage() {
                         </FormField>
                     ) : null}
                 </div>
-                <button className="primary-button" onClick={() => navigate("/platform/tenants")}>
-                    Back to Tenants
+                <button className="primary-button" onClick={() => navigate("/dashboard")}>
+                    Back to dashboard
                 </button>
             </div>
         );

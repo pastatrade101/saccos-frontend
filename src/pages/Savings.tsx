@@ -1,8 +1,7 @@
-import { MotionCard, MotionModal } from "../ui/motion";
+import { MotionCard } from "../ui/motion";
 import {
     Alert,
     Box,
-    Card,
     CardContent,
     Chip,
     Grid,
@@ -17,7 +16,12 @@ import { useAuth } from "../auth/AuthContext";
 import { AppLoader } from "../components/AppLoader";
 import { ChartPanel } from "../components/ChartPanel";
 import { api, getApiErrorMessage } from "../lib/api";
-import { endpoints, type MemberAccountsResponse, type MembersResponse, type StatementsResponse } from "../lib/endpoints";
+import {
+    endpoints,
+    type MemberAccountsResponse,
+    type MembersResponse,
+    type StatementsResponse
+} from "../lib/endpoints";
 import type { Member, MemberAccount, StatementRow } from "../types/api";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -25,11 +29,11 @@ function monthKey(value: string) {
     return value.slice(0, 7);
 }
 
-export function ContributionsPage() {
+export function SavingsPage() {
     const theme = useTheme();
     const { selectedTenantId, profile } = useAuth();
     const [members, setMembers] = useState<Member[]>([]);
-    const [shareAccounts, setShareAccounts] = useState<MemberAccount[]>([]);
+    const [savingsAccounts, setSavingsAccounts] = useState<MemberAccount[]>([]);
     const [transactions, setTransactions] = useState<StatementRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -55,7 +59,7 @@ export function ContributionsPage() {
                     api.get<MemberAccountsResponse>(endpoints.members.accounts(), {
                         params: {
                             tenant_id: selectedTenantId,
-                            product_type: "shares",
+                            product_type: "savings",
                             page: 1,
                             limit: 100
                         }
@@ -66,15 +70,16 @@ export function ContributionsPage() {
                 const visibleMemberIds = new Set(visibleMembers.map((member) => member.id));
                 const visibleAccounts = (accountsResponse.data || []).filter((account) => visibleMemberIds.has(account.member_id));
                 const visibleAccountIds = new Set(visibleAccounts.map((account) => account.id));
-                const contributionRows = (statementsResponse.data.data || []).filter((entry: StatementRow) =>
-                    visibleMemberIds.has(entry.member_id) &&
-                    visibleAccountIds.has(entry.account_id) &&
-                    ["share_contribution", "dividend_allocation"].includes(entry.transaction_type)
+                const savingsRows = (statementsResponse.data.data || []).filter(
+                    (entry) =>
+                        visibleMemberIds.has(entry.member_id) &&
+                        visibleAccountIds.has(entry.account_id) &&
+                        ["deposit", "withdrawal"].includes(entry.transaction_type)
                 );
 
                 setMembers(visibleMembers);
-                setShareAccounts(visibleAccounts);
-                setTransactions(contributionRows);
+                setSavingsAccounts(visibleAccounts);
+                setTransactions(savingsRows);
             } catch (loadError) {
                 setError(getApiErrorMessage(loadError));
             } finally {
@@ -86,21 +91,19 @@ export function ContributionsPage() {
     }, [selectedTenantId]);
 
     const metrics = useMemo(() => {
-        const contributionRows = transactions.filter((entry) => entry.transaction_type === "share_contribution");
-        const dividendRows = transactions.filter((entry) => entry.transaction_type === "dividend_allocation");
-        const activeContributorIds = new Set(contributionRows.map((entry) => entry.member_id));
-        const monthSeries = new Map<string, { contributions: number; dividends: number }>();
+        const depositRows = transactions.filter((entry) => entry.transaction_type === "deposit");
+        const withdrawalRows = transactions.filter((entry) => entry.transaction_type === "withdrawal");
+        const activeSaverIds = new Set(depositRows.map((entry) => entry.member_id));
+        const monthSeries = new Map<string, { deposits: number; withdrawals: number }>();
 
         transactions.forEach((entry) => {
             const key = monthKey(entry.transaction_date);
-            const point = monthSeries.get(key) || { contributions: 0, dividends: 0 };
+            const point = monthSeries.get(key) || { deposits: 0, withdrawals: 0 };
 
-            if (entry.transaction_type === "share_contribution") {
-                point.contributions += entry.amount;
-            }
-
-            if (entry.transaction_type === "dividend_allocation") {
-                point.dividends += entry.amount;
+            if (entry.transaction_type === "deposit") {
+                point.deposits += entry.amount;
+            } else {
+                point.withdrawals += entry.amount;
             }
 
             monthSeries.set(key, point);
@@ -111,20 +114,19 @@ export function ContributionsPage() {
             .slice(-6);
 
         return {
-            totalShareCapital: shareAccounts.reduce((sum, account) => sum + Number(account.available_balance || 0), 0),
-            totalContributions: contributionRows.reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
-            totalDividends: dividendRows.reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
-            activeContributors: activeContributorIds.size,
+            totalSavingsBalance: savingsAccounts.reduce((sum, account) => sum + Number(account.available_balance || 0), 0),
+            totalDeposits: depositRows.reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+            totalWithdrawals: withdrawalRows.reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+            activeSavers: activeSaverIds.size,
             series: orderedSeries
         };
-    }, [shareAccounts, transactions]);
+    }, [savingsAccounts, transactions]);
+
     const memberNameById = useMemo(
-        () =>
-            new Map(
-                members.map((member) => [member.id, member.full_name || "Unknown member"])
-            ),
+        () => new Map(members.map((member) => [member.id, member.full_name || "Unknown member"])),
         [members]
     );
+
     const alternateRowSx = (index: number) => ({
         p: 1.6,
         borderRadius: 2,
@@ -148,10 +150,10 @@ export function ContributionsPage() {
                 <Grid size={{ xs: 12, md: 3 }}>
                     <MotionCard variant="outlined" sx={{ height: "100%" }}>
                         <CardContent>
-                            <Typography variant="overline" color="text.secondary">Share Capital Base</Typography>
-                            <Typography variant="h4" sx={{ mt: 1 }}>{formatCurrency(metrics.totalShareCapital)}</Typography>
+                            <Typography variant="overline" color="text.secondary">Savings Balance</Typography>
+                            <Typography variant="h4" sx={{ mt: 1 }}>{formatCurrency(metrics.totalSavingsBalance)}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                Total member share balance visible to {profile?.role === "branch_manager" ? "this branch" : "this workspace"}.
+                                Available balances across savings accounts visible to {profile?.role === "branch_manager" ? "this branch" : "this workspace"}.
                             </Typography>
                         </CardContent>
                     </MotionCard>
@@ -159,10 +161,10 @@ export function ContributionsPage() {
                 <Grid size={{ xs: 12, md: 3 }}>
                     <MotionCard variant="outlined" sx={{ height: "100%" }}>
                         <CardContent>
-                            <Typography variant="overline" color="text.secondary">Contributions Posted</Typography>
-                            <Typography variant="h4" sx={{ mt: 1 }}>{formatCurrency(metrics.totalContributions)}</Typography>
+                            <Typography variant="overline" color="text.secondary">Deposits Posted</Typography>
+                            <Typography variant="h4" sx={{ mt: 1 }}>{formatCurrency(metrics.totalDeposits)}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                Share subscriptions received from active members.
+                                Member cash deposited into savings accounts during the visible period.
                             </Typography>
                         </CardContent>
                     </MotionCard>
@@ -170,10 +172,10 @@ export function ContributionsPage() {
                 <Grid size={{ xs: 12, md: 3 }}>
                     <MotionCard variant="outlined" sx={{ height: "100%" }}>
                         <CardContent>
-                            <Typography variant="overline" color="text.secondary">Dividends Reinvested</Typography>
-                            <Typography variant="h4" sx={{ mt: 1 }}>{formatCurrency(metrics.totalDividends)}</Typography>
+                            <Typography variant="overline" color="text.secondary">Withdrawals Paid</Typography>
+                            <Typography variant="h4" sx={{ mt: 1 }}>{formatCurrency(metrics.totalWithdrawals)}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                Approved dividends credited back into share capital.
+                                Cash released from savings accounts during the visible period.
                             </Typography>
                         </CardContent>
                     </MotionCard>
@@ -181,10 +183,10 @@ export function ContributionsPage() {
                 <Grid size={{ xs: 12, md: 3 }}>
                     <MotionCard variant="outlined" sx={{ height: "100%" }}>
                         <CardContent>
-                            <Typography variant="overline" color="text.secondary">Active Contributors</Typography>
-                            <Typography variant="h4" sx={{ mt: 1 }}>{metrics.activeContributors}</Typography>
+                            <Typography variant="overline" color="text.secondary">Active Savers</Typography>
+                            <Typography variant="h4" sx={{ mt: 1 }}>{metrics.activeSavers}</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                Members with recorded share contributions in the visible history.
+                                Members with savings deposits on record.
                             </Typography>
                         </CardContent>
                     </MotionCard>
@@ -196,23 +198,23 @@ export function ContributionsPage() {
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, lg: 8 }}>
                     <ChartPanel
-                        title="Share Capital Trend"
-                        subtitle="Monthly contributions versus dividend credits."
+                        title="Savings Movement Trend"
+                        subtitle="Monthly deposits versus withdrawals."
                         data={{
                             labels: metrics.series.map(([label]) => label),
                             datasets: [
                                 {
-                                    label: "Contributions",
-                                    data: metrics.series.map(([, point]) => point.contributions),
-                                    borderColor: theme.palette.primary.main,
-                                    backgroundColor: alpha(theme.palette.primary.main, 0.18),
+                                    label: "Deposits",
+                                    data: metrics.series.map(([, point]) => point.deposits),
+                                    borderColor: theme.palette.success.main,
+                                    backgroundColor: alpha(theme.palette.success.main, 0.18),
                                     fill: true
                                 },
                                 {
-                                    label: "Dividends",
-                                    data: metrics.series.map(([, point]) => point.dividends),
-                                    borderColor: theme.palette.success.main,
-                                    backgroundColor: alpha(theme.palette.success.main, 0.18),
+                                    label: "Withdrawals",
+                                    data: metrics.series.map(([, point]) => point.withdrawals),
+                                    borderColor: theme.palette.error.main,
+                                    backgroundColor: alpha(theme.palette.error.main, 0.18),
                                     fill: true
                                 }
                             ]
@@ -223,16 +225,16 @@ export function ContributionsPage() {
                 <Grid size={{ xs: 12, lg: 4 }}>
                     <MotionCard variant="outlined" sx={{ height: "100%" }}>
                         <CardContent>
-                            <Typography variant="h6" gutterBottom>Contribution Oversight</Typography>
+                            <Typography variant="h6" gutterBottom>Savings Oversight</Typography>
                             <Stack spacing={1.5}>
                                 <Alert severity="info" variant="outlined">
-                                    Branch managers can review share growth and member contribution behavior here without teller posting access.
+                                    Branch managers can monitor savings deposits and withdrawals per branch without teller posting rights.
                                 </Alert>
                                 <Alert severity="success" variant="outlined">
-                                    Dividend credits are shown separately, so reinvested returns are distinguishable from direct member cash subscriptions.
+                                    Available balances stay aligned with ledger controls; use this page to verify member cash flows before posting.
                                 </Alert>
                                 <Alert severity="warning" variant="outlined">
-                                    Final posting still remains in controlled finance workflows. This page is read-only for operational oversight.
+                                    This view is read-only; teller and finance teams continue to post savings movements through cash control workflows.
                                 </Alert>
                             </Stack>
                         </CardContent>
@@ -245,23 +247,23 @@ export function ContributionsPage() {
                     <MotionCard variant="outlined" sx={{ height: "100%" }}>
                         <CardContent sx={{ display: "grid", gap: 2 }}>
                             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                                <Typography variant="h6">Share Accounts</Typography>
-                                <Chip label={`${shareAccounts.length} accounts`} size="small" color="primary" variant="outlined" />
+                                <Typography variant="h6">Savings Accounts</Typography>
+                                <Chip label={`${savingsAccounts.length} accounts`} size="small" color="primary" variant="outlined" />
                             </Stack>
                             {loading ? (
-                                <AppLoader fullscreen={false} minHeight={240} message="Loading share accounts..." />
-                            ) : !shareAccounts.length ? (
+                                <AppLoader fullscreen={false} minHeight={240} message="Loading savings accounts..." />
+                            ) : !savingsAccounts.length ? (
                                 <Alert severity="info" variant="outlined">
-                                    No share accounts available.
+                                    No savings accounts available.
                                 </Alert>
                             ) : (
                                 <Box sx={{ maxHeight: 560, overflowY: "auto", pr: 0.5 }}>
                                     <Stack spacing={1.2}>
                                         <Paper elevation={0} sx={listHeaderSx}>
                                             <Grid container spacing={1.5} alignItems="center">
-                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                <Grid size={{ xs: 12, md: 3 }}>
                                                     <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
-                                                        SHARE ACCOUNT
+                                                        SAVINGS ACCOUNT
                                                     </Typography>
                                                 </Grid>
                                                 <Grid size={{ xs: 12, md: 4 }}>
@@ -274,17 +276,17 @@ export function ContributionsPage() {
                                                         STATUS
                                                     </Typography>
                                                 </Grid>
-                                                <Grid size={{ xs: 6, md: 2 }}>
+                                                <Grid size={{ xs: 6, md: 3 }}>
                                                     <Typography variant="caption" sx={{ fontWeight: 800, color: theme.palette.primary.main, letterSpacing: 0.5 }}>
-                                                        SHARE CAPITAL
+                                                        AVAILABLE BALANCE
                                                     </Typography>
                                                 </Grid>
                                             </Grid>
                                         </Paper>
-                                        {shareAccounts.map((account, index) => (
+                                        {savingsAccounts.map((account, index) => (
                                             <Paper key={account.id} elevation={0} sx={alternateRowSx(index)}>
                                                 <Grid container spacing={1.5} alignItems="center">
-                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                    <Grid size={{ xs: 12, md: 3 }}>
                                                         <Typography variant="subtitle1" sx={{ fontWeight: 800 }} noWrap>
                                                             {account.account_number}
                                                         </Typography>
@@ -302,7 +304,7 @@ export function ContributionsPage() {
                                                             variant="outlined"
                                                         />
                                                     </Grid>
-                                                    <Grid size={{ xs: 6, md: 2 }}>
+                                                    <Grid size={{ xs: 6, md: 3 }}>
                                                         <Typography variant="subtitle1" sx={{ fontWeight: 900, color: theme.palette.primary.main }}>
                                                             {formatCurrency(account.available_balance)}
                                                         </Typography>
@@ -320,14 +322,14 @@ export function ContributionsPage() {
                     <MotionCard variant="outlined" sx={{ height: "100%" }}>
                         <CardContent sx={{ display: "grid", gap: 2 }}>
                             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                                <Typography variant="h6">Contribution Activity</Typography>
+                                <Typography variant="h6">Savings Activity</Typography>
                                 <Chip label={`${transactions.length} entries`} size="small" color="primary" variant="outlined" />
                             </Stack>
                             {loading ? (
-                                <AppLoader fullscreen={false} minHeight={240} message="Loading contribution history..." />
+                                <AppLoader fullscreen={false} minHeight={240} message="Loading savings activity..." />
                             ) : !transactions.length ? (
                                 <Alert severity="info" variant="outlined">
-                                    No share contribution activity available.
+                                    No savings activity available.
                                 </Alert>
                             ) : (
                                 <Box sx={{ maxHeight: 560, overflowY: "auto", pr: 0.5 }}>
@@ -382,8 +384,8 @@ export function ContributionsPage() {
                                                     <Grid size={{ xs: 6, md: 2 }}>
                                                         <Chip
                                                             size="small"
-                                                            label={row.transaction_type === "share_contribution" ? "Contribution" : "Dividend"}
-                                                            color={row.transaction_type === "share_contribution" ? "primary" : "success"}
+                                                            label={row.transaction_type === "deposit" ? "Deposit" : "Withdrawal"}
+                                                            color={row.transaction_type === "deposit" ? "success" : "error"}
                                                             variant="outlined"
                                                         />
                                                     </Grid>

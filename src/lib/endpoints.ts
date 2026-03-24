@@ -131,8 +131,13 @@ const routeMap = {
         detail: (applicationId: string) => `/member-applications/${applicationId}`,
         submit: (applicationId: string) => `/member-applications/${applicationId}/submit`,
         review: (applicationId: string) => `/member-applications/${applicationId}/review`,
+        me: "/member-applications/me",
         approve: (applicationId: string) => `/member-applications/${applicationId}/approve`,
         reject: (applicationId: string) => `/member-applications/${applicationId}/reject`
+    },
+    public: {
+        signup: "/public/signup",
+        branches: "/public/branches"
     },
     loanApplications: {
         list: "/loan-applications",
@@ -167,6 +172,8 @@ const routeMap = {
     memberPayments: {
         initiateContribution: "/member-payments/contributions/initiate",
         initiateSavings: "/member-payments/savings/initiate",
+        initiateMembershipFee: "/member-payments/membership-fee/initiate",
+        initiateLoanRepayment: "/member-payments/loan-repayments/initiate",
         listOrders: "/member-payments/orders",
         orderStatus: (orderId: string) => `/member-payments/orders/${orderId}/status`,
         reconcile: (orderId: string) => `/member-payments/orders/${orderId}/reconcile`
@@ -198,6 +205,7 @@ const routeMap = {
         trialBalance: "/reports/trial-balance/export",
         balanceSheet: "/reports/balance-sheet/export",
         incomeStatement: "/reports/income-statement/export",
+        chargeRevenueSummary: "/reports/revenue/summary",
         memberStatements: "/reports/member-statements/export",
         par: "/reports/par/export",
         loanAging: "/reports/loan-aging/export",
@@ -299,8 +307,13 @@ export const endpoints = {
         detail: (applicationId: string) => routeMap.memberApplications.detail(applicationId),
         submit: (applicationId: string) => routeMap.memberApplications.submit(applicationId),
         review: (applicationId: string) => routeMap.memberApplications.review(applicationId),
+        me: () => routeMap.memberApplications.me,
         approve: (applicationId: string) => routeMap.memberApplications.approve(applicationId),
         reject: (applicationId: string) => routeMap.memberApplications.reject(applicationId)
+    },
+    public: {
+        signup: () => routeMap.public.signup,
+        branches: () => routeMap.public.branches
     },
     loanApplications: {
         list: () => routeMap.loanApplications.list,
@@ -336,6 +349,8 @@ export const endpoints = {
     memberPayments: {
         initiateContribution: () => routeMap.memberPayments.initiateContribution,
         initiateSavings: () => routeMap.memberPayments.initiateSavings,
+        initiateMembershipFee: () => routeMap.memberPayments.initiateMembershipFee,
+        initiateLoanRepayment: () => routeMap.memberPayments.initiateLoanRepayment,
         listOrders: () => routeMap.memberPayments.listOrders,
         orderStatus: (orderId: string) => routeMap.memberPayments.orderStatus(orderId),
         reconcile: (orderId: string) => routeMap.memberPayments.reconcile(orderId)
@@ -367,6 +382,7 @@ export const endpoints = {
         trialBalance: () => routeMap.reports.trialBalance,
         balanceSheet: () => routeMap.reports.balanceSheet,
         incomeStatement: () => routeMap.reports.incomeStatement,
+        chargeRevenueSummary: () => routeMap.reports.chargeRevenueSummary,
         memberStatements: () => routeMap.reports.memberStatements,
         par: () => routeMap.reports.par,
         loanAging: () => routeMap.reports.loanAging,
@@ -458,6 +474,30 @@ export interface CreateBranchRequest {
 
 export type CreateBranchResponse = ApiEnvelope<Branch>;
 export type BranchesListResponse = ApiEnvelope<Branch[]>;
+
+export interface PublicSignupRequest {
+    branch_id: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    email: string;
+    password: string;
+    national_id: string;
+    date_of_birth: string;
+}
+
+export type PublicSignupResponse = ApiEnvelope<{
+    user: {
+        id: string;
+        email: string;
+        phone: string;
+        tenant_id: string;
+        branch_id: string;
+    };
+    application: MemberApplication;
+}>;
+
+export type PublicSignupBranchesResponse = ApiEnvelope<Branch[]>;
 
 export interface SetupSuperAdminRequest {
     tenant_id: string;
@@ -559,7 +599,7 @@ export interface CreateMemberRequest {
     kyc_status?: "pending" | "verified" | "rejected" | "waived";
     kyc_reason?: string | null;
     notes?: string | null;
-    status?: "active" | "suspended" | "exited";
+    status?: "active" | "suspended" | "exited" | "approved_pending_payment";
     login?: {
         create_login: boolean;
         send_invite?: boolean;
@@ -605,7 +645,7 @@ export interface UpdateMemberRequest {
     kyc_status?: "pending" | "verified" | "rejected" | "waived";
     kyc_reason?: string | null;
     notes?: string | null;
-    status?: "active" | "suspended" | "exited";
+    status?: "active" | "suspended" | "exited" | "approved_pending_payment";
 }
 export type UpdateMemberResponse = ApiEnvelope<Member>;
 
@@ -659,6 +699,7 @@ export interface RejectMemberApplicationRequest {
 }
 
 export type MemberApplicationsResponse = ApiEnvelope<MemberApplication[]>;
+export type MemberApplicationResponse = ApiEnvelope<MemberApplication | null>;
 export type ProductBootstrapResponse = ApiEnvelope<ProductBootstrapPayload>;
 export type LoanProductsResponse = ApiEnvelope<LoanProduct[]>;
 export type SavingsProductsResponse = ApiEnvelope<SavingsProduct[]>;
@@ -844,7 +885,8 @@ export type DividendAllocationResponse = CashResponse;
 
 export interface InitiateContributionPaymentRequest {
     tenant_id?: string;
-    account_id: string;
+    account_id?: string;
+    loan_id?: string;
     amount: number;
     provider: MobileMoneyProvider;
     msisdn: string;
@@ -865,12 +907,21 @@ export interface PaymentOrderListQuery {
     tenant_id?: string;
     branch_id?: string;
     member_id?: string;
-    purpose?: "share_contribution" | "savings_deposit";
+    purpose?: "share_contribution" | "savings_deposit" | "membership_fee" | "loan_repayment";
     status?: "created" | "pending" | "paid" | "failed" | "expired" | "posted";
     page?: number;
     limit?: number;
 }
 export type PaymentOrdersResponse = ApiEnvelope<PaginatedResult<PaymentOrder>>;
+
+export interface ChargeRevenueSummaryQuery {
+    tenant_id?: string;
+    branch_id?: string;
+    from_date?: string;
+    to_date?: string;
+}
+
+export type ChargeRevenueSummaryResponse = ApiEnvelope<import("../types/api").ChargeRevenueSummary>;
 export type PaymentOrderStatusResponse = ApiEnvelope<{ order: PaymentOrder }>;
 export type ReconcilePaymentOrderResponse = ApiEnvelope<{ reconciled: boolean; order: PaymentOrder }>;
 

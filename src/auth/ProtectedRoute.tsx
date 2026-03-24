@@ -1,6 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 
-import { useAuth } from "./AuthProvider";
+import { useAuth } from "./AuthContext";
 import type { Role } from "../types/api";
 import { AppLoader } from "../components/AppLoader";
 
@@ -15,7 +15,7 @@ export function ProtectedRoute({
     allowWithoutProfile = false,
     allowInternalOps = true
 }: ProtectedRouteProps) {
-    const { loading, session, profile, isInternalOps, selectedTenantId, backendUnavailable } = useAuth();
+    const { loading, session, profile, isInternalOps, backendUnavailable } = useAuth();
     const location = useLocation();
 
     if (loading) {
@@ -35,10 +35,6 @@ export function ProtectedRoute({
     }
 
     if (!profile && !isInternalOps && !allowWithoutProfile) {
-        if (!selectedTenantId) {
-            return <Navigate to="/setup/tenant" replace />;
-        }
-
         return <Navigate to="/setup/super-admin" replace />;
     }
 

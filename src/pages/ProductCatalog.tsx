@@ -23,7 +23,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { DataTable } from "../components/DataTable";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
@@ -66,6 +66,50 @@ const emptyPayload: ProductBootstrapPayload = {
     posting_rules: [],
     chart_of_accounts: []
 };
+
+const penaltyTypeOptions = [
+    { value: "late_repayment", label: "Late repayment" },
+    { value: "missed_instalment", label: "Missed instalment" },
+    { value: "loan_default", label: "Loan default" },
+    { value: "other", label: "Other" }
+];
+
+const penaltyFrequencyOptions = [
+    { value: "one_time", label: "One-time" },
+    { value: "daily", label: "Daily" },
+    { value: "weekly", label: "Weekly" },
+    { value: "monthly", label: "Monthly" },
+    { value: "per_repayment_period", label: "Per repayment period" }
+];
+
+const penaltyCalculationBaseOptions = [
+    { value: "overdue_instalment", label: "Overdue instalment" },
+    { value: "outstanding_balance", label: "Outstanding balance" },
+    { value: "total_loan_amount", label: "Total loan amount" },
+    { value: "principal_only", label: "Principal only" }
+];
+
+const repaymentFrequencyOptions = [
+    { value: "weekly", label: "Weekly" },
+    { value: "bi_weekly", label: "Bi-weekly" },
+    { value: "monthly", label: "Monthly" },
+    { value: "quarterly", label: "Quarterly" }
+];
+
+const termUnitOptions = [
+    { value: "months", label: "Months" },
+    { value: "weeks", label: "Weeks" }
+];
+
+const processingFeeTypeOptions = [
+    { value: "flat", label: "Flat amount" },
+    { value: "percentage", label: "Percentage" }
+];
+
+const withdrawalFeeTypeOptions = [
+    { value: "flat", label: "Flat" },
+    { value: "percentage", label: "Percentage" }
+];
 
 function SectionCard({
     title,
@@ -118,6 +162,60 @@ export function ProductCatalogPage() {
     const form = useForm<Record<string, string | number | boolean | null>>({
         defaultValues: {}
     });
+    const penaltyDefaults: Record<string, unknown> = {
+        calculation_method: "flat",
+        penalty_type: "late_repayment",
+        penalty_frequency: "per_repayment_period",
+        calculation_base: "overdue_instalment",
+        grace_period_days: 0,
+        compound_penalty: "false",
+        penalty_waivable: "true"
+    };
+    const loanDefaults: Record<string, unknown> = {
+        repayment_frequency: "monthly",
+        term_unit: "months",
+        processing_fee_type: "flat",
+        maximum_loan_multiple: 3,
+        minimum_membership_duration_months: 0,
+        allow_early_repayment: "true"
+    };
+    const savingsDefaults: Record<string, unknown> = {
+        min_opening_balance: 0,
+        min_balance: 0,
+        withdrawal_notice_days: 0,
+        allow_withdrawals: true,
+        annual_interest_rate: 0,
+        interest_calculation_method: "daily_balance",
+        withdrawal_fee_type: "flat",
+        status: "active"
+    };
+    const shareDefaults: Record<string, unknown> = {
+        minimum_shares: 0,
+        allow_refund: "true",
+        status: "active"
+    };
+    const feeDefaults: Record<string, unknown> = {
+        fee_type: "membership_fee",
+        calculation_method: "flat",
+        flat_amount: 0,
+        is_active: "true"
+    };
+    const postingRulesDefaults: Record<string, unknown> = {
+        scope: "general",
+        is_active: "true"
+    };
+    const defaultDialogValues: Record<CatalogKind, Record<string, unknown>> = {
+        penalties: penaltyDefaults,
+        loans: loanDefaults,
+        savings: savingsDefaults,
+        shares: shareDefaults,
+        fees: feeDefaults,
+        "posting-rules": postingRulesDefaults
+    };
+    const penaltyCalculationMethod = form.watch("calculation_method");
+    const processingFeeType = String(form.watch("processing_fee_type") ?? "flat");
+    const allowEarlyRepayment = String(form.watch("allow_early_repayment") ?? "true");
+    const withdrawalFeeType = String(form.watch("withdrawal_fee_type") ?? "flat");
 
     const chartOptions = payload.chart_of_accounts;
 
@@ -152,8 +250,16 @@ export function ProductCatalogPage() {
     }, [selectedTenantId]);
 
     const openDialog = (kind: CatalogKind, record?: CatalogRecord | null) => {
+        const defaults = (defaultDialogValues[kind] || {}) as Record<string, string | number | boolean | null>;
         setDialog({ kind, record: record || null });
-        form.reset(record ? { ...record } as Record<string, string | number | boolean | null> : {});
+        form.reset(
+            record
+                ? {
+                      ...defaults,
+                      ...record
+                  } as Record<string, string | number | boolean | null>
+                : { ...defaults }
+        );
     };
 
     const submitDialog = form.handleSubmit(async (values) => {
@@ -163,6 +269,313 @@ export function ProductCatalogPage() {
 
         setSaving(true);
 
+        let payloadValues = values;
+
+        if (dialog.kind === "penalties") {
+            const normalized = { ...values } as Record<string, string | number | boolean | null>;
+            const toNumber = (value: unknown): number | null => {
+                const parsed = Number(value);
+                return Number.isNaN(parsed) ? null : parsed;
+            };
+
+            const calculationMethod = String(normalized.calculation_method || "flat");
+
+            const gracePeriod = toNumber(normalized.grace_period_days) ?? 0;
+            if (gracePeriod < 0) {
+                pushToast({
+                    type: "error",
+                    title: "Invalid grace period",
+                    message: "Grace period must be zero or a positive number of days."
+                });
+                setSaving(false);
+                return;
+            }
+
+            const flatAmount = toNumber(normalized.flat_amount) ?? 0;
+            const penaltyRate = toNumber(normalized.percentage_value) ?? 0;
+            if (calculationMethod === "flat" && flatAmount < 0) {
+                pushToast({
+                    type: "error",
+                    title: "Invalid flat amount",
+                    message: "Flat amounts must be zero or positive."
+                });
+                setSaving(false);
+                return;
+            }
+
+            if (calculationMethod === "percentage" && (penaltyRate < 0 || penaltyRate > 100)) {
+                pushToast({
+                    type: "error",
+                    title: "Invalid penalty rate",
+                    message: "Penalty rate must be between 0% and 100%."
+                });
+                setSaving(false);
+                return;
+            }
+
+            const maxPercent = toNumber(normalized.max_penalty_percent);
+            if (maxPercent !== null && maxPercent < 0) {
+                pushToast({
+                    type: "error",
+                    title: "Invalid maximum percentage",
+                    message: "Maximum penalty percentage must be zero or positive."
+                });
+                setSaving(false);
+                return;
+            }
+
+            if (calculationMethod === "percentage" && maxPercent !== null && penaltyRate > maxPercent) {
+                pushToast({
+                    type: "error",
+                    title: "Maximum percentage constraint",
+                    message: "Maximum penalty percentage must be greater than or equal to the penalty rate."
+                });
+                setSaving(false);
+                return;
+            }
+
+            const maxAmount = toNumber(normalized.max_penalty_amount);
+            if (maxAmount !== null && maxAmount < 0) {
+                pushToast({
+                    type: "error",
+                    title: "Invalid maximum amount",
+                    message: "Maximum penalty amount must be zero or positive."
+                });
+                setSaving(false);
+                return;
+            }
+
+            const parseBoolean = (value: unknown) => value === "true" || value === true;
+
+            normalized.grace_period_days = gracePeriod;
+            normalized.flat_amount = flatAmount;
+            normalized.percentage_value = penaltyRate;
+            normalized.max_penalty_percent = maxPercent;
+            normalized.max_penalty_amount = maxAmount;
+            normalized.compound_penalty = parseBoolean(normalized.compound_penalty);
+            normalized.penalty_waivable = parseBoolean(normalized.penalty_waivable);
+            normalized.penalty_frequency = normalized.penalty_frequency || "per_repayment_period";
+            normalized.calculation_base = normalized.calculation_base || "overdue_instalment";
+            normalized.penalty_receivable_account_id = normalized.penalty_receivable_account_id || null;
+            normalized.effective_from = normalized.effective_from || null;
+            normalized.effective_to = normalized.effective_to || null;
+
+            payloadValues = normalized;
+        }
+
+        if (dialog.kind === "loans") {
+            const normalized = { ...values } as Record<string, string | number | boolean | null>;
+            const toNumber = (value: unknown): number | null => {
+                const parsed = Number(value);
+                return Number.isNaN(parsed) ? null : parsed;
+            };
+            const showLoanError = (title: string, message: string) => {
+                pushToast({ type: "error", title, message });
+                setSaving(false);
+            };
+
+            const minAmount = toNumber(normalized.min_amount);
+            const maxAmount = toNumber(normalized.max_amount);
+            if (minAmount !== null && maxAmount !== null && minAmount >= maxAmount) {
+                showLoanError("Invalid loan range", "Minimum amount must be less than maximum amount.");
+                return;
+            }
+
+            const minTerm = toNumber(normalized.min_term_count);
+            const maxTerm = toNumber(normalized.max_term_count);
+            if (minTerm !== null && maxTerm !== null && minTerm >= maxTerm) {
+                showLoanError("Invalid term", "Minimum term must be shorter than maximum term.");
+                return;
+            }
+
+            const interestRate = toNumber(normalized.annual_interest_rate);
+            if (interestRate !== null && interestRate > 100) {
+                showLoanError("Invalid interest rate", "Interest rate must be 100% or lower.");
+                return;
+            }
+
+            const insuranceRate = toNumber(normalized.insurance_rate);
+            if (insuranceRate !== null && insuranceRate > 100) {
+                showLoanError("Invalid insurance rate", "Insurance rate must be 100% or lower.");
+                return;
+            }
+
+            const requiredGuarantors = toNumber(normalized.required_guarantors_count);
+            if (requiredGuarantors !== null && requiredGuarantors < 0) {
+                showLoanError("Invalid guarantors", "Required guarantors must be zero or positive.");
+                return;
+            }
+
+            const maximumLoanMultiple = toNumber(normalized.maximum_loan_multiple);
+            if (maximumLoanMultiple !== null && maximumLoanMultiple < 0) {
+                showLoanError("Invalid loan multiple", "Maximum loan multiple must be zero or positive.");
+                return;
+            }
+
+            const minimumMembershipDuration = toNumber(normalized.minimum_membership_duration_months);
+            if (minimumMembershipDuration !== null && minimumMembershipDuration < 0) {
+                showLoanError(
+                    "Invalid membership duration",
+                    "Minimum membership duration must be zero or positive."
+                );
+                return;
+            }
+
+            const processingFeeTypeValue = String(normalized.processing_fee_type || "flat");
+            const processingFeeAmount = toNumber(normalized.processing_fee_amount);
+            const processingFeePercent = toNumber(normalized.processing_fee_percent);
+
+            if (processingFeeTypeValue === "flat") {
+                if (processingFeeAmount !== null && processingFeeAmount < 0) {
+                    showLoanError("Invalid processing fee", "Flat processing fees must be zero or positive.");
+                    return;
+                }
+                normalized.processing_fee_amount = processingFeeAmount;
+                normalized.processing_fee_percent = null;
+            } else {
+                if (processingFeePercent !== null && (processingFeePercent < 0 || processingFeePercent > 100)) {
+                    showLoanError("Invalid processing fee", "Percentage processing fees must be between 0% and 100%.");
+                    return;
+                }
+                normalized.processing_fee_percent = processingFeePercent;
+                normalized.processing_fee_amount = null;
+            }
+
+            const allowEarlyRepaymentBool = normalized.allow_early_repayment === "true" || normalized.allow_early_repayment === true;
+            const earlySettlementFee = toNumber(normalized.early_settlement_fee_percent);
+            if (allowEarlyRepaymentBool && earlySettlementFee !== null && earlySettlementFee > 100) {
+                showLoanError("Invalid early settlement fee", "Early settlement fee must be 100% or lower.");
+                return;
+            }
+
+            normalized.annual_interest_rate = interestRate;
+            normalized.insurance_rate = insuranceRate;
+            normalized.min_amount = minAmount;
+            normalized.max_amount = maxAmount;
+            normalized.min_term_count = minTerm;
+            normalized.max_term_count = maxTerm;
+            normalized.required_guarantors_count = requiredGuarantors;
+            normalized.maximum_loan_multiple = maximumLoanMultiple ?? 3;
+            normalized.minimum_membership_duration_months = minimumMembershipDuration ?? 0;
+            normalized.repayment_frequency = normalized.repayment_frequency || "monthly";
+            normalized.term_unit = normalized.term_unit || "months";
+            normalized.allow_early_repayment = allowEarlyRepaymentBool;
+            normalized.early_settlement_fee_percent = allowEarlyRepaymentBool ? earlySettlementFee ?? null : null;
+            normalized.processing_fee_type = processingFeeTypeValue;
+
+            payloadValues = normalized;
+        }
+
+        if (dialog.kind === "savings") {
+            const normalized = { ...values } as Record<string, string | number | boolean | null>;
+            const toNumber = (value: unknown): number | null => {
+                const parsed = Number(value);
+                return Number.isNaN(parsed) ? null : parsed;
+            };
+            const showSavingsError = (title: string, message: string) => {
+                pushToast({ type: "error", title, message });
+                setSaving(false);
+            };
+
+            const minOpening = toNumber(normalized.min_opening_balance);
+            if (minOpening === null || minOpening < 0) {
+                showSavingsError("Invalid opening balance", "Minimum opening balance must be zero or higher.");
+                return;
+            }
+
+            const minBalance = toNumber(normalized.min_balance);
+            if (minBalance === null || minBalance < 0) {
+                showSavingsError("Invalid minimum balance", "Minimum balance must be zero or higher.");
+                return;
+            }
+
+            if (minBalance > minOpening) {
+                showSavingsError("Invalid balances", "Minimum balance cannot exceed the minimum opening amount.");
+                return;
+            }
+
+            const maximumAccountBalance = toNumber(normalized.maximum_account_balance);
+            if (maximumAccountBalance !== null && maximumAccountBalance < 0) {
+                showSavingsError("Invalid maximum balance", "Maximum balance must be zero or higher.");
+                return;
+            }
+
+            const interestRate = toNumber(normalized.annual_interest_rate);
+            if (interestRate !== null && interestRate > 100) {
+                showSavingsError("Invalid interest rate", "Interest rate must be 100% or lower.");
+                return;
+            }
+
+            const noticeDays = toNumber(normalized.withdrawal_notice_days) ?? 0;
+            if (noticeDays < 0) {
+                showSavingsError("Invalid notice days", "Notice days must be zero or higher.");
+                return;
+            }
+
+            const minimumWithdrawal = toNumber(normalized.minimum_withdrawal_amount);
+            if (minimumWithdrawal !== null && minimumWithdrawal < 0) {
+                showSavingsError("Invalid withdrawal minimum", "Minimum withdrawal must be zero or higher.");
+                return;
+            }
+
+            const maximumWithdrawal = toNumber(normalized.maximum_withdrawal_amount);
+            if (maximumWithdrawal !== null && maximumWithdrawal < 0) {
+                showSavingsError("Invalid withdrawal maximum", "Maximum withdrawal must be zero or higher.");
+                return;
+            }
+
+            if (minimumWithdrawal !== null && maximumWithdrawal !== null && minimumWithdrawal > maximumWithdrawal) {
+                showSavingsError("Invalid withdrawal limits", "Minimum withdrawal cannot exceed the maximum.");
+                return;
+            }
+
+            const withdrawalFeeTypeValue = String(normalized.withdrawal_fee_type || "flat");
+            const withdrawalFeeAmount = toNumber(normalized.withdrawal_fee_amount);
+            const withdrawalFeePercent = toNumber(normalized.withdrawal_fee_percent);
+
+            if (withdrawalFeeTypeValue === "flat") {
+                if (withdrawalFeeAmount !== null && withdrawalFeeAmount < 0) {
+                    showSavingsError("Invalid withdrawal fee", "Flat withdrawal fees must be zero or positive.");
+                    return;
+                }
+                normalized.withdrawal_fee_amount = withdrawalFeeAmount;
+                normalized.withdrawal_fee_percent = null;
+            } else {
+                if (withdrawalFeePercent !== null && (withdrawalFeePercent < 0 || withdrawalFeePercent > 100)) {
+                    showSavingsError("Invalid withdrawal fee", "Percentage withdrawal fees must be between 0% and 100%.");
+                    return;
+                }
+                normalized.withdrawal_fee_percent = withdrawalFeePercent;
+                normalized.withdrawal_fee_amount = null;
+            }
+
+            const dormantAfterDays = toNumber(normalized.dormant_after_days);
+            if (dormantAfterDays !== null && dormantAfterDays < 0) {
+                showSavingsError("Invalid dormancy", "Dormant after days must be zero or higher.");
+                return;
+            }
+
+            const accountOpeningFee = toNumber(normalized.account_opening_fee);
+            if (accountOpeningFee !== null && accountOpeningFee < 0) {
+                showSavingsError("Invalid opening fee", "Account opening fee must be zero or higher.");
+                return;
+            }
+
+            normalized.min_opening_balance = minOpening;
+            normalized.min_balance = minBalance;
+            normalized.maximum_account_balance = maximumAccountBalance;
+            normalized.withdrawal_notice_days = noticeDays;
+            normalized.annual_interest_rate = interestRate ?? 0;
+            normalized.interest_calculation_method = normalized.interest_calculation_method || "daily_balance";
+            normalized.withdrawal_fee_type = withdrawalFeeTypeValue;
+            normalized.minimum_withdrawal_amount = minimumWithdrawal;
+            normalized.maximum_withdrawal_amount = maximumWithdrawal;
+            normalized.dormant_after_days = dormantAfterDays;
+            normalized.account_opening_fee = accountOpeningFee;
+
+            payloadValues = normalized;
+        }
+
         try {
             const isEdit = Boolean(dialog.record && "id" in dialog.record);
             const id = dialog.record && "id" in dialog.record ? dialog.record.id : null;
@@ -170,16 +583,16 @@ export function ProductCatalogPage() {
             switch (dialog.kind) {
                 case "loans":
                     if (isEdit && id) {
-                        await api.patch<LoanProductsResponse>(`${endpoints.products.loans()}/${id}`, values);
+                        await api.patch<LoanProductsResponse>(`${endpoints.products.loans()}/${id}`, payloadValues);
                     } else {
-                        await api.post<LoanProductsResponse>(endpoints.products.loans(), values);
+                        await api.post<LoanProductsResponse>(endpoints.products.loans(), payloadValues);
                     }
                     break;
                 case "savings":
                     if (isEdit && id) {
-                        await api.patch<SavingsProductsResponse>(`${endpoints.products.savings()}/${id}`, values);
+                        await api.patch<SavingsProductsResponse>(`${endpoints.products.savings()}/${id}`, payloadValues);
                     } else {
-                        await api.post<SavingsProductsResponse>(endpoints.products.savings(), values);
+                        await api.post<SavingsProductsResponse>(endpoints.products.savings(), payloadValues);
                     }
                     break;
                 case "shares":
@@ -198,9 +611,9 @@ export function ProductCatalogPage() {
                     break;
                 case "penalties":
                     if (isEdit && id) {
-                        await api.patch<PenaltyRulesResponse>(`${endpoints.products.penalties()}/${id}`, values);
+                        await api.patch<PenaltyRulesResponse>(`${endpoints.products.penalties()}/${id}`, payloadValues);
                     } else {
-                        await api.post<PenaltyRulesResponse>(endpoints.products.penalties(), values);
+                        await api.post<PenaltyRulesResponse>(endpoints.products.penalties(), payloadValues);
                     }
                     break;
                 case "posting-rules":
@@ -245,8 +658,9 @@ export function ProductCatalogPage() {
             "posting-rules": "Posting Rule"
         };
 
-        const accountSelect = (name: string, label: string) => (
+        const accountSelect = (name: string, label: string, allowEmpty = false) => (
             <TextField select fullWidth label={label} defaultValue={form.getValues(name) || ""} {...form.register(name)}>
+                {allowEmpty ? <MenuItem value="">Not set</MenuItem> : null}
                 {chartOptions.map((account: ChartOfAccountOption) => (
                     <MenuItem key={account.id} value={account.id}>
                         {account.account_code} · {account.account_name}
@@ -262,35 +676,524 @@ export function ProductCatalogPage() {
                     <Grid container spacing={2} sx={{ mt: 0.25 }}>
                         {kind === "loans" ? (
                             <>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Code" {...form.register("code")} /></Grid>
-                                <Grid size={{ xs: 12, md: 8 }}><TextField fullWidth label="Name" {...form.register("name")} /></Grid>
-                                <Grid size={{ xs: 12 }}><TextField fullWidth label="Description" {...form.register("description")} /></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}><TextField select fullWidth label="Interest method" defaultValue={form.getValues("interest_method") || "reducing_balance"} {...form.register("interest_method")}><MenuItem value="reducing_balance">Reducing balance</MenuItem><MenuItem value="flat">Flat</MenuItem></TextField></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth type="number" label="Annual interest %" {...form.register("annual_interest_rate", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth type="number" label="Min amount" {...form.register("min_amount", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth type="number" label="Max amount" {...form.register("max_amount", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth type="number" label="Min term" {...form.register("min_term_count", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth type="number" label="Max term" {...form.register("max_term_count", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth type="number" label="Insurance %" {...form.register("insurance_rate", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}><TextField fullWidth type="number" label="Required guarantors" {...form.register("required_guarantors_count", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 3 }}>{accountSelect("receivable_account_id", "Receivable account")}</Grid>
-                                <Grid size={{ xs: 12, md: 3 }}>{accountSelect("interest_income_account_id", "Interest income account")}</Grid>
-                                <Grid size={{ xs: 12, md: 3 }}>{accountSelect("fee_income_account_id", "Fee income account")}</Grid>
-                                <Grid size={{ xs: 12, md: 3 }}>{accountSelect("penalty_income_account_id", "Penalty income account")}</Grid>
-                                <Grid size={{ xs: 12, md: 6 }}><TextField select fullWidth label="Default product" defaultValue={String(Boolean(form.getValues("is_default")))} {...form.register("is_default")}><MenuItem value="true">Default</MenuItem><MenuItem value="false">No</MenuItem></TextField></Grid>
-                                <Grid size={{ xs: 12, md: 6 }}><TextField select fullWidth label="Status" defaultValue={form.getValues("status") || "active"} {...form.register("status")}><MenuItem value="active">Active</MenuItem><MenuItem value="inactive">Inactive</MenuItem></TextField></Grid>
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Product information"
+                                        helper="Define the loan product identity."
+                                        icon={<AddRoundedIcon color="primary" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField fullWidth label="Code" {...form.register("code")} />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 8 }}>
+                                                <TextField fullWidth label="Name" {...form.register("name")} />
+                                            </Grid>
+                                            <Grid size={{ xs: 12 }}>
+                                                <TextField fullWidth label="Description" {...form.register("description")} />
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Loan structure"
+                                        helper="Specify how the loan amortizes over time."
+                                        icon={<CreditScoreRoundedIcon color="info" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Interest method"
+                                                    defaultValue={form.getValues("interest_method") || "reducing_balance"}
+                                                    {...form.register("interest_method")}
+                                                >
+                                                    <MenuItem value="reducing_balance">Reducing balance</MenuItem>
+                                                    <MenuItem value="flat">Flat</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Annual interest %"
+                                                    {...form.register("annual_interest_rate", { valueAsNumber: true })}
+                                                    InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Repayment frequency"
+                                                    defaultValue={form.getValues("repayment_frequency") || "monthly"}
+                                                    {...form.register("repayment_frequency")}
+                                                >
+                                                    {repaymentFrequencyOptions.map((option) => (
+                                                        <MenuItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </MenuItem>
+                                                    ))}
+                                                </TextField>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Term unit"
+                                                    defaultValue={form.getValues("term_unit") || "months"}
+                                                    {...form.register("term_unit")}
+                                                >
+                                                    {termUnitOptions.map((option) => (
+                                                        <MenuItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </MenuItem>
+                                                    ))}
+                                                </TextField>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Min term"
+                                                    {...form.register("min_term_count", { valueAsNumber: true })}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Max term"
+                                                    {...form.register("max_term_count", { valueAsNumber: true })}
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Loan limits"
+                                        helper="Enforce eligibility, savings multiples, and guarantor counts."
+                                        icon={<SavingsRoundedIcon color="secondary" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Min amount"
+                                                    {...form.register("min_amount", { valueAsNumber: true })}
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Max amount"
+                                                    {...form.register("max_amount", { valueAsNumber: true })}
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 2 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Maximum loan multiple"
+                                                    {...form.register("maximum_loan_multiple", { valueAsNumber: true })}
+                                                    InputProps={{ inputProps: { min: 0, step: 0.1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 2 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Min membership duration (months)"
+                                                    {...form.register("minimum_membership_duration_months", { valueAsNumber: true })}
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 2 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Required guarantors"
+                                                    {...form.register("required_guarantors_count", { valueAsNumber: true })}
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Fees"
+                                        helper="Capture processing fees, insurance, and other charges."
+                                        icon={<SellRoundedIcon color="success" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Processing fee type"
+                                                    defaultValue={form.getValues("processing_fee_type") || "flat"}
+                                                    {...form.register("processing_fee_type")}
+                                                >
+                                                    {processingFeeTypeOptions.map((option) => (
+                                                        <MenuItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </MenuItem>
+                                                    ))}
+                                                </TextField>
+                                            </Grid>
+                                            {processingFeeType === "percentage" ? (
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        type="number"
+                                                        label="Processing fee %"
+                                                        {...form.register("processing_fee_percent", { valueAsNumber: true })}
+                                                        InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
+                                                    />
+                                                </Grid>
+                                            ) : (
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        type="number"
+                                                        label="Processing fee amount (TSH)"
+                                                        {...form.register("processing_fee_amount", { valueAsNumber: true })}
+                                                        InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                    />
+                                                </Grid>
+                                            )}
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Insurance %"
+                                                    {...form.register("insurance_rate", { valueAsNumber: true })}
+                                                    InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Accounting"
+                                        helper="Map the product to the correct ledger accounts."
+                                        icon={<CreditScoreRoundedIcon color="primary" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 3 }}>{accountSelect("receivable_account_id", "Receivable account")}</Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>{accountSelect("interest_income_account_id", "Interest income account")}</Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>{accountSelect("fee_income_account_id", "Fee income account")}</Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>{accountSelect("penalty_income_account_id", "Penalty income account")}</Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Controls"
+                                        helper="Manage early repayment, defaults, and product state."
+                                        icon={<RuleRoundedIcon color="action" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Allow early repayment"
+                                                    defaultValue={form.getValues("allow_early_repayment") ?? "true"}
+                                                    {...form.register("allow_early_repayment")}
+                                                >
+                                                    <MenuItem value="true">Yes</MenuItem>
+                                                    <MenuItem value="false">No</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                            {allowEarlyRepayment === "true" ? (
+                                                <Grid size={{ xs: 12, md: 3 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        type="number"
+                                                        label="Early settlement fee %"
+                                                        {...form.register("early_settlement_fee_percent", { valueAsNumber: true })}
+                                                        InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
+                                                    />
+                                                </Grid>
+                                            ) : null}
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Default product"
+                                                    defaultValue={String(Boolean(form.getValues("is_default")))}
+                                                    {...form.register("is_default")}
+                                                >
+                                                    <MenuItem value="true">Default</MenuItem>
+                                                    <MenuItem value="false">No</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Status"
+                                                    defaultValue={form.getValues("status") || "active"}
+                                                    {...form.register("status")}
+                                                >
+                                                    <MenuItem value="active">Active</MenuItem>
+                                                    <MenuItem value="inactive">Inactive</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
                             </>
                         ) : null}
                         {kind === "savings" ? (
                             <>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Code" {...form.register("code")} /></Grid>
-                                <Grid size={{ xs: 12, md: 8 }}><TextField fullWidth label="Name" {...form.register("name")} /></Grid>
-                                <Grid size={{ xs: 12, md: 4 }}>{accountSelect("liability_account_id", "Liability account")}</Grid>
-                                <Grid size={{ xs: 12, md: 4 }}>{accountSelect("fee_income_account_id", "Withdrawal fee income")}</Grid>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label="Min opening balance" {...form.register("min_opening_balance", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label="Min balance" {...form.register("min_balance", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label="Notice days" {...form.register("withdrawal_notice_days", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Status" defaultValue={form.getValues("status") || "active"} {...form.register("status")}><MenuItem value="active">Active</MenuItem><MenuItem value="inactive">Inactive</MenuItem></TextField></Grid>
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Product information"
+                                        helper="Define the savings product identity and visibility."
+                                        icon={<AddRoundedIcon color="primary" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField fullWidth label="Code" {...form.register("code")} />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 8 }}>
+                                                <TextField fullWidth label="Name" {...form.register("name")} />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Status"
+                                                    defaultValue={form.getValues("status") || "active"}
+                                                    {...form.register("status")}
+                                                >
+                                                    <MenuItem value="active">Active</MenuItem>
+                                                    <MenuItem value="inactive">Inactive</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Balance rules"
+                                        helper="Control minimum and maximum balances per member account."
+                                        icon={<SavingsRoundedIcon color="secondary" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Min opening balance"
+                                                    {...form.register("min_opening_balance", { valueAsNumber: true })}
+                                                    helperText="Members must deposit this amount when opening the account."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Min balance"
+                                                    {...form.register("min_balance", { valueAsNumber: true })}
+                                                    helperText="Account must maintain this balance before withdrawals."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Maximum balance"
+                                                    {...form.register("maximum_account_balance", { valueAsNumber: true })}
+                                                    helperText="Leave empty for unlimited savings."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Interest configuration"
+                                        helper="Capture how interest is calculated and paid."
+                                        icon={<CreditScoreRoundedIcon color="info" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Annual interest %"
+                                                    {...form.register("annual_interest_rate", { valueAsNumber: true })}
+                                                    helperText="Annual percentage rate for this product."
+                                                    InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Interest calculation"
+                                                    defaultValue={form.getValues("interest_calculation_method") || "daily_balance"}
+                                                    {...form.register("interest_calculation_method")}
+                                                >
+                                                    <MenuItem value="daily_balance">Daily balance</MenuItem>
+                                                    <MenuItem value="average_balance">Average balance</MenuItem>
+                                                    <MenuItem value="monthly_balance">Monthly balance</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Withdrawal rules"
+                                        helper="Control how members can withdraw funds and the fees involved."
+                                        icon={<WarningAmberRoundedIcon color="warning" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Notice days"
+                                                    {...form.register("withdrawal_notice_days", { valueAsNumber: true })}
+                                                    helperText="Number of days members must give before withdrawing."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Min withdrawal amount"
+                                                    {...form.register("minimum_withdrawal_amount", { valueAsNumber: true })}
+                                                    helperText="Optional floor for withdrawals."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Max withdrawal amount"
+                                                    {...form.register("maximum_withdrawal_amount", { valueAsNumber: true })}
+                                                    helperText="Optional ceiling for withdrawals."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Withdrawal fee type"
+                                                    defaultValue={form.getValues("withdrawal_fee_type") || "flat"}
+                                                    {...form.register("withdrawal_fee_type")}
+                                                >
+                                                    {withdrawalFeeTypeOptions.map((option) => (
+                                                        <MenuItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </MenuItem>
+                                                    ))}
+                                                </TextField>
+                                            </Grid>
+                                            {withdrawalFeeType === "flat" ? (
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        type="number"
+                                                        label="Withdrawal fee amount"
+                                                        {...form.register("withdrawal_fee_amount", { valueAsNumber: true })}
+                                                        helperText="Flat fee applied per withdrawal."
+                                                        InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                    />
+                                                </Grid>
+                                            ) : (
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        type="number"
+                                                        label="Withdrawal fee %"
+                                                        {...form.register("withdrawal_fee_percent", { valueAsNumber: true })}
+                                                        helperText="Percentage of the withdrawal amount."
+                                                        InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
+                                                    />
+                                                </Grid>
+                                            )}
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                {accountSelect("fee_income_account_id", "Withdrawal fee income account", true)}
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Accounting"
+                                        helper="Map the savings product to ledger accounts."
+                                        icon={<SellRoundedIcon color="success" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 6 }}>{accountSelect("liability_account_id", "Liability account")}</Grid>
+                                            <Grid size={{ xs: 12, md: 6 }}>{accountSelect("interest_expense_account_id", "Interest expense account")}</Grid>
+                                        </Grid>
+                                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                                            Withdrawal fee income account is configured above inside the withdrawal rules section.
+                                        </Typography>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Controls"
+                                        helper="Capture operational controls for dormancy and opening fees."
+                                        icon={<RuleRoundedIcon color="action" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Dormant after days"
+                                                    {...form.register("dormant_after_days", { valueAsNumber: true })}
+                                                    helperText="Number of idle days before marking the account dormant."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Account opening fee"
+                                                    {...form.register("account_opening_fee", { valueAsNumber: true })}
+                                                    helperText="Optional fee charged when opening the account."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
                             </>
                         ) : null}
                         {kind === "shares" ? (
@@ -318,13 +1221,249 @@ export function ProductCatalogPage() {
                         ) : null}
                         {kind === "penalties" ? (
                             <>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Code" {...form.register("code")} /></Grid>
-                                <Grid size={{ xs: 12, md: 8 }}><TextField fullWidth label="Name" {...form.register("name")} /></Grid>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Penalty type" defaultValue={form.getValues("penalty_type") || "late_repayment"} {...form.register("penalty_type")}><MenuItem value="late_repayment">Late repayment</MenuItem><MenuItem value="arrears">Arrears</MenuItem><MenuItem value="other">Other</MenuItem></TextField></Grid>
-                                <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Calculation" defaultValue={form.getValues("calculation_method") || "flat"} {...form.register("calculation_method")}><MenuItem value="flat">Flat</MenuItem><MenuItem value="percentage">Percentage</MenuItem><MenuItem value="percentage_per_period">Per period</MenuItem></TextField></Grid>
-                                <Grid size={{ xs: 12, md: 4 }}>{accountSelect("income_account_id", "Income account")}</Grid>
-                                <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth type="number" label="Flat amount" {...form.register("flat_amount", { valueAsNumber: true })} /></Grid>
-                                <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth type="number" label="Percentage value" {...form.register("percentage_value", { valueAsNumber: true })} /></Grid>
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Basic information"
+                                        helper="Name the penalty and classify the type."
+                                        icon={<RuleRoundedIcon color="primary" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField fullWidth label="Code" {...form.register("code")} />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 8 }}>
+                                                <TextField fullWidth label="Name" {...form.register("name")} />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 4 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Penalty type"
+                                                    defaultValue={form.getValues("penalty_type") || "late_repayment"}
+                                                    {...form.register("penalty_type")}
+                                                >
+                                                    {penaltyTypeOptions.map((option) => (
+                                                        <MenuItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </MenuItem>
+                                                    ))}
+                                                </TextField>
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Penalty rules"
+                                        helper="Control when penalties start and how often they hit the ledger."
+                                        icon={<WarningAmberRoundedIcon color="warning" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Grace period (days)"
+                                                    {...form.register("grace_period_days", { valueAsNumber: true })}
+                                                    helperText="Days past the due date before penalties kick in."
+                                                    InputProps={{ inputProps: { min: 0 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Penalty frequency"
+                                                    defaultValue={form.getValues("penalty_frequency") || "per_repayment_period"}
+                                                    {...form.register("penalty_frequency")}
+                                                >
+                                                    {penaltyFrequencyOptions.map((option) => (
+                                                        <MenuItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </MenuItem>
+                                                    ))}
+                                                </TextField>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Calculation method"
+                                                    defaultValue={form.getValues("calculation_method") || "flat"}
+                                                    {...form.register("calculation_method")}
+                                                >
+                                                    <MenuItem value="flat">Flat amount</MenuItem>
+                                                    <MenuItem value="percentage">Percentage</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 3 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Calculation base"
+                                                    defaultValue={form.getValues("calculation_base") || "overdue_instalment"}
+                                                    {...form.register("calculation_base")}
+                                                >
+                                                    {penaltyCalculationBaseOptions.map((option) => (
+                                                        <MenuItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </MenuItem>
+                                                    ))}
+                                                </TextField>
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Penalty value"
+                                        helper="Choose whether penalties are a flat amount or a percentage of the selected base."
+                                        icon={<AddRoundedIcon color="success" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            {penaltyCalculationMethod === "percentage" ? (
+                                                <Grid size={{ xs: 12, md: 6 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        type="number"
+                                                        label="Penalty rate (%)"
+                                                        {...form.register("percentage_value", { valueAsNumber: true })}
+                                                        helperText="Use a percentage of the selected calculation base."
+                                                        InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
+                                                    />
+                                                </Grid>
+                                            ) : (
+                                                <Grid size={{ xs: 12, md: 6 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        type="number"
+                                                        label="Flat amount (TSH)"
+                                                        {...form.register("flat_amount", { valueAsNumber: true })}
+                                                        helperText="Charge this amount when the penalty applies."
+                                                        InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                    />
+                                                </Grid>
+                                            )}
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Limits"
+                                        helper="Cap penalty exposure either as a cash amount or as a percentage of the loan."
+                                        icon={<CreditScoreRoundedIcon color="info" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Maximum penalty amount (TSH)"
+                                                    {...form.register("max_penalty_amount", { valueAsNumber: true })}
+                                                    helperText="Optional upper bound for penalty cash charges."
+                                                    InputProps={{ inputProps: { min: 0, step: 1 } }}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    label="Maximum penalty % of loan"
+                                                    {...form.register("max_penalty_percent", { valueAsNumber: true })}
+                                                    helperText="Optional upper bound (0-100%) relative to the loan amount."
+                                                    InputProps={{ inputProps: { min: 0, max: 100, step: 0.01 } }}
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Accounting"
+                                        helper="Tie penalties to the correct income and receivable ledgers."
+                                        icon={<SavingsRoundedIcon color="secondary" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                {accountSelect("income_account_id", "Income account")}
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                {accountSelect("penalty_receivable_account_id", "Penalty receivable account", true)}
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Policy controls"
+                                        helper="Manage compounding and waiver behavior for the penalty."
+                                        icon={<ShareRoundedIcon color="primary" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Compound penalty"
+                                                    defaultValue={form.getValues("compound_penalty") ?? "false"}
+                                                    {...form.register("compound_penalty")}
+                                                    helperText="Apply penalties on previously assessed penalties."
+                                                >
+                                                    <MenuItem value="false">No</MenuItem>
+                                                    <MenuItem value="true">Yes</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <TextField
+                                                    select
+                                                    fullWidth
+                                                    label="Penalty waivable"
+                                                    defaultValue={form.getValues("penalty_waivable") ?? "true"}
+                                                    {...form.register("penalty_waivable")}
+                                                    helperText="Allow Waiver approvals whenever servicing loans."
+                                                >
+                                                    <MenuItem value="false">No</MenuItem>
+                                                    <MenuItem value="true">Yes</MenuItem>
+                                                </TextField>
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
+
+                                <Grid size={{ xs: 12 }}>
+                                    <SectionCard
+                                        title="Validity"
+                                        helper="Control when this policy version starts and, optionally, ends."
+                                        icon={<RuleRoundedIcon color="action" fontSize="small" />}
+                                    >
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="date"
+                                                    label="Effective from"
+                                                    InputLabelProps={{ shrink: true }}
+                                                    {...form.register("effective_from")}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, md: 6 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    type="date"
+                                                    label="Effective to"
+                                                    InputLabelProps={{ shrink: true }}
+                                                    {...form.register("effective_to")}
+                                                    helperText="Optional; leave empty for open-ended policies."
+                                                />
+                                            </Grid>
+                                        </Grid>
+                                    </SectionCard>
+                                </Grid>
                             </>
                         ) : null}
                         {kind === "posting-rules" ? (

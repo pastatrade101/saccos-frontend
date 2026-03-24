@@ -1,13 +1,13 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
 
-import { useAuth } from "./auth/AuthProvider";
+import { useAuth } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppLayout } from "./components/Layout";
 import { AppLoader } from "./components/AppLoader";
 import { LandingPage } from "./pages/LandingPage";
 import { SignInPage } from "./pages/SignIn";
-import { SetupTenantPage } from "./pages/SetupTenant";
+import { SignupPage } from "./pages/Signup";
 import { SetupSuperAdminPage } from "./pages/SetupSuperAdmin";
 import { DashboardPage } from "./pages/Dashboard";
 import { AuditorDashboardPage } from "./pages/AuditorDashboard";
@@ -16,9 +16,6 @@ import { AuditorJournalsPage } from "./pages/AuditorJournals";
 import { AuditorAuditLogsPage } from "./pages/AuditorAuditLogs";
 import { AuditorReportsPage } from "./pages/AuditorReports";
 import { AccessDeniedPage } from "./pages/AccessDenied";
-import { PlatformPlansPage } from "./pages/PlatformPlans";
-import { PlatformOperationsPage } from "./pages/PlatformOperations";
-import { PlatformTenantsPage } from "./pages/PlatformTenants";
 import { StaffUsersPage } from "./pages/StaffUsers";
 import { MembersPage } from "./pages/Members";
 import { MemberApplicationsPage } from "./pages/MemberApplications";
@@ -27,6 +24,8 @@ import { CashControlPage } from "./pages/CashControl";
 import { ContributionsPage } from "./pages/Contributions";
 import { PaymentsPage } from "./pages/Payments";
 import { DividendsPage } from "./pages/Dividends";
+import { SavingsPage } from "./pages/Savings";
+import { ChargeRevenuePage } from "./pages/ChargeRevenue";
 import { FollowUpsPage } from "./pages/FollowUps";
 import { ApprovalsPage } from "./pages/Approvals";
 import { LoansPage } from "./pages/Loans";
@@ -41,7 +40,7 @@ import { ServiceUnavailablePage } from "./pages/ServiceUnavailable";
 import { PrivacyPolicyPage, TermsAgreementPage } from "./pages/LegalPages";
 
 function WorkspaceRedirect() {
-    const { session, profile, selectedTenantId, isInternalOps, backendUnavailable } = useAuth();
+    const { profile, backendUnavailable, isInternalOps } = useAuth();
 
     if (backendUnavailable) {
         return <Navigate to="/service-unavailable" replace />;
@@ -57,10 +56,6 @@ function WorkspaceRedirect() {
 
     if (isInternalOps) {
         return <Navigate to="/dashboard" replace />;
-    }
-
-    if (!selectedTenantId) {
-        return <Navigate to="/setup/tenant" replace />;
     }
 
     if (!profile) {
@@ -122,49 +117,29 @@ function SignInRoute() {
     return <SignInPage />;
 }
 
-function SetupRouteGuard({
-    step,
-    children
-}: {
-    step: "tenant" | "super-admin";
-    children: ReactNode;
-}) {
-    const { profile, isInternalOps, selectedTenantId, backendUnavailable } = useAuth();
+function SignupRoute() {
+    const { session, loading } = useAuth();
+
+    if (session && loading) {
+        return <AppLoader message="Loading workspace..." />;
+    }
+
+    if (session) {
+        return <WorkspaceRedirect />;
+    }
+
+    return <SignupPage />;
+}
+
+function SetupRouteGuard({ children }: { children: ReactNode }) {
+    const { profile, backendUnavailable } = useAuth();
 
     if (backendUnavailable) {
         return <Navigate to="/service-unavailable" replace />;
     }
 
-    if (profile?.role === "member") {
-        return <Navigate to="/portal" replace />;
-    }
-
-    if (isInternalOps && step === "tenant") {
-        return <>{children}</>;
-    }
-
-    if (isInternalOps && step === "super-admin") {
-        if (!selectedTenantId) {
-            return <Navigate to="/setup/tenant" replace />;
-        }
-
-        return <>{children}</>;
-    }
-
     if (profile) {
         return <Navigate to="/dashboard" replace />;
-    }
-
-    if (step === "tenant") {
-        if (!isInternalOps) {
-            return <Navigate to="/" replace />;
-        }
-
-        return <>{children}</>;
-    }
-
-    if (!selectedTenantId) {
-        return <Navigate to="/setup/tenant" replace />;
     }
 
     return <>{children}</>;
@@ -175,6 +150,7 @@ export default function App() {
         <Routes>
             <Route path="/" element={<PublicHomePage />} />
             <Route path="/signin" element={<SignInRoute />} />
+            <Route path="/signup" element={<SignupRoute />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
             <Route path="/terms-and-agreement" element={<TermsAgreementPage />} />
@@ -195,8 +171,7 @@ export default function App() {
 
             <Route element={<ProtectedRoute allowWithoutProfile />}>
                     <Route element={<AppLayout />}>
-                        <Route path="/setup/tenant" element={<SetupRouteGuard step="tenant"><SetupTenantPage /></SetupRouteGuard>} />
-                        <Route path="/setup/super-admin" element={<SetupRouteGuard step="super-admin"><SetupSuperAdminPage /></SetupRouteGuard>} />
+                        <Route path="/setup/super-admin" element={<SetupRouteGuard><SetupSuperAdminPage /></SetupRouteGuard>} />
                     <Route
                         element={
                             <ProtectedRoute
@@ -226,15 +201,6 @@ export default function App() {
                     >
                         <Route path="/follow-ups" element={<FollowUpsPage />} />
                         <Route path="/approvals" element={<ApprovalsPage />} />
-                    </Route>
-                    <Route
-                        element={
-                            <ProtectedRoute allowedRoles={["platform_admin", "platform_owner"]} />
-                        }
-                    >
-                        <Route path="/platform/tenants" element={<PlatformTenantsPage />} />
-                        <Route path="/platform/plans" element={<PlatformPlansPage />} />
-                        <Route path="/platform/operations" element={<PlatformOperationsPage />} />
                     </Route>
                     <Route
                         element={
@@ -286,7 +252,10 @@ export default function App() {
                         }
                     >
                         <Route path="/contributions" element={<ContributionsPage />} />
+                        <Route path="/savings" element={<SavingsPage />} />
                         <Route path="/payments" element={<PaymentsPage />} />
+                        <Route path="/revenue" element={<ChargeRevenuePage />} />
+                        <Route path="/charge-revenue" element={<ChargeRevenuePage />} />
                     </Route>
                     <Route
                         element={

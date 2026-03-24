@@ -10,10 +10,18 @@ export type Role =
 
 export type SubscriptionStatus = "active" | "past_due" | "cancelled" | "missing";
 export type SubscriptionPlan = "starter" | "growth" | "enterprise";
-export type MemberStatus = "active" | "suspended" | "exited";
+export type MemberStatus = "active" | "suspended" | "exited" | "approved_pending_payment";
 export type LoanStatus = "draft" | "active" | "closed" | "in_arrears" | "written_off";
 export type KycStatus = "pending" | "verified" | "rejected" | "waived";
-export type MemberApplicationStatus = "draft" | "submitted" | "under_review" | "approved" | "rejected" | "cancelled";
+export type MemberApplicationStatus =
+    | "draft"
+    | "submitted"
+    | "under_review"
+    | "approved"
+    | "approved_pending_payment"
+    | "active"
+    | "rejected"
+    | "cancelled";
 
 export interface ApiEnvelope<T> {
     data: T;
@@ -239,6 +247,7 @@ export interface MemberApplication {
     id: string;
     tenant_id: string;
     branch_id: string;
+    branch_name?: string | null;
     application_no: string;
     status: MemberApplicationStatus;
     kyc_status: KycStatus;
@@ -298,8 +307,17 @@ export interface LoanProduct {
     interest_income_account_id: string;
     fee_income_account_id?: string | null;
     penalty_income_account_id?: string | null;
+    repayment_frequency: "daily" | "weekly" | "monthly" | "bi_weekly" | "quarterly";
+    term_unit: "months" | "weeks";
+    processing_fee_type: "flat" | "percentage";
+    processing_fee_amount?: number | null;
+    processing_fee_percent?: number | null;
     is_default: boolean;
     status: "active" | "inactive";
+    maximum_loan_multiple: number;
+    minimum_membership_duration_months: number;
+    allow_early_repayment: boolean;
+    early_settlement_fee_percent?: number | null;
 }
 
 export interface LoanGuarantor {
@@ -464,8 +482,19 @@ export interface SavingsProduct {
     is_default: boolean;
     min_opening_balance: number;
     min_balance: number;
+    maximum_account_balance?: number | null;
     withdrawal_notice_days: number;
     allow_withdrawals: boolean;
+    annual_interest_rate: number;
+    interest_calculation_method: "daily_balance" | "average_balance" | "monthly_balance";
+    interest_expense_account_id: string;
+    withdrawal_fee_type: "flat" | "percentage";
+    withdrawal_fee_amount?: number | null;
+    withdrawal_fee_percent?: number | null;
+    minimum_withdrawal_amount?: number | null;
+    maximum_withdrawal_amount?: number | null;
+    dormant_after_days?: number | null;
+    account_opening_fee?: number | null;
     status: "active" | "inactive";
     liability_account_id: string;
     fee_income_account_id?: string | null;
@@ -499,17 +528,31 @@ export interface FeeRule {
     income_account_id: string;
 }
 
+export type PenaltyRuleType = "late_repayment" | "arrears" | "missed_instalment" | "loan_default" | "other";
+export type PenaltyFrequency = "one_time" | "daily" | "weekly" | "monthly" | "per_repayment_period";
+export type PenaltyCalculationBase = "overdue_instalment" | "outstanding_balance" | "total_loan_amount" | "principal_only";
+
 export interface PenaltyRule {
     id: string;
     tenant_id: string;
     code: string;
     name: string;
-    penalty_type: "late_repayment" | "arrears" | "other";
+    penalty_type: PenaltyRuleType;
     calculation_method: "flat" | "percentage" | "percentage_per_period";
     flat_amount: number;
     percentage_value: number;
+    grace_period_days: number;
+    penalty_frequency: PenaltyFrequency;
+    calculation_base: PenaltyCalculationBase;
+    max_penalty_amount?: number | null;
+    max_penalty_percent?: number | null;
+    compound_penalty: boolean;
     is_active: boolean;
     income_account_id: string;
+    penalty_receivable_account_id?: string | null;
+    effective_from?: string | null;
+    effective_to?: string | null;
+    penalty_waivable: boolean;
 }
 
 export interface PostingRule {
@@ -677,7 +720,8 @@ export interface PaymentOrder {
     member_name?: string | null;
     member_no?: string | null;
     branch_id?: string | null;
-    account_id: string;
+    account_id?: string | null;
+    loan_id?: string | null;
     gateway: string;
     purpose: string;
     provider: MobileMoneyProvider;
@@ -698,6 +742,7 @@ export interface PaymentOrder {
     error_message?: string | null;
     account_name?: string | null;
     account_number?: string | null;
+    loan_number?: string | null;
     product_type?: "savings" | "shares" | "fixed_deposit" | null;
     created_at: string;
     updated_at: string;
@@ -969,4 +1014,89 @@ export interface DividendPayment {
 
 export interface ReportRow {
     [key: string]: string | number | null;
+}
+
+export interface ChargeRevenueScope {
+    tenant_id: string;
+    from_date: string;
+    to_date: string;
+    branch_ids: string[];
+    branch_count: number;
+}
+
+export interface ChargeRevenueTotals {
+    fee_revenue: number;
+    penalty_revenue: number;
+    loan_interest_revenue: number;
+    loan_fee_revenue: number;
+    mixed_revenue: number;
+    charge_revenue: number;
+    loan_revenue: number;
+    total_revenue: number;
+    posted_lines: number;
+    configured_fee_rules: number;
+    configured_penalty_rules: number;
+    configured_loan_products: number;
+}
+
+export interface ChargeRevenueWarning {
+    account_id: string;
+    account_code?: string | null;
+    account_name?: string | null;
+    fee_rule_names: string[];
+    penalty_rule_names: string[];
+    loan_interest_product_names?: string[];
+    loan_fee_product_names?: string[];
+    loan_penalty_product_names?: string[];
+}
+
+export interface ChargeRevenueTrendPoint {
+    entry_date: string;
+    fee_revenue: number;
+    penalty_revenue: number;
+    loan_interest_revenue: number;
+    loan_fee_revenue: number;
+    mixed_revenue: number;
+    charge_revenue: number;
+    loan_revenue: number;
+    total_revenue: number;
+}
+
+export interface ChargeRevenueBranchRow {
+    branch_id: string | null;
+    branch_name: string | null;
+    branch_code: string | null;
+    fee_revenue: number;
+    penalty_revenue: number;
+    loan_interest_revenue: number;
+    loan_fee_revenue: number;
+    mixed_revenue: number;
+    charge_revenue: number;
+    loan_revenue: number;
+    total_revenue: number;
+}
+
+export interface ChargeRevenueAccountRow {
+    revenue_type: "fee" | "penalty" | "loan_interest" | "loan_fee" | "mixed";
+    account_id: string;
+    account_code: string;
+    account_name: string;
+    amount: number;
+    posted_lines: number;
+    last_entry_date: string;
+    configured_rule_names: string[];
+    fee_rule_names: string[];
+    penalty_rule_names: string[];
+    loan_interest_product_names: string[];
+    loan_fee_product_names: string[];
+    loan_penalty_product_names: string[];
+}
+
+export interface ChargeRevenueSummary {
+    scope: ChargeRevenueScope;
+    totals: ChargeRevenueTotals;
+    configuration_warnings: ChargeRevenueWarning[];
+    trend: ChargeRevenueTrendPoint[];
+    branch_breakdown: ChargeRevenueBranchRow[];
+    account_breakdown: ChargeRevenueAccountRow[];
 }

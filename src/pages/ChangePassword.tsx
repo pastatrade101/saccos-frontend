@@ -17,7 +17,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Navigate, useNavigate } from "react-router-dom";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
 import { endpoints } from "../lib/endpoints";

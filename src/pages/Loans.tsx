@@ -35,7 +35,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { DataTable, type Column } from "../components/DataTable";
 import { SearchableSelect } from "../components/SearchableSelect";
@@ -58,7 +58,7 @@ import {
     type ApproveLoanApplicationRequest,
     type RejectLoanApplicationRequest
 } from "../lib/endpoints";
-import type { ApiEnvelope, Loan, LoanApplication, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
+import type { ApiEnvelope, FinanceResult, Loan, LoanApplication, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
 import { MotionCard, MotionModal } from "../ui/motion";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -171,6 +171,71 @@ type CreditRiskListResponse<T> = {
         total: number;
     };
 };
+
+function getLoanScheduleOutstanding(schedule: LoanSchedule) {
+    const principalOutstanding = Math.max(Number(schedule.principal_due || 0) - Number(schedule.principal_paid || 0), 0);
+    const interestOutstanding = Math.max(Number(schedule.interest_due || 0) - Number(schedule.interest_paid || 0), 0);
+
+    return {
+        principalOutstanding,
+        interestOutstanding,
+        totalOutstanding: principalOutstanding + interestOutstanding
+    };
+}
+
+function buildRepaymentInsights(loan: Loan | null, schedules: LoanSchedule[], amount: number) {
+    const normalizedAmount = Math.max(Number(amount || 0), 0);
+    const orderedSchedules = [...schedules].sort(
+        (left, right) =>
+            new Date(left.due_date).getTime() - new Date(right.due_date).getTime()
+            || left.installment_number - right.installment_number
+    );
+    const today = new Date().toISOString().slice(0, 10);
+    const overdueSchedules = orderedSchedules.filter((schedule) => schedule.due_date < today);
+    const nextDueSchedule = orderedSchedules[0] || null;
+    const overdueAmount = overdueSchedules.reduce((sum, schedule) => sum + getLoanScheduleOutstanding(schedule).totalOutstanding, 0);
+    const nextDueAmount = nextDueSchedule ? getLoanScheduleOutstanding(nextDueSchedule).totalOutstanding : 0;
+    const scheduledInterestOutstanding = orderedSchedules.reduce((sum, schedule) => sum + getLoanScheduleOutstanding(schedule).interestOutstanding, 0);
+    const scheduledPrincipalOutstanding = orderedSchedules.reduce((sum, schedule) => sum + getLoanScheduleOutstanding(schedule).principalOutstanding, 0);
+    const payableInterest = Math.max(Number(loan?.accrued_interest || 0), scheduledInterestOutstanding);
+    const outstandingBalance = Number(loan?.outstanding_principal || 0) + payableInterest;
+    const dueNowAmount = overdueAmount > 0 ? overdueAmount : nextDueAmount;
+    const recommendedAmount = dueNowAmount > 0 ? Math.min(dueNowAmount, outstandingBalance) : outstandingBalance;
+    const interestAllocation = Math.min(normalizedAmount, payableInterest);
+    const principalAllocation = Math.min(Math.max(normalizedAmount - interestAllocation, 0), Number(loan?.outstanding_principal || 0));
+    const excessOverOutstanding = Math.max(normalizedAmount - outstandingBalance, 0);
+    const shortfallAmount = dueNowAmount > 0 ? Math.max(dueNowAmount - normalizedAmount, 0) : 0;
+    const extraAmount = dueNowAmount > 0 ? Math.max(normalizedAmount - dueNowAmount, 0) : 0;
+
+    return {
+        overdueSchedules,
+        nextDueSchedule,
+        overdueAmount,
+        nextDueAmount,
+        dueNowAmount,
+        scheduledInterestOutstanding,
+        scheduledPrincipalOutstanding,
+        payableInterest,
+        outstandingBalance,
+        recommendedAmount,
+        interestAllocation,
+        principalAllocation,
+        excessOverOutstanding,
+        shortfallAmount,
+        extraAmount,
+        enteredAmount: normalizedAmount,
+        matchesDueNow: dueNowAmount > 0 && Math.abs(normalizedAmount - dueNowAmount) < 0.005
+    };
+}
+
+function buildLoanRepaymentReference(loanNumber?: string | null) {
+    const compactLoanNumber = String(loanNumber || "LOAN")
+        .replace(/[^A-Za-z0-9]/g, "")
+        .slice(-12)
+        .toUpperCase();
+    const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+    return `LRP-${compactLoanNumber}-${stamp}`.slice(0, 80);
+}
 
 type DefaultDetectionRunResult = {
     tenant_id: string;
@@ -757,6 +822,53 @@ export function LoansPage() {
             }),
         [loans, members]
     );
+    const selectedRepaymentLoanId = repayForm.watch("loan_id");
+    const selectedRepaymentAmount = Number(repayForm.watch("amount") || 0);
+    const selectedRepaymentLoan = useMemo(
+        () => loans.find((loan) => loan.id === selectedRepaymentLoanId) || null,
+        [loans, selectedRepaymentLoanId]
+    );
+    const selectedRepaymentMember = useMemo(
+        () => members.find((member) => member.id === selectedRepaymentLoan?.member_id) || null,
+        [members, selectedRepaymentLoan?.member_id]
+    );
+    const selectedRepaymentSchedules = useMemo(
+        () => schedules.filter((schedule) => schedule.loan_id === selectedRepaymentLoanId),
+        [schedules, selectedRepaymentLoanId]
+    );
+    const selectedRepaymentInsights = useMemo(
+        () => buildRepaymentInsights(selectedRepaymentLoan, selectedRepaymentSchedules, selectedRepaymentAmount),
+        [selectedRepaymentAmount, selectedRepaymentLoan, selectedRepaymentSchedules]
+    );
+
+    useEffect(() => {
+        if (!showRepayModal || !selectedRepaymentLoan) {
+            return;
+        }
+
+        if (selectedRepaymentInsights.recommendedAmount > 0) {
+            repayForm.setValue(
+                "amount",
+                Number(selectedRepaymentInsights.recommendedAmount.toFixed(2)),
+                { shouldValidate: true }
+            );
+        }
+
+        if (!repayForm.getValues("description")) {
+            repayForm.setValue(
+                "description",
+                `Loan repayment for ${selectedRepaymentLoan.loan_number}`,
+                { shouldValidate: false }
+            );
+        }
+        if (!repayForm.getValues("reference")) {
+            repayForm.setValue(
+                "reference",
+                buildLoanRepaymentReference(selectedRepaymentLoan.loan_number),
+                { shouldValidate: false }
+            );
+        }
+    }, [repayForm, selectedRepaymentInsights.recommendedAmount, selectedRepaymentLoan, showRepayModal]);
 
     const nextDueByLoan = useMemo(() => {
         const map = new Map<string, string>();
@@ -1292,6 +1404,15 @@ export function LoansPage() {
     });
 
     const launchRepayment = repayForm.handleSubmit((values) => {
+        if (selectedRepaymentInsights.excessOverOutstanding > 0) {
+            pushToast({
+                type: "error",
+                title: "Repayment amount too high",
+                message: `The entered amount exceeds the outstanding balance by ${formatCurrency(selectedRepaymentInsights.excessOverOutstanding)}.`
+            });
+            return;
+        }
+
         setPendingMoneyAction({ type: "repay", values });
     });
 
@@ -1341,11 +1462,12 @@ export function LoansPage() {
                     reference: pendingMoneyAction.values.reference || null,
                     description: pendingMoneyAction.values.description || null
                 };
-                await api.post(endpoints.finance.loanRepay(), payload);
+                const { data } = await api.post<ApiEnvelope<FinanceResult>>(endpoints.finance.loanRepay(), payload);
+                const repaymentResult = data.data;
                 pushToast({
                     type: "success",
                     title: "Repayment posted",
-                    message: "The repayment has been applied to the selected loan."
+                    message: `Interest ${formatCurrency(repaymentResult.interest_component || 0)} and principal ${formatCurrency(repaymentResult.principal_component || 0)} were posted successfully.`
                 });
                 setShowRepayModal(false);
                 repayForm.reset();
@@ -1772,10 +1894,19 @@ export function LoansPage() {
 
     const pendingRepaymentLoan =
         pendingMoneyAction?.type === "repay"
-            ? loans.find((loan) => loan.id === pendingMoneyAction.values.loan_id)
+            ? loans.find((loan) => loan.id === pendingMoneyAction.values.loan_id) || null
             : null;
     const pendingRepaymentAmount =
         pendingMoneyAction?.type === "repay" ? pendingMoneyAction.values.amount : 0;
+    const pendingRepaymentSchedules =
+        pendingRepaymentLoan
+            ? schedules.filter((schedule) => schedule.loan_id === pendingRepaymentLoan.id)
+            : [];
+    const pendingRepaymentInsights = buildRepaymentInsights(
+        pendingRepaymentLoan,
+        pendingRepaymentSchedules,
+        pendingRepaymentAmount
+    );
     const netOperationalFlow = activitySummary.repaymentVolume - activitySummary.disbursementVolume;
     const topMovementLoan = activitySummary.topLoans[0] || null;
     const topMovementShare = activitySummary.totalMovementVolume && topMovementLoan
@@ -3116,6 +3247,9 @@ export function LoansPage() {
                 <DialogTitle>Loan Repayment</DialogTitle>
                 <DialogContent dividers>
                     <Box component="form" id="loan-repay-form" onSubmit={launchRepayment} sx={{ display: "grid", gap: 2, pt: 0.5 }}>
+                        <Alert severity="info" variant="outlined">
+                            The entered cash will be allocated to interest first, then principal. Extra cash above the due amount becomes an early principal repayment, while anything above the total outstanding balance is blocked.
+                        </Alert>
                         <Box>
                             <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
                                 Loan
@@ -3132,21 +3266,161 @@ export function LoansPage() {
                                 </Typography>
                             ) : null}
                         </Box>
+
+                        {selectedRepaymentLoan ? (
+                            <Box
+                                sx={{
+                                    borderRadius: 2,
+                                    border: `1px solid ${alpha(theme.palette.primary.main, 0.12)}`,
+                                    bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.04),
+                                    p: 2
+                                }}
+                            >
+                                <Stack spacing={1.5}>
+                                    <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1}>
+                                        <Box>
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                {selectedRepaymentLoan.loan_number}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {selectedRepaymentMember?.full_name || "Unknown borrower"}
+                                            </Typography>
+                                        </Box>
+                                        <Chip
+                                            label={selectedRepaymentInsights.overdueAmount > 0 ? "Overdue repayment" : "Current repayment"}
+                                            color={selectedRepaymentInsights.overdueAmount > 0 ? "warning" : "success"}
+                                            variant="outlined"
+                                        />
+                                    </Stack>
+                                    <Grid container spacing={1.25}>
+                                        <Grid size={{ xs: 6 }}>
+                                            <Typography variant="caption" color="text.secondary">Due Now</Typography>
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                {formatCurrency(selectedRepaymentInsights.dueNowAmount)}
+                                            </Typography>
+                                        </Grid>
+                                        <Grid size={{ xs: 6 }}>
+                                            <Typography variant="caption" color="text.secondary">Outstanding Balance</Typography>
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                {formatCurrency(selectedRepaymentInsights.outstandingBalance)}
+                                            </Typography>
+                                        </Grid>
+                                        <Grid size={{ xs: 6 }}>
+                                            <Typography variant="caption" color="text.secondary">Interest / Revenue Due</Typography>
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                {formatCurrency(selectedRepaymentInsights.payableInterest)}
+                                            </Typography>
+                                        </Grid>
+                                        <Grid size={{ xs: 6 }}>
+                                            <Typography variant="caption" color="text.secondary">Principal Outstanding</Typography>
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                                {formatCurrency(selectedRepaymentLoan.outstanding_principal)}
+                                            </Typography>
+                                        </Grid>
+                                    </Grid>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                        <Button
+                                            size="small"
+                                            variant="outlined"
+                                            onClick={() => repayForm.setValue("amount", Number(selectedRepaymentInsights.dueNowAmount.toFixed(2)), { shouldValidate: true })}
+                                            disabled={selectedRepaymentInsights.dueNowAmount <= 0}
+                                        >
+                                            Use Due Now
+                                        </Button>
+                                        <Button
+                                            size="small"
+                                            variant="outlined"
+                                            onClick={() => repayForm.setValue("amount", Number(selectedRepaymentInsights.outstandingBalance.toFixed(2)), { shouldValidate: true })}
+                                            disabled={selectedRepaymentInsights.outstandingBalance <= 0}
+                                        >
+                                            Clear Loan
+                                        </Button>
+                                    </Stack>
+                                    {selectedRepaymentInsights.nextDueSchedule ? (
+                                        <Typography variant="caption" color="text.secondary">
+                                            Next installment: #{selectedRepaymentInsights.nextDueSchedule.installment_number} due {formatDate(selectedRepaymentInsights.nextDueSchedule.due_date)}
+                                        </Typography>
+                                    ) : null}
+                                </Stack>
+                            </Box>
+                        ) : null}
+
                         <TextField
                             label="Repayment Amount"
                             type="number"
                             fullWidth
                             {...repayForm.register("amount")}
-                            error={Boolean(repayForm.formState.errors.amount)}
-                            helperText={repayForm.formState.errors.amount?.message}
+                            error={Boolean(repayForm.formState.errors.amount) || selectedRepaymentInsights.excessOverOutstanding > 0}
+                            helperText={
+                                repayForm.formState.errors.amount?.message
+                                || (selectedRepaymentInsights.excessOverOutstanding > 0
+                                    ? `This exceeds the outstanding balance by ${formatCurrency(selectedRepaymentInsights.excessOverOutstanding)}.`
+                                    : selectedRepaymentLoan
+                                        ? `Recommended amount ${formatCurrency(selectedRepaymentInsights.recommendedAmount)}.`
+                                        : undefined)
+                            }
                         />
-                        <TextField label="Reference" fullWidth {...repayForm.register("reference")} />
+
+                        {selectedRepaymentLoan ? (
+                            <Box
+                                sx={{
+                                    borderRadius: 2,
+                                    border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+                                    p: 2
+                                }}
+                            >
+                                <Stack spacing={1.25}>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                        Repayment Allocation Preview
+                                    </Typography>
+                                    <Stack direction="row" justifyContent="space-between">
+                                        <Typography variant="body2" color="text.secondary">Interest component</Typography>
+                                        <Typography variant="body2">{formatCurrency(selectedRepaymentInsights.interestAllocation)}</Typography>
+                                    </Stack>
+                                    <Stack direction="row" justifyContent="space-between">
+                                        <Typography variant="body2" color="text.secondary">Principal component</Typography>
+                                        <Typography variant="body2">{formatCurrency(selectedRepaymentInsights.principalAllocation)}</Typography>
+                                    </Stack>
+                                    <Divider flexItem />
+                                    {selectedRepaymentInsights.excessOverOutstanding > 0 ? (
+                                        <Alert severity="error" variant="outlined">
+                                            The amount is higher than the remaining loan balance and cannot be posted.
+                                        </Alert>
+                                    ) : selectedRepaymentInsights.shortfallAmount > 0 ? (
+                                        <Alert severity="warning" variant="outlined">
+                                            This is a partial repayment. {formatCurrency(selectedRepaymentInsights.shortfallAmount)} will still remain due after posting.
+                                        </Alert>
+                                    ) : selectedRepaymentInsights.extraAmount > 0 ? (
+                                        <Alert severity="success" variant="outlined">
+                                            {formatCurrency(selectedRepaymentInsights.extraAmount)} is above the current due amount and will reduce future principal early.
+                                        </Alert>
+                                    ) : selectedRepaymentInsights.matchesDueNow && selectedRepaymentInsights.dueNowAmount > 0 ? (
+                                        <Alert severity="info" variant="outlined">
+                                            This matches the currently due installment amount.
+                                        </Alert>
+                                    ) : null}
+                                </Stack>
+                            </Box>
+                        ) : null}
+
+                        <TextField
+                            label="Reference"
+                            fullWidth
+                            {...repayForm.register("reference")}
+                            helperText="Generated automatically for teller posting."
+                        />
                         <TextField label="Description" fullWidth multiline minRows={3} {...repayForm.register("description")} />
                     </Box>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setShowRepayModal(false)}>Cancel</Button>
-                    <Button variant="contained" type="submit" form="loan-repay-form" disabled={processing || subscriptionInactive} sx={darkAccentContainedSx}>
+                    <Button
+                        variant="contained"
+                        type="submit"
+                        form="loan-repay-form"
+                        disabled={processing || subscriptionInactive || selectedRepaymentInsights.excessOverOutstanding > 0}
+                        sx={darkAccentContainedSx}
+                    >
                         Review Repayment
                     </Button>
                 </DialogActions>
@@ -3166,6 +3440,9 @@ export function LoansPage() {
                         <Stack spacing={1.25}>
                             <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Loan</Typography><Typography variant="body2">{pendingRepaymentLoan?.loan_number || "Unknown"}</Typography></Stack>
                             <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Repayment Amount</Typography><Typography variant="body2">{formatCurrency(pendingRepaymentAmount)}</Typography></Stack>
+                            <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Interest component</Typography><Typography variant="body2">{formatCurrency(pendingRepaymentInsights.interestAllocation)}</Typography></Stack>
+                            <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Principal component</Typography><Typography variant="body2">{formatCurrency(pendingRepaymentInsights.principalAllocation)}</Typography></Stack>
+                            <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Remaining due after posting</Typography><Typography variant="body2">{formatCurrency(pendingRepaymentInsights.shortfallAmount)}</Typography></Stack>
                             <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Reference</Typography><Typography variant="body2">{pendingMoneyAction?.values.reference || "N/A"}</Typography></Stack>
                         </Stack>
                     )

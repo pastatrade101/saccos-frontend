@@ -39,7 +39,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "react-router-dom";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { AppLoader } from "../components/AppLoader";
 import { DataTable, type Column } from "../components/DataTable";
 import { useToast } from "../components/Toast";
@@ -78,10 +78,10 @@ const schema = z.object({
         .regex(/^(?:\+?255|0)\d{9}$/, "Enter a valid phone (e.g. 0712345678 or +255712345678)."),
     email: z.string().email("Enter a valid email.").optional().or(z.literal("")),
     national_id: z.string().min(5, "National ID is required."),
-    branch_id: z.string().uuid("Select a branch."),
+    branch_id: z.string().uuid("Select a branch.").optional(),
     savings_product_id: z.string().uuid("Select a savings product."),
     share_product_id: z.string().uuid("Select a share product."),
-    status: z.enum(["active", "suspended", "exited"]).default("active"),
+    status: z.enum(["active", "suspended", "exited", "approved_pending_payment"]).default("active"),
     create_login: z.boolean().default(false),
     send_invite: z.boolean().default(true),
     password: z.string().optional()
@@ -137,7 +137,7 @@ const updateSchema = z.object({
     email: z.string().email("Enter a valid email.").optional().or(z.literal("")),
     national_id: z.string().min(5, "National ID is required."),
     branch_id: z.string().uuid("Select a branch."),
-    status: z.enum(["active", "suspended", "exited"]).default("active")
+    status: z.enum(["active", "suspended", "exited", "approved_pending_payment"]).default("active")
 });
 
 type UpdateMemberFormValues = z.infer<typeof updateSchema>;
@@ -163,7 +163,7 @@ interface MemberCredentialsHandoff {
     temporary_password: string;
 }
 
-type MemberStatusFilter = "all" | "active" | "suspended" | "exited";
+type MemberStatusFilter = "all" | "active" | "suspended" | "exited" | "approved_pending_payment";
 type MemberOperationalFilter = "all" | "ready" | "needs_login" | "needs_account" | "needs_review";
 
 const emptyProductBootstrap: ProductBootstrapPayload = {
@@ -342,7 +342,7 @@ export function MembersPage() {
             phone: "",
             email: "",
             national_id: "",
-            branch_id: selectedBranchId || "",
+        branch_id: selectedBranchId || undefined,
             savings_product_id: "",
             share_product_id: "",
             status: "active",
@@ -664,7 +664,10 @@ export function MembersPage() {
     }, [selectedTenantId]);
 
     useEffect(() => {
-        form.setValue("branch_id", selectedBranchId || branches[0]?.id || "");
+        const branchCandidate = selectedBranchId || branches[0]?.id;
+        if (branchCandidate && form.getValues("branch_id") !== branchCandidate) {
+            form.setValue("branch_id", branchCandidate);
+        }
     }, [branches, form, selectedBranchId]);
 
     useEffect(() => {
@@ -782,7 +785,7 @@ export function MembersPage() {
             const fullName = composeMemberFullName(values.first_name, values.last_name);
             const payload: CreateMemberRequest = {
                 tenant_id: selectedTenantId || undefined,
-                branch_id: values.branch_id,
+                branch_id: values.branch_id || "",
                 savings_product_id: values.savings_product_id,
                 share_product_id: values.share_product_id,
                 first_name: values.first_name.trim(),
@@ -2098,20 +2101,21 @@ export function MembersPage() {
                                                             </TextField>
                                                         </Grid>
                                                         <Grid size={{ xs: 12, md: 6 }}>
-                                                            <TextField
-                                                                select
-                                                                label="Status"
-                                                                fullWidth
-                                                                value={updateForm.watch("status")}
-                                                                onChange={(event) => updateForm.setValue("status", event.target.value as UpdateMemberFormValues["status"], { shouldValidate: true })}
-                                                                error={Boolean(updateForm.formState.errors.status)}
-                                                                helperText={updateForm.formState.errors.status?.message}
-                                                            >
-                                                                <MenuItem value="active">Active</MenuItem>
-                                                                <MenuItem value="suspended">Suspended</MenuItem>
-                                                                <MenuItem value="exited">Exited</MenuItem>
-                                                            </TextField>
-                                                        </Grid>
+                                                        <TextField
+                                                            select
+                                                            label="Status"
+                                                            fullWidth
+                                                            value={updateForm.watch("status")}
+                                                            onChange={(event) => updateForm.setValue("status", event.target.value as UpdateMemberFormValues["status"], { shouldValidate: true })}
+                                                            error={Boolean(updateForm.formState.errors.status)}
+                                                            helperText={updateForm.formState.errors.status?.message}
+                                                        >
+                                                            <MenuItem value="active">Active</MenuItem>
+                                                            <MenuItem value="suspended">Suspended</MenuItem>
+                                                            <MenuItem value="exited">Exited</MenuItem>
+                                                            <MenuItem value="approved_pending_payment">Awaiting fee</MenuItem>
+                                                        </TextField>
+                                                    </Grid>
                                                     </Grid>
                                                     <Button type="submit" variant="contained" disabled={updatingMember}>
                                                         {updatingMember ? "Updating member..." : "Update Member"}
@@ -2353,6 +2357,7 @@ export function MembersPage() {
                             <MenuItem value="active">Active</MenuItem>
                             <MenuItem value="suspended">Suspended</MenuItem>
                             <MenuItem value="exited">Exited</MenuItem>
+                            <MenuItem value="approved_pending_payment">Awaiting fee</MenuItem>
                         </TextField>
                         <TextField
                             select
@@ -2416,34 +2421,44 @@ export function MembersPage() {
                 maxWidth="md"
                 fullWidth
             >
-                <DialogTitle>Onboard Member</DialogTitle>
-                <DialogContent dividers>
-                    <Stack spacing={3} sx={{ pt: 0.5 }}>
-                        <Typography variant="body2" color="text.secondary">
-                            Create the member profile, choose the savings and share products for initial provisioning, and the backend will open the linked member accounts against those products.
-                        </Typography>
+                <Box
+                    component="form"
+                    id="member-onboard-form"
+                    onSubmit={onSubmit}
+                    noValidate
+                    sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}
+                >
+                    <DialogTitle>Onboard Member</DialogTitle>
+                    <DialogContent dividers>
+                        <Stack spacing={3} sx={{ pt: 0.5 }}>
+                            <Typography variant="body2" color="text.secondary">
+                                Create the member profile, choose the savings and share products for initial provisioning, and the backend will open the linked member accounts against those products.
+                            </Typography>
 
-                        <Alert severity={createLoginNow ? "info" : "success"} variant="outlined">
-                            {createLoginNow
-                                ? onboardingInviteMode
-                                    ? "The member will be created with a linked login and receive a first-time password setup link by SMS."
-                                    : "The member will be created with a linked login and either your password or a generated temporary password."
-                                    : "The member will be created without a login. Access can be provisioned later from the details panel."}
-                        </Alert>
-
-                        {!productCatalogReady ? (
-                            <Alert severity="warning" variant="outlined">
-                                {productBootstrapLoading
-                                    ? "Loading active savings and share products for this tenant."
-                                    : "Create at least one active savings product and one active share product before onboarding new members."}
+                            <Alert severity={createLoginNow ? "info" : "success"} variant="outlined">
+                                {createLoginNow
+                                    ? onboardingInviteMode
+                                        ? "The member will be created with a linked login and receive a first-time password setup link by SMS."
+                                        : "The member will be created with a linked login and either your password or a generated temporary password."
+                                        : "The member will be created without a login. Access can be provisioned later from the details panel."}
                             </Alert>
-                        ) : (
-                            <Alert severity="info" variant="outlined">
-                                Savings and share accounts will be provisioned using the products selected below. This keeps member accounts aligned with the branch catalog and audit trail.
-                            </Alert>
-                        )}
 
-                        <Box component="form" id="member-onboard-form" onSubmit={onSubmit} sx={{ display: "grid", gap: 2 }}>
+                            {!productCatalogReady ? (
+                                <Alert severity="warning" variant="outlined">
+                                    {productBootstrapLoading
+                                        ? "Loading active savings and share products for this tenant."
+                                        : "Create at least one active savings product and one active share product before onboarding new members."}
+                                </Alert>
+                            ) : (
+                                <Alert severity="info" variant="outlined">
+                                    Savings and share accounts will be provisioned using the products selected below. This keeps member accounts aligned with the branch catalog and audit trail.
+                                </Alert>
+                            )}
+
+                            <input type="hidden" {...form.register("branch_id")} />
+                            <Typography variant="subtitle2" color="text.secondary">
+                                Personal information
+                            </Typography>
                             <Grid container spacing={2}>
                                 <Grid size={{ xs: 12, md: 6 }}>
                                     <TextField
@@ -2495,30 +2510,20 @@ export function MembersPage() {
                                         helperText={form.formState.errors.national_id?.message}
                                     />
                                 </Grid>
-                                <Grid size={{ xs: 12, md: 6 }}>
-                                    <TextField
-                                        select
-                                        label="Branch"
-                                        fullWidth
-                                        value={form.watch("branch_id")}
-                                        onChange={(event) => form.setValue("branch_id", event.target.value, { shouldValidate: true })}
-                                        error={Boolean(form.formState.errors.branch_id)}
-                                        helperText={form.formState.errors.branch_id?.message || "Operational home branch for the member."}
-                                    >
-                                        {branches.map((branch) => (
-                                            <MenuItem key={branch.id} value={branch.id}>
-                                                {branch.name}
-                                            </MenuItem>
-                                        ))}
-                                    </TextField>
-                                </Grid>
+                            </Grid>
+                            <Typography variant="subtitle2" color="text.secondary">
+                                Product assignments
+                            </Typography>
+                            <Grid container spacing={2}>
                                 <Grid size={{ xs: 12, md: 6 }}>
                                     <TextField
                                         select
                                         label="Status"
                                         fullWidth
                                         value={form.watch("status")}
-                                        onChange={(event) => form.setValue("status", event.target.value as MemberFormValues["status"], { shouldValidate: true })}
+                                        onChange={(event) =>
+                                            form.setValue("status", event.target.value as MemberFormValues["status"], { shouldValidate: true })
+                                        }
                                         error={Boolean(form.formState.errors.status)}
                                         helperText={form.formState.errors.status?.message || "Active members can transact immediately."}
                                     >
@@ -2533,7 +2538,9 @@ export function MembersPage() {
                                         label="Savings Product"
                                         fullWidth
                                         value={form.watch("savings_product_id")}
-                                        onChange={(event) => form.setValue("savings_product_id", event.target.value, { shouldValidate: true })}
+                                        onChange={(event) =>
+                                            form.setValue("savings_product_id", event.target.value, { shouldValidate: true })
+                                        }
                                         error={Boolean(form.formState.errors.savings_product_id)}
                                         helperText={
                                             form.formState.errors.savings_product_id?.message ||
@@ -2554,7 +2561,9 @@ export function MembersPage() {
                                         label="Share Product"
                                         fullWidth
                                         value={form.watch("share_product_id")}
-                                        onChange={(event) => form.setValue("share_product_id", event.target.value, { shouldValidate: true })}
+                                        onChange={(event) =>
+                                            form.setValue("share_product_id", event.target.value, { shouldValidate: true })
+                                        }
                                         error={Boolean(form.formState.errors.share_product_id)}
                                         helperText={
                                             form.formState.errors.share_product_id?.message ||
@@ -2633,22 +2642,17 @@ export function MembersPage() {
                                     </Grid>
                                 ) : null}
                             </Stack>
-                        </Box>
-                    </Stack>
-                </DialogContent>
-                <DialogActions sx={{ px: 3, py: 2 }}>
-                    <Button onClick={() => setShowOnboardForm(false)} disabled={submitting} color="inherit">
-                        Cancel
-                    </Button>
-                    <Button
-                        form="member-onboard-form"
-                        type="submit"
-                        variant="contained"
-                        disabled={submitting || productBootstrapLoading || !productCatalogReady}
-                    >
-                        {submitting ? "Creating member..." : "Create Member"}
-                    </Button>
-                </DialogActions>
+                        </Stack>
+                    </DialogContent>
+                    <DialogActions sx={{ px: 3, py: 2 }}>
+                        <Button onClick={() => setShowOnboardForm(false)} disabled={submitting} color="inherit">
+                            Cancel
+                        </Button>
+                        <Button type="submit" variant="contained" disabled={submitting || productBootstrapLoading || !productCatalogReady}>
+                            {submitting ? "Creating member..." : "Create Member"}
+                        </Button>
+                    </DialogActions>
+                </Box>
             </MotionModal>
 
             <Dialog

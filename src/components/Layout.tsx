@@ -1,6 +1,8 @@
 import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
 import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import EventRepeatRoundedIcon from "@mui/icons-material/EventRepeatRounded";
+import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import GroupRoundedIcon from "@mui/icons-material/GroupRounded";
 import HubRoundedIcon from "@mui/icons-material/HubRounded";
 import GppGoodRoundedIcon from "@mui/icons-material/GppGoodRounded";
@@ -11,6 +13,7 @@ import PaidRoundedIcon from "@mui/icons-material/PaidRounded";
 import PeopleAltRoundedIcon from "@mui/icons-material/PeopleAltRounded";
 import PieChartRoundedIcon from "@mui/icons-material/PieChartRounded";
 import PolicyRoundedIcon from "@mui/icons-material/PolicyRounded";
+import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
@@ -26,6 +29,7 @@ import {
     Avatar,
     Box,
     Chip,
+    Collapse,
     Drawer,
     ListItemIcon,
     ListItemText,
@@ -47,11 +51,8 @@ import { alpha } from "@mui/material/styles";
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { useUI } from "../ui/UIProvider";
-import { api } from "../lib/api";
-import { endpoints, type TenantsListResponse } from "../lib/endpoints";
-import type { Tenant } from "../types/api";
 import { brandColors, darkThemeColors } from "../theme/colors";
 import { formatPlatformRole, formatRole } from "../utils/format";
 
@@ -71,16 +72,18 @@ interface SearchOption {
     keywords: string[];
 }
 
+interface NavGroup {
+    key: "workspace" | "products" | "finance" | "operations" | "analytics" | "setup";
+    label: string;
+    itemTos: string[];
+}
+
 const drawerWidth = 280;
 
 const navItems: NavItem[] = [
-    { to: "/setup/tenant", label: "Tenant Setup", allowSetup: true, section: "setup", icon: HubRoundedIcon },
     { to: "/setup/super-admin", label: "Super Admin", allowSetup: true, section: "setup", icon: SettingsRoundedIcon },
     { to: "/dashboard", label: "Dashboard", roles: ["super_admin", "branch_manager", "loan_officer", "teller"], section: "workspace", icon: DashboardRoundedIcon },
     { to: "/dashboard", label: "Auditor Dashboard", roles: ["auditor"], section: "workspace", icon: GppGoodRoundedIcon },
-    { to: "/platform/tenants", label: "Tenants", roles: ["platform_admin", "platform_owner"], section: "workspace", icon: StorefrontRoundedIcon },
-    { to: "/platform/plans", label: "Plans", roles: ["platform_admin", "platform_owner"], section: "workspace", icon: TuneRoundedIcon },
-    { to: "/platform/operations", label: "Operations", roles: ["platform_admin", "platform_owner"], section: "workspace", icon: MonitorHeartRoundedIcon },
     { to: "/staff-users", label: "Team Access", roles: ["super_admin", "branch_manager"], section: "workspace", icon: PeopleAltRoundedIcon },
     { to: "/products", label: "Products", roles: ["branch_manager"], section: "workspace", icon: TuneRoundedIcon },
     { to: "/member-applications", label: "Applications", roles: ["super_admin", "branch_manager", "auditor"], section: "workspace", icon: DescriptionRoundedIcon },
@@ -90,7 +93,9 @@ const navItems: NavItem[] = [
     { to: "/auditor/journals", label: "Journals", roles: ["auditor"], section: "workspace", icon: RuleFolderRoundedIcon },
     { to: "/auditor/audit-logs", label: "Audit Logs", roles: ["auditor"], section: "workspace", icon: PolicyRoundedIcon },
     { to: "/contributions", label: "Contributions", roles: ["branch_manager"], section: "finance", icon: PieChartRoundedIcon },
+    { to: "/savings", label: "Savings", roles: ["branch_manager"], section: "finance", icon: SavingsRoundedIcon },
     { to: "/payments", label: "Payments", roles: ["branch_manager"], section: "finance", icon: PaidRoundedIcon },
+    { to: "/revenue", label: "Gross Revenue", roles: ["branch_manager"], section: "finance", icon: PaidRoundedIcon },
     { to: "/dividends", label: "Dividends", roles: ["super_admin", "branch_manager"], section: "finance", icon: EventRepeatRoundedIcon },
     { to: "/approvals", label: "Approvals", roles: ["super_admin", "branch_manager", "loan_officer", "teller"], section: "finance", icon: PendingActionsRoundedIcon },
     { to: "/cash", label: "Cash Desk", roles: ["teller"], section: "finance", icon: PaidRoundedIcon },
@@ -100,17 +105,17 @@ const navItems: NavItem[] = [
     { to: "/auditor/reports", label: "Reports", roles: ["auditor"], section: "finance", icon: DescriptionRoundedIcon }
 ];
 
-const navSections: Array<{ key: NavItem["section"]; label: string }> = [
-    { key: "setup", label: "Setup" },
-    { key: "workspace", label: "Workspace" },
-    { key: "finance", label: "Finance" }
+const navGroups: NavGroup[] = [
+    { key: "workspace", label: "Workspace", itemTos: ["/member-applications", "/members", "/members/import", "/staff-users"] },
+    { key: "products", label: "Products", itemTos: ["/products"] },
+    { key: "finance", label: "Finance", itemTos: ["/contributions", "/savings", "/loans", "/payments", "/revenue", "/dividends", "/cash-control", "/cash"] },
+    { key: "operations", label: "Operations", itemTos: ["/approvals"] },
+    { key: "analytics", label: "Analytics", itemTos: ["/reports", "/auditor/reports", "/auditor/exceptions", "/auditor/journals", "/auditor/audit-logs"] },
+    { key: "setup", label: "Setup", itemTos: ["/setup/super-admin"] }
 ];
 
 const searchKeywords: Partial<Record<NavItem["to"], string[]>> = {
     "/dashboard": ["overview", "home", "kpi", "summary"],
-    "/platform/tenants": ["platform", "saas", "tenants", "organizations"],
-    "/platform/plans": ["pricing", "features", "entitlements", "plans"],
-    "/platform/operations": ["platform", "operations", "metrics", "observability", "errors", "incidents", "latency"],
     "/staff-users": ["team", "staff", "users", "roles", "access"],
     "/products": ["savings products", "share products", "charges", "posting rules", "coa mappings"],
     "/member-applications": ["applications", "kyc", "member approval", "onboarding review"],
@@ -122,13 +127,15 @@ const searchKeywords: Partial<Record<NavItem["to"], string[]>> = {
     "/auditor/audit-logs": ["audit logs", "trail", "changes"],
     "/auditor/reports": ["audit reports", "exports", "compliance"],
     "/contributions": ["shares", "share capital", "dividends", "capital"],
+    "/savings": ["savings", "deposits", "withdrawals", "balances"],
     "/payments": ["member payments", "azam pay", "mobile money", "failed payments", "receipts", "reconcile"],
+    "/revenue": ["fees", "penalties", "loan interest", "loan fees", "branch revenue", "income accounts"],
+    "/charge-revenue": ["fees", "penalties", "loan interest", "loan fees", "branch revenue", "income accounts"],
     "/dividends": ["dividend cycle", "allocations", "approvals"],
     "/approvals": ["maker checker", "approval queue", "high risk controls", "checker decisions"],
     "/cash": ["deposit", "withdraw", "teller", "cash desk"],
     "/loans": ["disbursement", "repayment", "portfolio"],
     "/reports": ["exports", "trial balance", "par", "aging"],
-    "/setup/tenant": ["organization", "tenant creation"],
     "/setup/super-admin": ["bootstrap", "admin profile"]
 };
 
@@ -154,18 +161,6 @@ function getPageSubtitle(pathname: string) {
 
     if (pathname.startsWith("/dashboard")) {
         return "Track platform or tenant performance, lending health, and member activity.";
-    }
-
-    if (pathname.startsWith("/platform/tenants")) {
-        return "Oversee all SACCOS tenants and switch intentionally into a tenant workspace.";
-    }
-
-    if (pathname.startsWith("/platform/plans")) {
-        return "Define SaaS plans, limits, and feature entitlements for each subscription tier.";
-    }
-
-    if (pathname.startsWith("/platform/operations")) {
-        return "Monitor API health, infrastructure load, tenant traffic, and incident signals in one control room.";
     }
 
     if (pathname.startsWith("/members")) {
@@ -200,8 +195,16 @@ function getPageSubtitle(pathname: string) {
         return "Review member share capital growth, contribution patterns, and dividend credits.";
     }
 
+    if (pathname.startsWith("/savings")) {
+        return "Monitor member savings deposits, withdrawals, and balances per branch.";
+    }
+
     if (pathname.startsWith("/payments")) {
         return "Follow member mobile-money requests, investigate failures, and reconcile paid orders at branch level.";
+    }
+
+    if (pathname.startsWith("/revenue") || pathname.startsWith("/charge-revenue")) {
+        return "Review posted gross fee, penalty, loan-interest, and loan-fee income for your branch scope with trend and ledger-source visibility.";
     }
 
     if (pathname.startsWith("/dividends")) {
@@ -232,12 +235,11 @@ export function AppLayout() {
     const location = useLocation();
     const navigate = useNavigate();
     const [accountMenuAnchor, setAccountMenuAnchor] = useState<null | HTMLElement>(null);
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
     const [searchQuery, setSearchQuery] = useState("");
-    const [platformTenants, setPlatformTenants] = useState<Tenant[]>([]);
     const {
         profile,
         signOut,
-        selectedTenantId,
         selectedBranchId,
         selectedTenantName,
         selectedBranchName,
@@ -247,7 +249,6 @@ export function AppLayout() {
         user,
         lastApiError,
         isInternalOps,
-        setSelectedTenantId,
         setSelectedBranchId,
         refreshProfile
     } = useAuth();
@@ -267,12 +268,7 @@ export function AppLayout() {
         }
 
         if (isInternalOps) {
-            return (
-                (item.to === "/dashboard" && item.label === "Dashboard") ||
-                item.to === "/platform/tenants" ||
-                item.to === "/platform/plans" ||
-                item.to === "/platform/operations"
-            );
+            return item.to === "/dashboard";
         }
 
         if (!profile || !item.roles) {
@@ -298,22 +294,22 @@ export function AppLayout() {
         return item.roles.includes(profile.role);
     });
 
+    const topLevelItems = useMemo(
+        () => visibleItems.filter((item) => item.to === "/dashboard"),
+        [visibleItems]
+    );
+
+    const groupedNavItems = useMemo(
+        () => navGroups
+            .map((group) => ({
+                ...group,
+                items: visibleItems.filter((item) => group.itemTos.includes(item.to))
+            }))
+            .filter((group) => group.items.length),
+        [visibleItems]
+    );
+
     const shouldRedirectToMemberPortal = profile?.role === "member";
-
-    useEffect(() => {
-        if (!isInternalOps) {
-            setPlatformTenants([]);
-            return;
-        }
-
-        void api.get<TenantsListResponse>(endpoints.tenants.list(), { params: { page: 1, limit: 100 } })
-            .then(({ data }) => {
-                setPlatformTenants(data.data || []);
-            })
-            .catch(() => {
-                setPlatformTenants([]);
-            });
-    }, [isInternalOps]);
 
     useEffect(() => {
         if (!isDesktop) {
@@ -321,10 +317,28 @@ export function AppLayout() {
         }
     }, [closeMobileSidebar, isDesktop, location.pathname]);
 
+    useEffect(() => {
+        setExpandedGroups((previous) => {
+            const next: Record<string, boolean> = {};
+            let changed = Object.keys(previous).length !== groupedNavItems.length;
+
+            groupedNavItems.forEach((group) => {
+                const hasActiveChild = group.items.some((item) => location.pathname.startsWith(item.to));
+                const nextValue = hasActiveChild ? true : (previous[group.key] ?? false);
+                next[group.key] = nextValue;
+                if (previous[group.key] !== nextValue) {
+                    changed = true;
+                }
+            });
+
+            return changed ? next : previous;
+        });
+    }, [groupedNavItems, location.pathname]);
+
     const displayRole = isInternalOps && !profile ? "Internal Ops" : profile ? formatRole(profile.role) : "Setup pending";
     const displayPlatformRole = formatPlatformRole(platformRole);
     const branchLabel = selectedBranchName || selectedBranchId || "All branches";
-    const tenantLabel = selectedTenantName || selectedTenantId || "Tenant workspace";
+    const tenantLabel = selectedTenantName || "SACCOS workspace";
     const pageTitle = getPageTitle(location.pathname);
     const pageSubtitle = getPageSubtitle(location.pathname);
     const searchOptions = useMemo<SearchOption[]>(
@@ -425,64 +439,133 @@ export function AppLayout() {
                 </Stack>
             </Paper>
 
-            {navSections.map((section) => {
-                const sectionItems = visibleItems.filter((item) => item.section === section.key);
+            {topLevelItems.length ? (
+                <List dense disablePadding>
+                    {topLevelItems.map((item) => {
+                        const active = location.pathname.startsWith(item.to);
+                        const Icon = item.icon;
 
-                if (!sectionItems.length) {
-                    return null;
-                }
+                        return (
+                            <ListItemButton
+                                key={item.to}
+                                selected={active}
+                                onClick={() => {
+                                    navigate(item.to);
+                                    if (!isDesktop) {
+                                        closeMobileSidebar();
+                                    }
+                                }}
+                                sx={{
+                                    mb: 0.5,
+                                    borderRadius: 1.5,
+                                    px: 1.5,
+                                    py: 1,
+                                    color: active ? navActiveColor : sidebarText,
+                                    "&.Mui-selected": {
+                                        bgcolor: navActiveBg,
+                                        color: navActiveColor
+                                    },
+                                    "&:hover": {
+                                        bgcolor: active
+                                            ? navActiveBg
+                                            : navHoverBg
+                                    }
+                                }}
+                            >
+                                <ListItemIcon sx={{ minWidth: 36, color: "inherit" }}>
+                                    <Icon fontSize="small" />
+                                </ListItemIcon>
+                                <ListItemText
+                                    primary={item.label}
+                                    primaryTypographyProps={{ fontSize: 14, fontWeight: active ? 700 : 500 }}
+                                />
+                            </ListItemButton>
+                        );
+                    })}
+                </List>
+            ) : null}
+
+            {groupedNavItems.map((group) => {
+                const isExpanded = expandedGroups[group.key];
+                const hasActiveChild = group.items.some((item) => location.pathname.startsWith(item.to));
 
                 return (
-                    <Box key={section.key}>
-                        <Typography
-                            variant="overline"
-                            sx={{ display: "block", px: 1.5, mb: 0.75, color: sidebarMuted }}
-                        >
-                            {section.label}
-                        </Typography>
+                    <Box key={group.key}>
                         <List dense disablePadding>
-                            {sectionItems.map((item) => {
-                                const active = location.pathname.startsWith(item.to);
-                                const Icon = item.icon;
-
-                                return (
-                                    <ListItemButton
-                                        key={item.to}
-                                        selected={active}
-                                        onClick={() => {
-                                            navigate(item.to);
-                                            if (!isDesktop) {
-                                                closeMobileSidebar();
-                                            }
-                                        }}
-                                        sx={{
-                                            mb: 0.5,
-                                            borderRadius: 1.5,
-                                            px: 1.5,
-                                            py: 1,
-                                            color: active ? navActiveColor : sidebarText,
-                                            "&.Mui-selected": {
-                                                bgcolor: navActiveBg,
-                                                color: navActiveColor
-                                            },
-                                            "&:hover": {
-                                                bgcolor: active
-                                                    ? navActiveBg
-                                                    : navHoverBg
-                                            }
-                                        }}
-                                    >
-                                        <ListItemIcon sx={{ minWidth: 36, color: "inherit" }}>
-                                            <Icon fontSize="small" />
-                                        </ListItemIcon>
-                                        <ListItemText
-                                            primary={item.label}
-                                            primaryTypographyProps={{ fontSize: 14, fontWeight: active ? 700 : 500 }}
-                                        />
-                                    </ListItemButton>
-                                );
-                            })}
+                            <ListItemButton
+                                onClick={() => setExpandedGroups((previous) => ({
+                                    ...previous,
+                                    [group.key]: !previous[group.key]
+                                }))}
+                                sx={{
+                                    mb: 0.5,
+                                    borderRadius: 1.5,
+                                    px: 1.5,
+                                    py: 0.9,
+                                    color: hasActiveChild ? navActiveColor : sidebarMuted,
+                                    bgcolor: hasActiveChild ? navActiveBg : "transparent",
+                                    "&:hover": {
+                                        bgcolor: hasActiveChild ? navActiveBg : navHoverBg
+                                    }
+                                }}
+                            >
+                                <ListItemText
+                                    primary={group.label}
+                                    primaryTypographyProps={{
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        letterSpacing: 0.8,
+                                        textTransform: "uppercase"
+                                    }}
+                                />
+                                {isExpanded ? <ExpandLessRoundedIcon fontSize="small" /> : <ExpandMoreRoundedIcon fontSize="small" />}
+                            </ListItemButton>
                         </List>
+                        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                            <List dense disablePadding sx={{ pl: 1 }}>
+                                {group.items.map((item) => {
+                                    const active = location.pathname.startsWith(item.to);
+                                    const Icon = item.icon;
+
+                                    return (
+                                        <ListItemButton
+                                            key={item.to}
+                                            selected={active}
+                                            onClick={() => {
+                                                navigate(item.to);
+                                                if (!isDesktop) {
+                                                    closeMobileSidebar();
+                                                }
+                                            }}
+                                            sx={{
+                                                mb: 0.5,
+                                                borderRadius: 1.5,
+                                                px: 1.5,
+                                                py: 1,
+                                                color: active ? navActiveColor : sidebarText,
+                                                "&.Mui-selected": {
+                                                    bgcolor: navActiveBg,
+                                                    color: navActiveColor
+                                                },
+                                                "&:hover": {
+                                                    bgcolor: active
+                                                        ? navActiveBg
+                                                        : navHoverBg
+                                                }
+                                            }}
+                                        >
+                                            <ListItemIcon sx={{ minWidth: 36, color: "inherit" }}>
+                                                <Icon fontSize="small" />
+                                            </ListItemIcon>
+                                            <ListItemText
+                                                primary={item.label}
+                                                primaryTypographyProps={{ fontSize: 14, fontWeight: active ? 700 : 500 }}
+                                            />
+                                        </ListItemButton>
+                                    );
+                                })}
+                            </List>
+                        </Collapse>
                     </Box>
                 );
             })}
@@ -637,57 +720,6 @@ export function AppLayout() {
                         )}
                         sx={{ width: { xs: "100%", sm: 360 }, display: { xs: "none", md: "flex" } }}
                     />
-
-                    {isInternalOps ? (
-                        <Autocomplete
-                            size="small"
-                            options={platformTenants}
-                            value={platformTenants.find((tenant) => tenant.id === selectedTenantId) || null}
-                            getOptionLabel={(option) => option.name}
-                            isOptionEqualToValue={(option, value) => option.id === value.id}
-                            onChange={(_, value) => {
-                                if (!value) {
-                                    return;
-                                }
-
-                                setSelectedTenantId(value.id, value.name);
-                                setSelectedBranchId(null);
-                                void refreshProfile(value.id);
-                            }}
-                            renderInput={(params) => (
-                                <TextField
-                                    {...params}
-                                    placeholder="Switch tenant workspace"
-                                    sx={{
-                                        "& .MuiOutlinedInput-root": {
-                                            bgcolor: alpha("#ffffff", isDarkMode ? 0.08 : 0.12),
-                                            color: "#ffffff",
-                                            "& fieldset": {
-                                                borderColor: alpha("#ffffff", 0.16)
-                                            }
-                                        },
-                                        "& .MuiInputBase-input::placeholder": {
-                                            color: alpha("#ffffff", 0.7),
-                                            opacity: 1
-                                        }
-                                    }}
-                                />
-                            )}
-                            renderOption={(props, option) => (
-                                <Box component="li" {...props}>
-                                    <Box>
-                                        <Typography variant="body2" fontWeight={600}>
-                                            {option.name}
-                                        </Typography>
-                                        <Typography variant="caption" color="text.secondary">
-                                            {option.registration_number}
-                                        </Typography>
-                                    </Box>
-                                </Box>
-                            )}
-                            sx={{ width: 280, display: { xs: "none", lg: "flex" } }}
-                        />
-                    ) : null}
 
                     <Chip
                         label={subscription?.status || "unknown"}

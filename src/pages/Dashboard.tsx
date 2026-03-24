@@ -23,7 +23,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { AppLoader } from "../components/AppLoader";
 import { ChartPanel } from "../components/ChartPanel";
 import { AlertsPanel } from "../components/teller/AlertsPanel";
@@ -2032,6 +2032,14 @@ export function DashboardPage() {
                                         sx={theme.palette.mode === "dark" ? { borderColor: alpha(dashboardAccent, 0.44), color: dashboardAccent, "&:hover": { borderColor: alpha(dashboardAccent, 0.78), bgcolor: alpha(dashboardAccent, 0.1) } } : undefined}
                                     >
                                         Cash Controls
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        onClick={() => navigate("/revenue")}
+                                        startIcon={<PaymentsRoundedIcon />}
+                                        sx={theme.palette.mode === "dark" ? { borderColor: alpha(dashboardAccent, 0.44), color: dashboardAccent, "&:hover": { borderColor: alpha(dashboardAccent, 0.78), bgcolor: alpha(dashboardAccent, 0.1) } } : undefined}
+                                    >
+                                        Gross Revenue
                                     </Button>
                                 </Stack>
                             </Stack>

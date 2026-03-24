@@ -400,6 +400,19 @@ export function LandingPage() {
                                 Sign in
                             </Button>
                             <Button
+                                component={RouterLink}
+                                to="/signup"
+                                variant="outlined"
+                                color="inherit"
+                                sx={{
+                                    display: { xs: "none", sm: "inline-flex" },
+                                    borderColor: alpha(theme.palette.common.white, 0.6),
+                                    color: "#ffffff"
+                                }}
+                            >
+                                Apply for membership
+                            </Button>
+                            <Button
                                 component="a"
                                 href={contactHref}
                                 variant="contained"
@@ -484,6 +497,24 @@ export function LandingPage() {
                             }
                         >
                             Sign in
+                        </Button>
+                        <Button
+                            component={RouterLink}
+                            to="/signup"
+                            variant="contained"
+                            fullWidth
+                            onClick={() => setMobileNavOpen(false)}
+                            sx={
+                                isDark
+                                    ? {
+                                          bgcolor: accentColor,
+                                          color: "#1a1a1a",
+                                          "&:hover": { bgcolor: alpha(accentColor, 0.86) }
+                                      }
+                                    : undefined
+                            }
+                        >
+                            Apply now
                         </Button>
                         <Button
                             component="a"
@@ -615,6 +646,19 @@ export function LandingPage() {
                                     }}
                                 >
                                     Explore plans
+                                </Button>
+                                <Button
+                                    component={RouterLink}
+                                    to="/signup"
+                                    size="large"
+                                    variant="outlined"
+                                    sx={{
+                                        borderColor: alpha("#ffffff", 0.4),
+                                        color: "#ffffff",
+                                        "&:hover": { borderColor: alpha("#ffffff", 0.7), bgcolor: alpha("#ffffff", 0.08) }
+                                    }}
+                                >
+                                    Apply for membership
                                 </Button>
                             </Stack>
                             <Stack direction={{ xs: "column", md: "row" }} spacing={2.5} sx={{ pt: 1 }}>

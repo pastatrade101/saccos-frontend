@@ -1,7 +1,5 @@
 import {
-    createContext,
     useCallback,
-    useContext,
     useEffect,
     useMemo,
     useRef,
@@ -21,6 +19,7 @@ import {
 } from "../lib/endpoints";
 import { clearStaleSupabaseSession, supabase } from "../lib/supabase";
 import type { ApiErrorPayload, AuthMe } from "../types/api";
+import { AuthContext, type AuthContextValue } from "./AuthContext";
 
 interface LastApiError {
     status?: number;
@@ -33,47 +32,8 @@ interface AuthFlowError extends Error {
     details?: unknown;
 }
 
-interface AuthContextValue {
-    session: Session | null;
-    user: User | null;
-    profile: AuthMe["profile"];
-    platformRole: string | null;
-    branchIds: string[];
-    subscription: AuthMe["subscription"];
-    loading: boolean;
-    selectedTenantId: string | null;
-    selectedBranchId: string | null;
-    selectedTenantName: string | null;
-    selectedBranchName: string | null;
-    subscriptionInactive: boolean;
-    lastApiError: LastApiError | null;
-    backendUnavailable: boolean;
-    signIn: (
-        email: string,
-        password: string,
-        options?: { challengeId?: string | null; otpCode?: string | null }
-    ) => Promise<void>;
-    requestOtp: (
-        email: string,
-        password: string,
-        challengeId?: string | null,
-        phone?: string | null
-    ) => Promise<OtpChallengeResponse>;
-    signOut: () => Promise<void>;
-    refreshProfile: (tenantOverride?: string | null) => Promise<void>;
-    markPasswordChanged: () => void;
-    setSelectedTenantId: (value: string | null, name?: string | null) => void;
-    setSelectedBranchId: (value: string | null) => void;
-    clearSubscriptionWarning: () => void;
-    isInternalOps: boolean;
-}
-
-const SELECTED_TENANT_KEY = "saccos:selectedTenantId";
 const SELECTED_BRANCH_KEY = "saccos:selectedBranchId";
-const SELECTED_TENANT_NAME_KEY = "saccos:selectedTenantName";
 const SELECTED_BRANCH_NAME_KEY = "saccos:selectedBranchName";
-
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function createAuthFlowError(
     message: string,
@@ -93,38 +53,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const [branchIds, setBranchIds] = useState<string[]>([]);
     const [subscription, setSubscription] = useState<AuthMe["subscription"]>(null);
     const [loading, setLoading] = useState(true);
-    const [selectedTenantId, setSelectedTenantIdState] = useState<string | null>(
-        localStorage.getItem(SELECTED_TENANT_KEY)
-    );
     const [selectedBranchId, setSelectedBranchIdState] = useState<string | null>(
         localStorage.getItem(SELECTED_BRANCH_KEY)
-    );
-    const [selectedTenantName, setSelectedTenantNameState] = useState<string | null>(
-        localStorage.getItem(SELECTED_TENANT_NAME_KEY)
     );
     const [selectedBranchName, setSelectedBranchNameState] = useState<string | null>(
         localStorage.getItem(SELECTED_BRANCH_NAME_KEY)
     );
+    const [selectedTenantId, setSelectedTenantIdState] = useState<string | null>(null);
+    const [selectedTenantName, setSelectedTenantNameState] = useState<string | null>(null);
     const [subscriptionInactive, setSubscriptionInactive] = useState(false);
     const [lastApiError, setLastApiError] = useState<LastApiError | null>(null);
     const [backendUnavailable, setBackendUnavailable] = useState(false);
-    const selectedTenantIdRef = useRef(selectedTenantId);
     const selectedBranchIdRef = useRef(selectedBranchId);
-    const selectedTenantNameRef = useRef(selectedTenantName);
     const selectedBranchNameRef = useRef(selectedBranchName);
     const refreshProfileRequestIdRef = useRef(0);
-
-    useEffect(() => {
-        selectedTenantIdRef.current = selectedTenantId;
-    }, [selectedTenantId]);
+    const authBootstrappedRef = useRef(false);
 
     useEffect(() => {
         selectedBranchIdRef.current = selectedBranchId;
     }, [selectedBranchId]);
-
-    useEffect(() => {
-        selectedTenantNameRef.current = selectedTenantName;
-    }, [selectedTenantName]);
 
     useEffect(() => {
         selectedBranchNameRef.current = selectedBranchName;
@@ -136,16 +83,40 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setBranchIds([]);
         setSubscription(null);
         setSubscriptionInactive(false);
+        setSelectedTenantIdState(null);
+        setSelectedTenantNameState(null);
     }, []);
 
-    const refreshProfile = useCallback(async (tenantOverride?: string | null) => {
+    const discardInvalidSession = useCallback(async () => {
+        try {
+            await supabase.auth.signOut({ scope: "local" });
+        } catch {
+            // Ignore local sign-out failures and still clear stale browser state.
+        }
+
+        clearStaleSupabaseSession();
+        setSession(null);
+        setUser(null);
+        setLastApiError(null);
+        setBackendUnavailable(false);
+        clearAuthState();
+    }, [clearAuthState]);
+
+    const refreshProfile = useCallback(async () => {
         const requestId = ++refreshProfileRequestIdRef.current;
-        const tenantId = tenantOverride ?? selectedTenantIdRef.current;
 
         try {
-            const { data } = await api.get<MeResponse>(endpoints.users.me(), {
-                params: tenantId ? { tenant_id: tenantId } : undefined
-            });
+            const { data: sessionData } = await supabase.auth.getSession();
+            const accessToken = sessionData.session?.access_token;
+
+            if (!accessToken) {
+                await discardInvalidSession();
+                return;
+            }
+
+            const { data } = await api.get<MeResponse>(endpoints.users.me());
+            const tenantId = data.data.tenant?.id || data.data.profile?.tenant_id || null;
+            const tenantName = data.data.tenant?.name || null;
             const subscriptionResponse = tenantId
                 ? await api.get<MeSubscriptionResponse>(endpoints.me.subscription(), {
                     params: { tenant_id: tenantId }
@@ -160,38 +131,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
             setBranchIds(data.data.branch_ids || []);
             setSubscription(subscriptionResponse?.data.data || data.data.subscription || null);
             setSubscriptionInactive(Boolean(subscriptionResponse?.data.data && subscriptionResponse.data.data.isUsable === false));
-
-            if (data.data.tenant?.id) {
-                if (selectedTenantIdRef.current !== data.data.tenant.id) {
-                    setSelectedTenantIdState(data.data.tenant.id);
-                    localStorage.setItem(SELECTED_TENANT_KEY, data.data.tenant.id);
-                }
-
-                if (selectedTenantNameRef.current !== data.data.tenant.name) {
-                    setSelectedTenantNameState(data.data.tenant.name);
-                    localStorage.setItem(SELECTED_TENANT_NAME_KEY, data.data.tenant.name);
-                }
-            } else if (data.data.profile?.tenant_id && data.data.profile.tenant_id !== selectedTenantIdRef.current) {
-                setSelectedTenantIdState(data.data.profile.tenant_id);
-                localStorage.setItem(SELECTED_TENANT_KEY, data.data.profile.tenant_id);
-            }
+            setSelectedTenantIdState(tenantId);
+            setSelectedTenantNameState(tenantName);
 
             const firstBranch = data.data.branches?.[0];
             setBackendUnavailable(false);
 
             if (firstBranch) {
-                if (selectedBranchIdRef.current !== firstBranch.id) {
-                    setSelectedBranchIdState(firstBranch.id);
-                    localStorage.setItem(SELECTED_BRANCH_KEY, firstBranch.id);
-                }
-
-                if (selectedBranchNameRef.current !== firstBranch.name) {
-                    setSelectedBranchNameState(firstBranch.name);
-                    localStorage.setItem(SELECTED_BRANCH_NAME_KEY, firstBranch.name);
-                }
-            } else if (!selectedBranchIdRef.current && data.data.branch_ids?.length) {
+                setSelectedBranchIdState(firstBranch.id);
+                setSelectedBranchNameState(firstBranch.name);
+            } else if (data.data.branch_ids?.length) {
                 setSelectedBranchIdState(data.data.branch_ids[0]);
-                localStorage.setItem(SELECTED_BRANCH_KEY, data.data.branch_ids[0]);
             }
         } catch (error) {
             if (requestId !== refreshProfileRequestIdRef.current) {
@@ -215,6 +165,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
                 return;
             }
 
+            if (errorCode === "AUTH_TOKEN_MISSING" || errorCode === "AUTH_TOKEN_INVALID") {
+                await discardInvalidSession();
+                return;
+            }
+
             setLastApiError({
                 code: errorCode || "PROFILE_REFRESH_FAILED",
                 message
@@ -222,25 +177,38 @@ export function AuthProvider({ children }: PropsWithChildren) {
             setBackendUnavailable(true);
             clearAuthState();
         }
-    }, [clearAuthState]);
+    }, [clearAuthState, discardInvalidSession]);
 
     useEffect(() => {
         const {
             data: { subscription: authSubscription }
-        } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        } = supabase.auth.onAuthStateChange((event, nextSession) => {
             setSession(nextSession);
             setUser(nextSession?.user ?? null);
 
             if (!nextSession) {
                 clearAuthState();
                 setBackendUnavailable(false);
+                authBootstrappedRef.current = true;
                 setLoading(false);
                 return;
             }
 
-            setLoading(true);
+            const shouldShowGlobalLoader =
+                !authBootstrappedRef.current
+                || event === "INITIAL_SESSION"
+                || event === "SIGNED_IN";
+
+            if (shouldShowGlobalLoader) {
+                setLoading(true);
+            }
+
             void refreshProfile().finally(() => {
-                setLoading(false);
+                authBootstrappedRef.current = true;
+
+                if (shouldShowGlobalLoader) {
+                    setLoading(false);
+                }
             });
         });
 
@@ -251,11 +219,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
             if (data.session) {
                 setLoading(true);
                 void refreshProfile().finally(() => {
+                    authBootstrappedRef.current = true;
                     setLoading(false);
                 });
                 return;
             }
 
+            authBootstrappedRef.current = true;
             setBackendUnavailable(false);
             setLoading(false);
         }).catch(async (error) => {
@@ -267,6 +237,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
             }
 
             clearAuthState();
+            authBootstrappedRef.current = true;
             setBackendUnavailable(false);
             setLoading(false);
         });
@@ -299,13 +270,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     ) => {
         setLoading(true);
         clearStaleSupabaseSession();
-        localStorage.removeItem(SELECTED_TENANT_KEY);
         localStorage.removeItem(SELECTED_BRANCH_KEY);
-        localStorage.removeItem(SELECTED_TENANT_NAME_KEY);
         localStorage.removeItem(SELECTED_BRANCH_NAME_KEY);
-        setSelectedTenantIdState(null);
         setSelectedBranchIdState(null);
-        setSelectedTenantNameState(null);
         setSelectedBranchNameState(null);
         clearAuthState();
         setBackendUnavailable(false);
@@ -390,18 +357,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
             throw createAuthFlowError("Unable to send OTP.");
         }
-    }, []);
+    }, [clearAuthState]);
 
     const signOut = useCallback(async () => {
         await supabase.auth.signOut();
         clearStaleSupabaseSession();
-        localStorage.removeItem(SELECTED_TENANT_KEY);
         localStorage.removeItem(SELECTED_BRANCH_KEY);
-        localStorage.removeItem(SELECTED_TENANT_NAME_KEY);
         localStorage.removeItem(SELECTED_BRANCH_NAME_KEY);
-        setSelectedTenantIdState(null);
         setSelectedBranchIdState(null);
-        setSelectedTenantNameState(null);
         setSelectedBranchNameState(null);
         clearAuthState();
         setBackendUnavailable(false);
@@ -416,26 +379,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
                 first_login_at: current.first_login_at || changedAt
             }
             : current);
-    }, []);
-
-    const setSelectedTenantId = useCallback((value: string | null, name?: string | null) => {
-        setSelectedTenantIdState(value);
-
-        if (value) {
-            localStorage.setItem(SELECTED_TENANT_KEY, value);
-        } else {
-            localStorage.removeItem(SELECTED_TENANT_KEY);
-        }
-
-        if (name !== undefined) {
-            setSelectedTenantNameState(name);
-
-            if (name) {
-                localStorage.setItem(SELECTED_TENANT_NAME_KEY, name);
-            } else {
-                localStorage.removeItem(SELECTED_TENANT_NAME_KEY);
-            }
-        }
     }, []);
 
     const setSelectedBranchId = useCallback((value: string | null) => {
@@ -475,7 +418,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
         signOut,
         refreshProfile,
         markPasswordChanged,
-        setSelectedTenantId,
         setSelectedBranchId,
         clearSubscriptionWarning: () => setSubscriptionInactive(false),
         isInternalOps:
@@ -504,18 +446,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         user,
         backendUnavailable,
         setSelectedBranchId,
-        setSelectedTenantId
     ]);
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-    const context = useContext(AuthContext);
-
-    if (!context) {
-        throw new Error("useAuth must be used within AuthProvider");
-    }
-
-    return context;
 }

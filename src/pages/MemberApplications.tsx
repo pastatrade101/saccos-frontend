@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { DataTable } from "../components/DataTable";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
@@ -37,16 +37,19 @@ import {
     type RejectMemberApplicationRequest,
     type ReviewMemberApplicationRequest
 } from "../lib/endpoints";
-import type { Branch, MemberApplication } from "../types/api";
+import type { Branch, MemberApplication, MemberApplicationStatus } from "../types/api";
+import { memberApplicationStatusLabels } from "../utils/member-application-status";
 import { formatCurrency, formatDate } from "../utils/format";
 
 type DialogMode = "create" | "review" | "reject" | null;
 
 function statusColor(status: MemberApplication["status"]) {
     if (status === "approved") return "success";
+    if (status === "active") return "success";
     if (status === "rejected") return "error";
     if (status === "under_review") return "warning";
     if (status === "submitted") return "info";
+    if (status === "approved_pending_payment") return "warning";
     return "default";
 }
 
@@ -131,7 +134,7 @@ export function MemberApplicationsPage() {
     const summary = useMemo(() => ({
         draft: applications.filter((item) => item.status === "draft").length,
         review: applications.filter((item) => item.status === "submitted" || item.status === "under_review").length,
-        approved: applications.filter((item) => item.status === "approved").length,
+        approved: applications.filter((item) => ["approved", "active"].includes(item.status)).length,
         rejected: applications.filter((item) => item.status === "rejected").length
     }), [applications]);
     const isSuperAdmin = profile?.role === "super_admin";
@@ -327,7 +330,7 @@ export function MemberApplicationsPage() {
                 columns={[
                     { key: "application", header: "Application", render: (row) => <Stack spacing={0.25}><Typography fontWeight={700}>{row.application_no}</Typography><Typography variant="body2" color="text.secondary">{row.full_name}</Typography></Stack> },
                     { key: "branch", header: "Branch", render: (row) => branches.find((branch) => branch.id === row.branch_id)?.name || row.branch_id },
-                    { key: "status", header: "Status", render: (row) => <Chip size="small" color={statusColor(row.status)} label={row.status.replace(/_/g, " ")} /> },
+                    { key: "status", header: "Status", render: (row) => <Chip size="small" color={statusColor(row.status)} label={memberApplicationStatusLabels[row.status] || row.status.replace(/_/g, " ")} /> },
                     { key: "kyc", header: "KYC", render: (row) => row.kyc_status },
                     { key: "fee", header: "Fee", render: (row) => `${formatCurrency(row.membership_fee_paid)} / ${formatCurrency(row.membership_fee_amount)}` },
                     { key: "created", header: "Created", render: (row) => formatDate(row.created_at) },

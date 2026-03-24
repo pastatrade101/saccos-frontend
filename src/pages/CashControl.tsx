@@ -17,7 +17,7 @@ import {
 } from "@mui/material";
 import { useEffect, useMemo, useState } from "react";
 
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { DataTable } from "../components/DataTable";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";

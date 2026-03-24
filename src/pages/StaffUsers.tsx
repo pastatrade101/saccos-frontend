@@ -36,7 +36,7 @@ import { RoleCoverageMatrix } from "../components/RoleCoverageMatrix";
 import { RoleDistributionChart } from "../components/RoleDistributionChart";
 import { UsersTable } from "../components/UsersTable";
 import { ConfirmModal } from "../components/ConfirmModal";
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
 import {
@@ -60,7 +60,6 @@ const schema = z.object({
         .min(1, "Phone is required.")
         .regex(/^(?:\+?255|0)?[67]\d{8}$/, "Use a valid Tanzania phone (06/07 local or +2556/+2557)."),
     role: z.enum(["super_admin", "branch_manager", "loan_officer", "teller", "auditor"]),
-    branch_id: z.string().uuid("Select a branch.").optional().or(z.literal("")),
     send_invite: z.boolean().default(true),
     password: z.string().optional()
 }).superRefine((value, ctx) => {
@@ -69,14 +68,6 @@ const schema = z.object({
             code: z.ZodIssueCode.custom,
             message: "Password must be at least 8 characters when provided.",
             path: ["password"]
-        });
-    }
-
-    if (["branch_manager", "loan_officer", "teller"].includes(value.role) && !value.branch_id) {
-        ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Select a branch for this operational role.",
-            path: ["branch_id"]
         });
     }
 });
@@ -196,7 +187,6 @@ export function StaffUsersPage() {
             full_name: "",
             phone: "",
             role: "branch_manager",
-            branch_id: selectedBranchId || "",
             send_invite: true,
             password: ""
         }
@@ -204,7 +194,6 @@ export function StaffUsersPage() {
 
     const provisioningMode = form.watch("send_invite");
     const selectedRole = form.watch("role");
-    const branchRequired = ["branch_manager", "loan_officer", "teller"].includes(selectedRole);
     const provisionableRoles: ProvisionableRole[] = profile?.role === "super_admin"
         ? ["branch_manager"]
         : ["loan_officer", "teller", "auditor"];
@@ -261,12 +250,6 @@ export function StaffUsersPage() {
         void loadUsers();
     }, [selectedTenantId]);
 
-    useEffect(() => {
-        if (selectedBranchId) {
-            form.setValue("branch_id", selectedBranchId);
-        }
-    }, [form, selectedBranchId]);
-
     const onSubmit = form.handleSubmit(async (values) => {
         setSubmitting(true);
 
@@ -277,7 +260,7 @@ export function StaffUsersPage() {
                 full_name: values.full_name,
                 phone: values.phone,
                 role: values.role,
-                branch_ids: values.branch_id ? [values.branch_id] : [],
+                branch_ids: selectedBranchId ? [selectedBranchId] : [],
                 send_invite: values.send_invite,
                 password: values.send_invite ? undefined : values.password
             };
@@ -311,7 +294,6 @@ export function StaffUsersPage() {
                 full_name: "",
                 phone: "",
                 role: provisionableRoles[0],
-                branch_id: values.branch_id,
                 send_invite: true,
                 password: ""
             });
@@ -761,29 +743,6 @@ export function StaffUsersPage() {
                                         {provisionableRoles.includes("loan_officer") ? <MenuItem value="loan_officer">Loan Officer</MenuItem> : null}
                                         {provisionableRoles.includes("teller") ? <MenuItem value="teller">Teller</MenuItem> : null}
                                         {provisionableRoles.includes("auditor") ? <MenuItem value="auditor">Auditor</MenuItem> : null}
-                                    </TextField>
-                                </Grid>
-                                <Grid size={{ xs: 12, md: 4 }}>
-                                    <TextField
-                                        select
-                                        label={branchRequired ? "Branch" : "Branch (Optional)"}
-                                        fullWidth
-                                        value={form.watch("branch_id")}
-                                        onChange={(event) => form.setValue("branch_id", event.target.value, { shouldValidate: true })}
-                                        error={Boolean(form.formState.errors.branch_id)}
-                                        helperText={
-                                            form.formState.errors.branch_id?.message ||
-                                            (branchRequired
-                                                ? "Primary branch assignment for this operational login."
-                                                : "Leave blank for tenant-wide roles such as super admin or auditor.")
-                                        }
-                                    >
-                                        {!branchRequired ? <MenuItem value="">No fixed branch</MenuItem> : null}
-                                        {branches.map((branch) => (
-                                            <MenuItem key={branch.id} value={branch.id}>
-                                                {branch.name}
-                                            </MenuItem>
-                                        ))}
                                     </TextField>
                                 </Grid>
                             </Grid>

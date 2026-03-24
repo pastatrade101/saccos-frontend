@@ -116,14 +116,11 @@ Account policy:
 
 Setup:
 
-- `/setup/tenant`
 - `/setup/super-admin`
 
 Operational:
 
 - `/dashboard`
-- `/platform/tenants`
-- `/platform/plans`
 - `/staff-users`
 - `/products`
 - `/member-applications`
