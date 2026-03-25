@@ -318,7 +318,7 @@ export function MembersPage() {
         profile && ["branch_manager"].includes(profile.role)
     );
     const canResetMemberPasswords = Boolean(
-        profile && ["super_admin"].includes(profile.role)
+        profile && ["super_admin", "branch_manager"].includes(profile.role)
     );
     const canViewMemberCredentials = canCreateMemberLogins || canResetMemberPasswords;
     const canUpdateMembers = Boolean(

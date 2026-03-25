@@ -1,4 +1,4 @@
-import { MotionCard, MotionModal } from "../ui/motion";
+import { MotionCard, MotionModal, MotionSection, easeOutFast, springSoft, useReducedMotionSafe } from "../ui/motion";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 import ApartmentRoundedIcon from "@mui/icons-material/ApartmentRounded";
 import ApprovalRoundedIcon from "@mui/icons-material/ApprovalRounded";
@@ -59,6 +59,9 @@ import {
     LinearProgress,
     Skeleton,
     Stack,
+    Step,
+    StepLabel,
+    Stepper,
     Switch,
     TablePagination,
     TextField,
@@ -66,6 +69,7 @@ import {
     useMediaQuery
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState, type ChangeEvent, type MouseEvent } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -821,6 +825,7 @@ export function MemberPortalPage() {
     const canUsePortalDeposits = Boolean(subscription?.features?.contributions_enabled);
     const { pushToast } = useToast();
     const { theme: themeMode, toggleTheme } = useUI();
+    const prefersReducedMotion = useReducedMotionSafe();
     const [memberRecord, setMemberRecord] = useState<Member | null>(null);
     const [memberApplication, setMemberApplication] = useState<MemberApplication | null>(null);
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
@@ -838,6 +843,7 @@ export function MemberPortalPage() {
     const [warning, setWarning] = useState<string | null>(null);
     const [showApplyDialog, setShowApplyDialog] = useState(false);
     const [editingLoanApplicationId, setEditingLoanApplicationId] = useState<string | null>(null);
+    const [loanFormStep, setLoanFormStep] = useState(0);
     const [loanCapacity, setLoanCapacity] = useState<LoanCapacitySummary | null>(null);
     const [loanCapacityLoading, setLoanCapacityLoading] = useState(false);
     const [loanCapacityError, setLoanCapacityError] = useState<string | null>(null);
@@ -1133,6 +1139,29 @@ export function MemberPortalPage() {
 
         return "Loan pool liquidity is currently limited. Loan approvals may take longer.";
     }, [liquidityApproachingFreeze]);
+    const loanApplicationSteps = [
+        {
+            label: "Product",
+            description: "Choose the loan product and review its configured terms."
+        },
+        {
+            label: "Eligibility",
+            description: "Review your live borrowing capacity and SACCO liquidity guidance."
+        },
+        {
+            label: "Details",
+            description: "Enter the amount, purpose, term, and repayment structure."
+        },
+        {
+            label: "Review",
+            description: "Confirm the application summary before sending it for appraisal."
+        }
+    ] as const;
+    const loanStepProgressPercent = ((loanFormStep + 1) / loanApplicationSteps.length) * 100;
+    const isLoanProductStep = loanFormStep === 0;
+    const isLoanEligibilityStep = loanFormStep === 1;
+    const isLoanDetailsStep = loanFormStep === 2;
+    const isLoanReviewStep = loanFormStep === loanApplicationSteps.length - 1;
     const visibleLoanFormErrors = useMemo(
         () =>
             Object.values(loanApplicationForm.formState.errors)
@@ -3112,6 +3141,8 @@ export function MemberPortalPage() {
     };
 
     const openLoanApplicationEditor = (application?: LoanApplication | null) => {
+        setLoanFormStep(0);
+
         if (application) {
             setEditingLoanApplicationId(application.id);
             setRequestedAmountInput(formatWholeNumber(application.requested_amount));
@@ -3141,6 +3172,48 @@ export function MemberPortalPage() {
         }
 
         setShowApplyDialog(true);
+    };
+
+    const closeLoanApplicationDialog = () => {
+        setShowApplyDialog(false);
+        setEditingLoanApplicationId(null);
+        setRequestedAmountInput("");
+        setLoanFormStep(0);
+        loanApplicationForm.reset();
+    };
+
+    const handleAdvanceLoanFormStep = async () => {
+        if (isLoanProductStep) {
+            if (!loanApplicationForm.watch("product_id")) {
+                loanApplicationForm.setError("product_id", { message: "Select a loan product." });
+                return;
+            }
+
+            setLoanFormStep(1);
+            return;
+        }
+
+        if (isLoanEligibilityStep) {
+            setLoanFormStep(2);
+            return;
+        }
+
+        if (isLoanDetailsStep) {
+            const detailsValid = await loanApplicationForm.trigger([
+                "purpose",
+                "requested_amount",
+                "requested_term_count",
+                "requested_repayment_frequency"
+            ]);
+
+            if (detailsValid) {
+                setLoanFormStep(3);
+            }
+        }
+    };
+
+    const handleRetreatLoanFormStep = () => {
+        setLoanFormStep((current) => Math.max(0, current - 1));
     };
 
     const submitLoanApplication = loanApplicationForm.handleSubmit(async (values) => {
@@ -3256,10 +3329,7 @@ export function MemberPortalPage() {
                     ? "Your corrected application has been resubmitted for appraisal."
                     : "Your application is now waiting for appraisal."
             });
-            setEditingLoanApplicationId(null);
-            setRequestedAmountInput("");
-            loanApplicationForm.reset();
-            setShowApplyDialog(false);
+            closeLoanApplicationDialog();
             await reloadLoanApplications(profile.tenant_id);
         } catch (loanApplicationError) {
             const errorCode = getApiErrorCode(loanApplicationError);
@@ -5990,93 +6060,100 @@ export function MemberPortalPage() {
                             const active = activeSection === section.id;
 
                             return (
-                                <ListItemButton
+                                <Box
                                     key={section.id}
-                                    selected={active}
-                                    onClick={() => handleSectionSelect(section.id)}
-                                    sx={{
-                                        position: "relative",
-                                        overflow: "hidden",
-                                        mb: 0.7,
-                                        minHeight: collapsed ? 48 : 58,
-                                        borderRadius: 2.4,
-                                        justifyContent: collapsed ? "center" : "flex-start",
-                                        px: collapsed ? 0.85 : 1.15,
-                                        transition: "all 180ms ease",
-                                        "&::before": {
-                                            content: '""',
-                                            position: "absolute",
-                                            left: 0,
-                                            top: 8,
-                                            bottom: 8,
-                                            width: 3,
-                                            borderRadius: "0 6px 6px 0",
-                                            bgcolor: "#fff",
-                                            opacity: active ? 0.95 : 0
-                                        },
-                                        "&:hover": {
-                                            bgcolor: active
-                                                ? undefined
-                                                : theme.palette.mode === "dark"
-                                                    ? alpha(memberAccent, 0.14)
-                                                    : alpha(brandColors.primary[500], 0.1),
-                                            transform: collapsed ? "none" : "translateX(2px)"
-                                        },
-                                        "&.Mui-selected": {
-                                            background: theme.palette.mode === "dark"
-                                                ? `linear-gradient(135deg, ${alpha(memberAccentStrong, 0.9)}, ${alpha(memberAccentAlt, 0.68)})`
-                                                : `linear-gradient(135deg, ${brandColors.primary[900]}, ${brandColors.accent[700]})`,
-                                            color: "#fff",
-                                            boxShadow: `0 12px 22px ${alpha(memberAccentStrong, 0.26)}`
-                                        }
-                                    }}
+                                    component={motion.div}
+                                    initial={prefersReducedMotion ? false : { opacity: 0, x: -10 }}
+                                    animate={prefersReducedMotion ? undefined : { opacity: 1, x: 0 }}
+                                    transition={prefersReducedMotion ? undefined : { ...springSoft, delay: 0.03 * visiblePortalSections.findIndex((item) => item.id === section.id) }}
                                 >
-                                    <ListItemIcon
+                                    <ListItemButton
+                                        selected={active}
+                                        onClick={() => handleSectionSelect(section.id)}
                                         sx={{
-                                            minWidth: collapsed ? 0 : 38,
-                                            justifyContent: "center"
+                                            position: "relative",
+                                            overflow: "hidden",
+                                            mb: 0.7,
+                                            minHeight: collapsed ? 48 : 58,
+                                            borderRadius: 2.4,
+                                            justifyContent: collapsed ? "center" : "flex-start",
+                                            px: collapsed ? 0.85 : 1.15,
+                                            transition: "all 180ms ease",
+                                            "&::before": {
+                                                content: '""',
+                                                position: "absolute",
+                                                left: 0,
+                                                top: 8,
+                                                bottom: 8,
+                                                width: 3,
+                                                borderRadius: "0 6px 6px 0",
+                                                bgcolor: "#fff",
+                                                opacity: active ? 0.95 : 0
+                                            },
+                                            "&:hover": {
+                                                bgcolor: active
+                                                    ? undefined
+                                                    : theme.palette.mode === "dark"
+                                                        ? alpha(memberAccent, 0.14)
+                                                        : alpha(brandColors.primary[500], 0.1),
+                                                transform: collapsed ? "none" : "translateX(2px)"
+                                            },
+                                            "&.Mui-selected": {
+                                                background: theme.palette.mode === "dark"
+                                                    ? `linear-gradient(135deg, ${alpha(memberAccentStrong, 0.9)}, ${alpha(memberAccentAlt, 0.68)})`
+                                                    : `linear-gradient(135deg, ${brandColors.primary[900]}, ${brandColors.accent[700]})`,
+                                                color: "#fff",
+                                                boxShadow: `0 12px 22px ${alpha(memberAccentStrong, 0.26)}`
+                                            }
                                         }}
                                     >
-                                        <Box
+                                        <ListItemIcon
                                             sx={{
-                                                width: 30,
-                                                height: 30,
-                                                borderRadius: 1.25,
-                                                display: "grid",
-                                                placeItems: "center",
-                                                bgcolor: active
-                                                    ? alpha("#FFFFFF", 0.22)
-                                                    : theme.palette.mode === "dark"
-                                                        ? alpha("#FFFFFF", 0.1)
-                                                        : alpha(brandColors.primary[500], 0.1),
-                                                color: active
-                                                    ? "#fff"
-                                                    : theme.palette.mode === "dark"
-                                                        ? alpha("#FFFFFF", 0.9)
-                                                        : memberAccent
+                                                minWidth: collapsed ? 0 : 38,
+                                                justifyContent: "center"
                                             }}
                                         >
-                                            <Icon fontSize="small" />
-                                        </Box>
-                                    </ListItemIcon>
-                                    {!collapsed ? (
-                                        <ListItemText
-                                            primary={section.label}
-                                            secondary={section.subtitle}
-                                            primaryTypographyProps={{
-                                                fontSize: 14,
-                                                fontWeight: active ? 700 : 600,
-                                                color: active ? "#FFFFFF" : undefined
-                                            }}
-                                            secondaryTypographyProps={{
-                                                fontSize: 11.5,
-                                                lineHeight: 1.25,
-                                                mt: 0.25,
-                                                color: active ? alpha("#FFFFFF", 0.8) : "text.secondary"
-                                            }}
-                                        />
-                                    ) : null}
-                                </ListItemButton>
+                                            <Box
+                                                sx={{
+                                                    width: 30,
+                                                    height: 30,
+                                                    borderRadius: 1.25,
+                                                    display: "grid",
+                                                    placeItems: "center",
+                                                    bgcolor: active
+                                                        ? alpha("#FFFFFF", 0.22)
+                                                        : theme.palette.mode === "dark"
+                                                            ? alpha("#FFFFFF", 0.1)
+                                                            : alpha(brandColors.primary[500], 0.1),
+                                                    color: active
+                                                        ? "#fff"
+                                                        : theme.palette.mode === "dark"
+                                                            ? alpha("#FFFFFF", 0.9)
+                                                            : memberAccent
+                                                }}
+                                            >
+                                                <Icon fontSize="small" />
+                                            </Box>
+                                        </ListItemIcon>
+                                        {!collapsed ? (
+                                            <ListItemText
+                                                primary={section.label}
+                                                secondary={section.subtitle}
+                                                primaryTypographyProps={{
+                                                    fontSize: 14,
+                                                    fontWeight: active ? 700 : 600,
+                                                    color: active ? "#FFFFFF" : undefined
+                                                }}
+                                                secondaryTypographyProps={{
+                                                    fontSize: 11.5,
+                                                    lineHeight: 1.25,
+                                                    mt: 0.25,
+                                                    color: active ? alpha("#FFFFFF", 0.8) : "text.secondary"
+                                                }}
+                                            />
+                                        ) : null}
+                                    </ListItemButton>
+                                </Box>
                             );
                         })}
                     </List>
@@ -6182,7 +6259,15 @@ export function MemberPortalPage() {
                     bgcolor: theme.palette.mode === "dark" ? darkThemeColors.paper : "#fff"
                 }}
             >
-                {renderSidebarContent(!sidebarOpen)}
+                <Box
+                    component={motion.div}
+                    initial={prefersReducedMotion ? false : { opacity: 0, x: -20 }}
+                    animate={prefersReducedMotion ? undefined : { opacity: 1, x: 0 }}
+                    transition={prefersReducedMotion ? undefined : springSoft}
+                    sx={{ width: "100%", display: "flex" }}
+                >
+                    {renderSidebarContent(!sidebarOpen)}
+                </Box>
             </Box>
 
             <Drawer
@@ -6221,7 +6306,16 @@ export function MemberPortalPage() {
                         backdropFilter: "blur(18px)"
                     }}
                 >
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+                    <Stack
+                        component={motion.div}
+                        direction="row"
+                        justifyContent="space-between"
+                        alignItems="center"
+                        spacing={2}
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: -10 }}
+                        animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+                        transition={prefersReducedMotion ? undefined : springSoft}
+                    >
                         <Stack direction="row" spacing={1.5} alignItems="center">
                             <IconButton
                                 onClick={() => {
@@ -6468,7 +6562,7 @@ export function MemberPortalPage() {
                     </Box>
                 </Menu>
 
-                <Box
+                <MotionSection
                     sx={{
                         px: { xs: 2, md: 3.5 },
                         py: { xs: 2.5, md: 3.5 },
@@ -6546,24 +6640,36 @@ export function MemberPortalPage() {
                                 </CardContent>
                             </MotionCard>
                         ) : null}
-                        {activeSection === "member-overview" ? (
-                            <>
-                                <Grid container spacing={2.5} alignItems="stretch">
-                                    <Grid size={{ xs: 12, xl: 8 }} sx={{ display: "flex" }}>
-                                        {renderHero()}
-                                    </Grid>
-                                    <Grid size={{ xs: 12, xl: 4 }} sx={{ display: "flex" }}>
-                                        {renderSpotlightCard()}
-                                    </Grid>
-                                </Grid>
-                                {renderStatGrid()}
-                                {renderBorrowingCapacityCard()}
-                            </>
-                        ) : null}
-                        {activeSection !== "member-overview" ? renderSectionLead() : null}
-                        {renderActiveView()}
+                        <AnimatePresence mode="wait" initial={false}>
+                            <Box
+                                key={activeSection}
+                                component={motion.div}
+                                initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 14 }}
+                                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+                                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -10 }}
+                                transition={prefersReducedMotion ? easeOutFast : springSoft}
+                                sx={{ display: "grid", gap: 3 }}
+                            >
+                                {activeSection === "member-overview" ? (
+                                    <>
+                                        <Grid container spacing={2.5} alignItems="stretch">
+                                            <Grid size={{ xs: 12, xl: 8 }} sx={{ display: "flex" }}>
+                                                {renderHero()}
+                                            </Grid>
+                                            <Grid size={{ xs: 12, xl: 4 }} sx={{ display: "flex" }}>
+                                                {renderSpotlightCard()}
+                                            </Grid>
+                                        </Grid>
+                                        {renderStatGrid()}
+                                        {renderBorrowingCapacityCard()}
+                                    </>
+                                ) : null}
+                                {activeSection !== "member-overview" ? renderSectionLead() : null}
+                                {renderActiveView()}
+                            </Box>
+                        </AnimatePresence>
                     </Stack>
-                </Box>
+                </MotionSection>
             </Box>
 
             <MotionModal open={showContributionDialog} onClose={submittingContribution ? undefined : () => setShowContributionDialog(false)} maxWidth="md" fullWidth>
@@ -7206,40 +7312,52 @@ export function MemberPortalPage() {
 
             <MotionModal
                 open={showApplyDialog}
-                onClose={submittingApplication ? undefined : () => {
-                    setShowApplyDialog(false);
-                    setEditingLoanApplicationId(null);
-                    setRequestedAmountInput("");
-                    loanApplicationForm.reset();
-                }}
+                onClose={submittingApplication ? undefined : closeLoanApplicationDialog}
                 maxWidth="md"
                 fullWidth
+                PaperProps={{
+                    sx: {
+                        width: "100%",
+                        maxHeight: { xs: "calc(100vh - 16px)", md: "calc(100vh - 32px)" },
+                        minHeight: { md: 620 },
+                        display: "flex",
+                        overflow: "hidden"
+                    }
+                }}
             >
                 <DialogTitle>{editingLoanApplicationId ? "Edit Rejected Loan Application" : "Apply for Loan"}</DialogTitle>
-                <DialogContent dividers>
-                    <Stack spacing={2} sx={{ pt: 0.5 }}>
-                        <Alert severity="info" variant="outlined">
+                <DialogContent
+                    dividers
+                    sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        overflow: "hidden",
+                        py: 1.5
+                    }}
+                >
+                    <Stack spacing={1.25} sx={{ pt: 0.25, minHeight: 0 }}>
+                        <Alert severity="info" variant="outlined" sx={{ py: 0.35 }}>
                             {editingLoanApplicationId
                                 ? "Update the rejected application details, then resubmit it back into appraisal workflow."
                                 : "This submits a loan application into appraisal and approval workflow. No money movement happens until a teller or loan officer disburses an approved application."}
                         </Alert>
                         {memberRecord?.status !== "active" ? (
-                            <Alert severity="warning" variant="outlined">
+                            <Alert severity="warning" variant="outlined" sx={{ py: 0.35 }}>
                                 Your member profile is not active. Only active members can submit a loan application.
                             </Alert>
                         ) : null}
                         {memberHasProblemLoan ? (
-                            <Alert severity="warning" variant="outlined">
+                            <Alert severity="warning" variant="outlined" sx={{ py: 0.35 }}>
                                 You currently have in-arrears or written-off loans. Clear them first before applying again.
                             </Alert>
                         ) : null}
                         {selectedLoanConflict ? (
-                            <Alert severity="warning" variant="outlined">
+                            <Alert severity="warning" variant="outlined" sx={{ py: 0.35 }}>
                                 Another loan application is already in progress. Complete or resolve it before submitting a new one.
                             </Alert>
                         ) : null}
                         {loanSubmissionLocks.length ? (
-                            <Alert severity="warning" variant="outlined">
+                            <Alert severity="warning" variant="outlined" sx={{ py: 0.35 }}>
                                 <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
                                     Submission is currently locked
                                 </Typography>
@@ -7253,7 +7371,7 @@ export function MemberPortalPage() {
                             </Alert>
                         ) : null}
                         {loanCapacityWarnings.length ? (
-                            <Alert severity="warning" variant="outlined">
+                            <Alert severity="warning" variant="outlined" sx={{ py: 0.35 }}>
                                 <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
                                     Borrowing capacity advisory
                                 </Typography>
@@ -7267,318 +7385,503 @@ export function MemberPortalPage() {
                             </Alert>
                         ) : null}
                         {loanLiquidityNotice ? (
-                            <Alert severity="info" variant="outlined">
+                            <Alert severity="info" variant="outlined" sx={{ py: 0.35 }}>
                                 {loanLiquidityNotice}
                             </Alert>
                         ) : null}
-                        <Box component="form" id="member-loan-application-form" onSubmit={submitLoanApplication} sx={{ display: "grid", gap: 2 }}>
-                            <Box>
-                                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
-                                    Loan Product
-                                </Typography>
-                                <SearchableSelect
-                                    value={loanApplicationForm.watch("product_id")}
-                                    options={loanProductOptions}
-                                    onChange={(value) => loanApplicationForm.setValue("product_id", value, { shouldValidate: true })}
-                                    placeholder="Search loan product..."
-                                />
-                                {loanApplicationForm.formState.errors.product_id ? (
-                                    <Typography variant="caption" color="error.main">
-                                        {loanApplicationForm.formState.errors.product_id.message}
-                                    </Typography>
-                                ) : null}
-                            </Box>
-                            {selectedLoanProduct ? (
-                                <Card
-                                    variant="outlined"
-                                    sx={{
-                                        borderRadius: 3,
-                                        borderColor: alpha(memberAccent, 0.24),
-                                        bgcolor: alpha(memberAccent, isDarkMode ? 0.14 : 0.05)
-                                    }}
-                                >
-                                    <CardContent sx={{ display: "grid", gap: 1.5 }}>
-                                        <Stack
-                                            direction={{ xs: "column", md: "row" }}
-                                            spacing={1.5}
-                                            justifyContent="space-between"
-                                            alignItems={{ xs: "flex-start", md: "center" }}
-                                        >
-                                            <Box>
-                                                <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                                                    {selectedLoanProduct.name}
-                                                </Typography>
-                                                <Typography variant="body2" color="text.secondary">
-                                                    {selectedLoanProduct.description || "Configured limits and eligibility rules apply automatically to this application."}
-                                                </Typography>
-                                            </Box>
-                                            <Chip
-                                                label={`${selectedLoanProduct.annual_interest_rate}% per year`}
-                                                color="primary"
-                                                variant={isDarkMode ? "filled" : "outlined"}
-                                                sx={{ fontWeight: 700 }}
-                                            />
-                                        </Stack>
-                                        <Grid container spacing={1.5}>
-                                            <Grid size={{ xs: 12, md: 6 }}>
-                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        Product range
-                                                    </Typography>
-                                                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                                                        {formatCurrency(selectedLoanMinimumAmount)} to {selectedLoanProduct.max_amount ? formatCurrency(selectedLoanProduct.max_amount) : "No capped max"}
-                                                    </Typography>
-                                                </Paper>
-                                            </Grid>
-                                            <Grid size={{ xs: 12, md: 6 }}>
-                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        Allowed frequency
-                                                    </Typography>
-                                                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                                                        {selectedLoanPolicy.allowedRepaymentFrequencies.map((frequency) => getRepaymentFrequencyLabel(frequency)).join(", ")}
-                                                    </Typography>
-                                                </Paper>
-                                            </Grid>
-                                        </Grid>
-                                    </CardContent>
-                                </Card>
-                            ) : null}
-                            {selectedLoanProduct ? (
-                                <LoanEligibilitySummary
-                                    summary={loanCapacity}
-                                    loading={loanCapacityLoading}
-                                    error={loanCapacityError}
-                                    title="Loan Eligibility"
-                                />
-                            ) : null}
-                            <TextField
-                                label="Loan Purpose *"
-                                placeholder="Explain how the loan will be used (e.g., farming inputs, business expansion, school fees)"
-                                fullWidth
-                                multiline
-                                minRows={2}
-                                maxRows={4}
-                                {...loanApplicationForm.register("purpose")}
-                                error={Boolean(loanApplicationForm.formState.errors.purpose)}
-                                helperText={loanApplicationForm.formState.errors.purpose?.message || "20 to 500 characters. Letters, numbers, commas, and periods only."}
-                            />
-                            <Grid container spacing={2}>
-                                <Grid size={{ xs: 12, md: 4 }}>
-                                    <TextField
-                                        label="Requested Amount (TZS) *"
-                                        fullWidth
-                                        value={requestedAmountInput}
-                                        onChange={(event) => {
-                                            const digits = event.target.value.replace(/[^\d]/g, "");
-                                            setRequestedAmountInput(formatWholeNumber(digits));
-                                            loanApplicationForm.setValue("requested_amount", digits ? Number(digits) : 0, { shouldValidate: true, shouldDirty: true });
-                                        }}
-                                        error={Boolean(loanApplicationForm.formState.errors.requested_amount)}
-                                        helperText={
-                                            loanApplicationForm.formState.errors.requested_amount?.message
-                                            || (selectedLoanProduct
-                                                ? `Maximum recommended amount: ${formatCurrency(selectedLoanBorrowLimit)} · Product minimum ${formatCurrency(selectedLoanMinimumAmount)}`
-                                                : "Use Tanzanian Shillings only.")
-                                        }
-                                        inputProps={{ inputMode: "numeric" }}
-                                    />
-                                </Grid>
-                                <Grid size={{ xs: 12, md: 4 }}>
-                                    <TextField
-                                        label="Requested Loan Term (Months) *"
-                                        type="number"
-                                        fullWidth
-                                        {...loanApplicationForm.register("requested_term_count")}
-                                        error={Boolean(loanApplicationForm.formState.errors.requested_term_count)}
-                                        helperText={
-                                            loanApplicationForm.formState.errors.requested_term_count?.message
-                                            || (selectedLoanProduct
-                                                ? `Min ${selectedLoanMinimumTerm} month(s)${selectedLoanMaximumTerm ? ` · Max ${selectedLoanMaximumTerm} month(s)` : ""}`
-                                                : "Enter a whole number of months.")
-                                        }
-                                        inputProps={{ min: 1, step: 1 }}
-                                    />
-                                </Grid>
-                                <Grid size={{ xs: 12, md: 4 }}>
-                                    <TextField
-                                        label="Interest Rate (% per year)"
-                                        fullWidth
-                                        value={selectedLoanProduct?.annual_interest_rate ?? 0}
-                                        helperText="Automatically pulled from the selected loan product."
-                                        InputProps={{ readOnly: true }}
-                                    />
-                                </Grid>
-                                {selectedLoanProduct && requestedBorrowUtilizationPercent !== null && requestedLoanAmount > 0 ? (
-                                    <Grid size={{ xs: 12 }}>
-                                        <Paper
-                                            variant="outlined"
-                                            sx={{
-                                                p: 1.6,
-                                                borderRadius: 2.5,
-                                                bgcolor: alpha(requestedBorrowUtilizationTone, isDarkMode ? 0.12 : 0.05),
-                                                borderColor: alpha(requestedBorrowUtilizationTone, 0.22)
-                                            }}
-                                        >
-                                            <Stack spacing={1}>
-                                                <Stack
-                                                    direction={{ xs: "column", sm: "row" }}
-                                                    justifyContent="space-between"
-                                                    spacing={0.75}
-                                                >
-                                                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                                                        Borrow Utilization
-                                                    </Typography>
-                                                    <Typography variant="body2" sx={{ fontWeight: 700, color: requestedBorrowUtilizationTone }}>
-                                                        {Math.round(requestedBorrowUtilizationPercent)}% of your borrowing capacity
-                                                    </Typography>
-                                                </Stack>
-                                                <LinearProgress
-                                                    variant="determinate"
-                                                    value={Math.min(requestedBorrowUtilizationPercent, 100)}
-                                                    sx={{
-                                                        height: 10,
-                                                        borderRadius: 999,
-                                                        bgcolor: alpha(requestedBorrowUtilizationTone, 0.16),
-                                                        "& .MuiLinearProgress-bar": {
-                                                            borderRadius: 999,
-                                                            bgcolor: requestedBorrowUtilizationTone
-                                                        }
-                                                    }}
-                                                />
-                                            </Stack>
-                                        </Paper>
-                                    </Grid>
-                                ) : null}
-                                <Grid size={{ xs: 12, md: 6 }}>
-                                    <TextField
-                                        select
-                                        label="Repayment Frequency *"
-                                        fullWidth
-                                        value={loanApplicationForm.watch("requested_repayment_frequency")}
-                                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                            loanApplicationForm.setValue(
-                                                "requested_repayment_frequency",
-                                                event.target.value as LoanApplicationValues["requested_repayment_frequency"],
-                                                { shouldValidate: true }
-                                            )
-                                        }
-                                        error={Boolean(loanApplicationForm.formState.errors.requested_repayment_frequency)}
-                                        helperText={loanApplicationForm.formState.errors.requested_repayment_frequency?.message}
-                                    >
-                                        {selectedLoanPolicy.allowedRepaymentFrequencies.map((frequency) => (
-                                            <MenuItem key={frequency} value={frequency}>
-                                                {getRepaymentFrequencyLabel(frequency)}
-                                            </MenuItem>
-                                        ))}
-                                    </TextField>
-                                </Grid>
-                                <Grid size={{ xs: 12, md: 6 }}>
-                                    <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2.5, height: "100%" }}>
-                                        <Typography variant="caption" color="text.secondary">
-                                            Application Reference
-                                        </Typography>
-                                        <Typography variant="body1" sx={{ fontWeight: 700, mt: 0.35 }}>
-                                            {editingLoanApplicationId && loanApplicationForm.getValues("external_reference")
-                                                ? loanApplicationForm.getValues("external_reference")
-                                                : "Generated automatically on save"}
-                                        </Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                            The system creates a unique reference for every loan application.
-                                        </Typography>
-                                    </Paper>
-                                </Grid>
-                            </Grid>
+                        <Box
+                            component="form"
+                            id="member-loan-application-form"
+                            onSubmit={submitLoanApplication}
+                            sx={{ display: "grid", gap: 1.35, minHeight: 0 }}
+                        >
                             <Paper
                                 variant="outlined"
                                 sx={{
-                                    p: 2,
-                                    borderRadius: 3,
-                                    bgcolor: isDarkMode ? alpha(memberAccent, 0.08) : alpha(memberAccent, 0.04)
+                                    p: { xs: 1.1, md: 1.4 },
+                                    borderRadius: 1.25,
+                                    bgcolor: alpha(memberAccent, isDarkMode ? 0.08 : 0.03),
+                                    borderColor: alpha(memberAccent, 0.2)
                                 }}
                             >
                                 <Stack spacing={0.9}>
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                                        Estimated Installment
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        Principal: {formatCurrency(requestedLoanAmount || 0)} · Interest: {selectedLoanProduct?.annual_interest_rate ?? 0}% per year · Term: {requestedLoanTerm || 0} months
-                                    </Typography>
-                                    <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                                        {getRepaymentFrequencyLabel(requestedLoanFrequency)} payment: {formatCurrency(installmentPreview?.installment || 0)}
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        Total repayment: {formatCurrency(installmentPreview?.totalRepayment || 0)}
-                                    </Typography>
+                                    <Stepper
+                                        activeStep={loanFormStep}
+                                        alternativeLabel
+                                        sx={{
+                                            "& .MuiStepLabel-root": {
+                                                px: 0
+                                            },
+                                            "& .MuiStepConnector-line": {
+                                                borderColor: alpha(memberAccent, 0.2)
+                                            },
+                                            "& .MuiStepLabel-label": {
+                                                fontWeight: 700,
+                                                mt: 0.35,
+                                                fontSize: { xs: "0.82rem", sm: "0.9rem" }
+                                            },
+                                            "& .MuiStepLabel-label.Mui-active": {
+                                                color: "text.primary"
+                                            },
+                                            "& .MuiStepLabel-label.Mui-completed": {
+                                                color: "text.secondary"
+                                            },
+                                            "& .MuiStepIcon-root": {
+                                                color: alpha(memberAccent, 0.2),
+                                                fontSize: "1.55rem"
+                                            },
+                                            "& .MuiStepIcon-root.Mui-active": {
+                                                color: memberAccent
+                                            },
+                                            "& .MuiStepIcon-root.Mui-completed": {
+                                                color: memberAccentStrong
+                                            }
+                                        }}
+                                    >
+                                        {loanApplicationSteps.map((step) => (
+                                            <Step key={step.label}>
+                                                <StepLabel>{step.label}</StepLabel>
+                                            </Step>
+                                        ))}
+                                    </Stepper>
+                                    <Box>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                            {loanApplicationSteps[loanFormStep].label}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                                            {loanApplicationSteps[loanFormStep].description}
+                                        </Typography>
+                                    </Box>
+                                    <Box
+                                        sx={{
+                                            height: 4,
+                                            borderRadius: 999,
+                                            bgcolor: alpha(memberAccent, 0.12),
+                                            overflow: "hidden"
+                                        }}
+                                    >
+                                        <Box
+                                            component={motion.div}
+                                            animate={{ width: `${loanStepProgressPercent}%` }}
+                                            transition={prefersReducedMotion ? easeOutFast : springSoft}
+                                            sx={{
+                                                height: "100%",
+                                                borderRadius: 999,
+                                                bgcolor: memberAccent
+                                            }}
+                                        />
+                                    </Box>
                                 </Stack>
                             </Paper>
-                            <FormControlLabel
-                                control={
-                                    <Checkbox
-                                        checked={loanApplicationForm.watch("confirmation_checked")}
-                                        onChange={(event) =>
-                                            loanApplicationForm.setValue("confirmation_checked", event.target.checked, { shouldValidate: true, shouldDirty: true })
-                                        }
-                                    />
-                                }
-                                label="I confirm the information provided in this loan application is accurate."
-                            />
-                            {loanApplicationForm.formState.errors.confirmation_checked ? (
-                                <Typography variant="caption" color="error.main">
-                                    {loanApplicationForm.formState.errors.confirmation_checked.message}
-                                </Typography>
-                            ) : null}
-                            {requestedAmountCapacityWarning ? (
-                                <Alert severity="warning" variant="outlined">
-                                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.4 }}>
-                                        Requested amount exceeds your recommended borrowing capacity.
-                                    </Typography>
-                                    <Typography variant="body2">
-                                        Recommended maximum: {formatCurrency(selectedLoanBorrowLimit)}
-                                    </Typography>
-                                </Alert>
-                            ) : null}
-                            {!loanSubmissionLocks.length && visibleLoanFormErrors.length ? (
-                                <Alert severity="info" variant="outlined">
-                                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
-                                        Complete these items before submitting
-                                    </Typography>
-                                    <Stack spacing={0.35}>
-                                        {visibleLoanFormErrors.map((message) => (
-                                            <Typography key={message} variant="body2">
-                                                • {message}
+
+                            <AnimatePresence mode="wait" initial={false}>
+                                <Box
+                                    key={loanFormStep}
+                                    component={motion.div}
+                                    initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.992 }}
+                                    animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+                                    exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.992 }}
+                                    transition={prefersReducedMotion ? easeOutFast : springSoft}
+                                    style={{ width: "100%" }}
+                                >
+                                    {isLoanProductStep ? (
+                                        <Stack spacing={2}>
+                                    <Box>
+                                        <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
+                                            Loan Product
+                                        </Typography>
+                                        <SearchableSelect
+                                            value={loanApplicationForm.watch("product_id")}
+                                            options={loanProductOptions}
+                                            onChange={(value) => loanApplicationForm.setValue("product_id", value, { shouldValidate: true })}
+                                            placeholder="Search loan product..."
+                                            dropdownDirection="up"
+                                        />
+                                        {loanApplicationForm.formState.errors.product_id ? (
+                                            <Typography variant="caption" color="error.main">
+                                                {loanApplicationForm.formState.errors.product_id.message}
                                             </Typography>
-                                        ))}
-                                    </Stack>
-                                </Alert>
-                            ) : null}
+                                        ) : null}
+                                    </Box>
+                                    {selectedLoanProduct ? (
+                                        <Card
+                                            variant="outlined"
+                                            sx={{
+                                                borderRadius: 1.1,
+                                                borderColor: alpha(memberAccent, 0.24),
+                                                bgcolor: alpha(memberAccent, isDarkMode ? 0.14 : 0.05)
+                                            }}
+                                        >
+                                            <CardContent sx={{ display: "grid", gap: 1.5 }}>
+                                                <Stack
+                                                    direction={{ xs: "column", md: "row" }}
+                                                    spacing={1.5}
+                                                    justifyContent="space-between"
+                                                    alignItems={{ xs: "flex-start", md: "center" }}
+                                                >
+                                                    <Box>
+                                                        <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                                                            {selectedLoanProduct.name}
+                                                        </Typography>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            {selectedLoanProduct.description || "Configured limits and eligibility rules apply automatically to this application."}
+                                                        </Typography>
+                                                    </Box>
+                                                    <Chip
+                                                        label={`${selectedLoanProduct.annual_interest_rate}% per year`}
+                                                        color="primary"
+                                                        variant={isDarkMode ? "filled" : "outlined"}
+                                                        sx={{ fontWeight: 700 }}
+                                                    />
+                                                </Stack>
+                                                <Grid container spacing={1.5}>
+                                                    <Grid size={{ xs: 12, md: 6 }}>
+                                                        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                                            <Typography variant="caption" color="text.secondary">
+                                                                Product range
+                                                            </Typography>
+                                                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                                {formatCurrency(selectedLoanMinimumAmount)} to {selectedLoanProduct.max_amount ? formatCurrency(selectedLoanProduct.max_amount) : "No capped max"}
+                                                            </Typography>
+                                                        </Paper>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 12, md: 6 }}>
+                                                        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                                            <Typography variant="caption" color="text.secondary">
+                                                                Allowed frequency
+                                                            </Typography>
+                                                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                                {selectedLoanPolicy.allowedRepaymentFrequencies.map((frequency) => getRepaymentFrequencyLabel(frequency)).join(", ")}
+                                                            </Typography>
+                                                        </Paper>
+                                                    </Grid>
+                                                </Grid>
+                                            </CardContent>
+                                        </Card>
+                                    ) : null}
+                                        </Stack>
+                                    ) : null}
+
+                                    {isLoanEligibilityStep ? (
+                                        selectedLoanProduct ? (
+                                            <Box
+                                                component={motion.div}
+                                                initial={prefersReducedMotion ? false : { opacity: 0.96, y: 6 }}
+                                                animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+                                                transition={prefersReducedMotion ? undefined : springSoft}
+                                            >
+                                                <LoanEligibilitySummary
+                                                    summary={loanCapacity}
+                                                    loading={loanCapacityLoading}
+                                                    error={loanCapacityError}
+                                                    title="Loan Eligibility"
+                                                    compact
+                                                />
+                                            </Box>
+                                        ) : (
+                                            <Alert severity="info" variant="outlined">
+                                                Select a loan product first to view your live eligibility summary.
+                                            </Alert>
+                                        )
+                                    ) : null}
+
+                                    {isLoanDetailsStep ? (
+                                        <Stack spacing={2}>
+                                    <TextField
+                                        label="Loan Purpose *"
+                                        placeholder="Explain how the loan will be used (e.g., farming inputs, business expansion, school fees)"
+                                        fullWidth
+                                        multiline
+                                        minRows={2}
+                                        maxRows={4}
+                                        {...loanApplicationForm.register("purpose")}
+                                        error={Boolean(loanApplicationForm.formState.errors.purpose)}
+                                        helperText={loanApplicationForm.formState.errors.purpose?.message || "20 to 500 characters. Letters, numbers, commas, and periods only."}
+                                    />
+                                    <Grid container spacing={2}>
+                                        <Grid size={{ xs: 12, md: 4 }}>
+                                            <TextField
+                                                label="Requested Amount (TZS) *"
+                                                fullWidth
+                                                value={requestedAmountInput}
+                                                onChange={(event) => {
+                                                    const digits = event.target.value.replace(/[^\d]/g, "");
+                                                    setRequestedAmountInput(formatWholeNumber(digits));
+                                                    loanApplicationForm.setValue("requested_amount", digits ? Number(digits) : 0, { shouldValidate: true, shouldDirty: true });
+                                                }}
+                                                error={Boolean(loanApplicationForm.formState.errors.requested_amount)}
+                                                helperText={
+                                                    loanApplicationForm.formState.errors.requested_amount?.message
+                                                    || (selectedLoanProduct
+                                                        ? `Maximum recommended amount: ${formatCurrency(selectedLoanBorrowLimit)} · Product minimum ${formatCurrency(selectedLoanMinimumAmount)}`
+                                                        : "Use Tanzanian Shillings only.")
+                                                }
+                                                inputProps={{ inputMode: "numeric" }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 12, md: 4 }}>
+                                            <TextField
+                                                label="Requested Loan Term (Months) *"
+                                                type="number"
+                                                fullWidth
+                                                {...loanApplicationForm.register("requested_term_count")}
+                                                error={Boolean(loanApplicationForm.formState.errors.requested_term_count)}
+                                                helperText={
+                                                    loanApplicationForm.formState.errors.requested_term_count?.message
+                                                    || (selectedLoanProduct
+                                                        ? `Min ${selectedLoanMinimumTerm} month(s)${selectedLoanMaximumTerm ? ` · Max ${selectedLoanMaximumTerm} month(s)` : ""}`
+                                                        : "Enter a whole number of months.")
+                                                }
+                                                inputProps={{ min: 1, step: 1 }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 12, md: 4 }}>
+                                            <TextField
+                                                label="Interest Rate (% per year)"
+                                                fullWidth
+                                                value={selectedLoanProduct?.annual_interest_rate ?? 0}
+                                                helperText="Automatically pulled from the selected loan product."
+                                                InputProps={{ readOnly: true }}
+                                            />
+                                        </Grid>
+                                        {selectedLoanProduct && requestedBorrowUtilizationPercent !== null && requestedLoanAmount > 0 ? (
+                                            <Grid size={{ xs: 12 }}>
+                                                <Paper
+                                                    variant="outlined"
+                                                    sx={{
+                                                        p: 1.6,
+                                                        borderRadius: 1,
+                                                        bgcolor: alpha(requestedBorrowUtilizationTone, isDarkMode ? 0.12 : 0.05),
+                                                        borderColor: alpha(requestedBorrowUtilizationTone, 0.22)
+                                                    }}
+                                                >
+                                                    <Stack spacing={1}>
+                                                        <Stack
+                                                            direction={{ xs: "column", sm: "row" }}
+                                                            justifyContent="space-between"
+                                                            spacing={0.75}
+                                                        >
+                                                            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                                                Borrow Utilization
+                                                            </Typography>
+                                                            <Typography variant="body2" sx={{ fontWeight: 700, color: requestedBorrowUtilizationTone }}>
+                                                                {Math.round(requestedBorrowUtilizationPercent)}% of your borrowing capacity
+                                                            </Typography>
+                                                        </Stack>
+                                                        <LinearProgress
+                                                            variant="determinate"
+                                                            value={Math.min(requestedBorrowUtilizationPercent, 100)}
+                                                            sx={{
+                                                                height: 10,
+                                                                borderRadius: 999,
+                                                                bgcolor: alpha(requestedBorrowUtilizationTone, 0.16),
+                                                                "& .MuiLinearProgress-bar": {
+                                                                    borderRadius: 999,
+                                                                    bgcolor: requestedBorrowUtilizationTone
+                                                                }
+                                                            }}
+                                                        />
+                                                    </Stack>
+                                                </Paper>
+                                            </Grid>
+                                        ) : null}
+                                        {requestedAmountCapacityWarning ? (
+                                            <Grid size={{ xs: 12 }}>
+                                                <Alert severity="warning" variant="outlined">
+                                                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.4 }}>
+                                                        Requested amount exceeds your recommended borrowing capacity.
+                                                    </Typography>
+                                                    <Typography variant="body2">
+                                                        Recommended maximum: {formatCurrency(selectedLoanBorrowLimit)}
+                                                    </Typography>
+                                                </Alert>
+                                            </Grid>
+                                        ) : null}
+                                        <Grid size={{ xs: 12, md: 6 }}>
+                                            <TextField
+                                                select
+                                                label="Repayment Frequency *"
+                                                fullWidth
+                                                value={loanApplicationForm.watch("requested_repayment_frequency")}
+                                                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                                                    loanApplicationForm.setValue(
+                                                        "requested_repayment_frequency",
+                                                        event.target.value as LoanApplicationValues["requested_repayment_frequency"],
+                                                        { shouldValidate: true }
+                                                    )
+                                                }
+                                                error={Boolean(loanApplicationForm.formState.errors.requested_repayment_frequency)}
+                                                helperText={loanApplicationForm.formState.errors.requested_repayment_frequency?.message}
+                                            >
+                                                {selectedLoanPolicy.allowedRepaymentFrequencies.map((frequency) => (
+                                                    <MenuItem key={frequency} value={frequency}>
+                                                        {getRepaymentFrequencyLabel(frequency)}
+                                                    </MenuItem>
+                                                ))}
+                                            </TextField>
+                                        </Grid>
+                                        <Grid size={{ xs: 12, md: 6 }}>
+                                            <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 1, height: "100%" }}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Application Reference
+                                                </Typography>
+                                                <Typography variant="body1" sx={{ fontWeight: 700, mt: 0.35 }}>
+                                                    {editingLoanApplicationId && loanApplicationForm.getValues("external_reference")
+                                                        ? loanApplicationForm.getValues("external_reference")
+                                                        : "Generated automatically on save"}
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                                    The system creates a unique reference for every loan application.
+                                                </Typography>
+                                            </Paper>
+                                        </Grid>
+                                    </Grid>
+                                        </Stack>
+                                    ) : null}
+
+                                    {isLoanReviewStep ? (
+                                        <Stack spacing={2}>
+                                    <Paper
+                                        variant="outlined"
+                                        sx={{
+                                            p: 2,
+                                            borderRadius: 1.1,
+                                            bgcolor: isDarkMode ? alpha(memberAccent, 0.08) : alpha(memberAccent, 0.04)
+                                        }}
+                                    >
+                                        <Stack spacing={0.9}>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                                Estimated Installment
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Principal: {formatCurrency(requestedLoanAmount || 0)} · Interest: {selectedLoanProduct?.annual_interest_rate ?? 0}% per year · Term: {requestedLoanTerm || 0} months
+                                            </Typography>
+                                            <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                                                {getRepaymentFrequencyLabel(requestedLoanFrequency)} payment: {formatCurrency(installmentPreview?.installment || 0)}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Total repayment: {formatCurrency(installmentPreview?.totalRepayment || 0)}
+                                            </Typography>
+                                        </Stack>
+                                    </Paper>
+                                    <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 1.1 }}>
+                                        <Grid container spacing={1.5}>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Loan product
+                                                </Typography>
+                                                <Typography variant="body1" sx={{ fontWeight: 700, mt: 0.35 }}>
+                                                    {selectedLoanProduct?.name || "Not selected"}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Requested amount
+                                                </Typography>
+                                                <Typography variant="body1" sx={{ fontWeight: 700, mt: 0.35 }}>
+                                                    {formatCurrency(requestedLoanAmount || 0)}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Requested term
+                                                </Typography>
+                                                <Typography variant="body1" sx={{ fontWeight: 700, mt: 0.35 }}>
+                                                    {requestedLoanTerm || 0} month(s)
+                                                </Typography>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Repayment frequency
+                                                </Typography>
+                                                <Typography variant="body1" sx={{ fontWeight: 700, mt: 0.35 }}>
+                                                    {getRepaymentFrequencyLabel(requestedLoanFrequency)}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid size={{ xs: 12 }}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Purpose
+                                                </Typography>
+                                                <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.45 }}>
+                                                    {loanApplicationForm.watch("purpose") || "No purpose entered yet."}
+                                                </Typography>
+                                            </Grid>
+                                        </Grid>
+                                    </Paper>
+                                    {!loanSubmissionLocks.length && visibleLoanFormErrors.length ? (
+                                        <Alert severity="info" variant="outlined">
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                                                Complete these items before submitting
+                                            </Typography>
+                                            <Stack spacing={0.35}>
+                                                {visibleLoanFormErrors.map((message) => (
+                                                    <Typography key={message} variant="body2">
+                                                        • {message}
+                                                    </Typography>
+                                                ))}
+                                            </Stack>
+                                        </Alert>
+                                    ) : null}
+                                    <FormControlLabel
+                                        control={
+                                            <Checkbox
+                                                checked={loanApplicationForm.watch("confirmation_checked")}
+                                                onChange={(event) =>
+                                                    loanApplicationForm.setValue("confirmation_checked", event.target.checked, { shouldValidate: true, shouldDirty: true })
+                                                }
+                                            />
+                                        }
+                                        label="I confirm the information provided in this loan application is accurate."
+                                    />
+                                    {loanApplicationForm.formState.errors.confirmation_checked ? (
+                                        <Typography variant="caption" color="error.main">
+                                            {loanApplicationForm.formState.errors.confirmation_checked.message}
+                                        </Typography>
+                                    ) : null}
+                                        </Stack>
+                                    ) : null}
+                                </Box>
+                            </AnimatePresence>
                         </Box>
                     </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button
-                        onClick={() => {
-                            setShowApplyDialog(false);
-                            setEditingLoanApplicationId(null);
-                            setRequestedAmountInput("");
-                            loanApplicationForm.reset();
-                        }}
-                    >
+                    <Button onClick={closeLoanApplicationDialog}>
                         Cancel
                     </Button>
-                    <Button
-                        variant="contained"
-                        type="submit"
-                        form="member-loan-application-form"
-                        disabled={submittingApplication || loanSubmissionLocks.length > 0}
-                        sx={
-                            isDarkMode
-                                ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
-                                : undefined
-                        }
-                    >
-                        {submittingApplication ? "Submitting..." : editingLoanApplicationId ? "Save & Resubmit" : "Submit Application"}
-                    </Button>
+                    {loanFormStep > 0 ? (
+                        <Button onClick={handleRetreatLoanFormStep} startIcon={<ChevronLeftRoundedIcon />}>
+                            Back
+                        </Button>
+                    ) : null}
+                    {isLoanReviewStep ? (
+                        <Button
+                            variant="contained"
+                            type="submit"
+                            form="member-loan-application-form"
+                            disabled={submittingApplication || loanSubmissionLocks.length > 0}
+                            sx={
+                                isDarkMode
+                                    ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                    : undefined
+                            }
+                        >
+                            {submittingApplication ? "Submitting..." : editingLoanApplicationId ? "Save & Resubmit" : "Submit Application"}
+                        </Button>
+                    ) : (
+                        <Button
+                            variant="contained"
+                            onClick={() => void handleAdvanceLoanFormStep()}
+                            disabled={loanSubmissionLocks.length > 0 && isLoanProductStep}
+                            sx={
+                                isDarkMode
+                                    ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                    : undefined
+                            }
+                        >
+                            Continue
+                        </Button>
+                    )}
                 </DialogActions>
             </MotionModal>
 

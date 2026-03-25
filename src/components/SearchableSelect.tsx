@@ -1,5 +1,5 @@
-import { List, ListItemButton, ListItemText, Paper, TextField, type TextFieldProps } from "@mui/material";
-import { useEffect, useMemo, useState } from "react";
+import { ClickAwayListener, List, ListItemButton, ListItemText, Paper, Popper, TextField, type TextFieldProps } from "@mui/material";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export interface SearchableOption {
     value: string;
@@ -16,6 +16,7 @@ interface SearchableSelectProps {
     helperText?: React.ReactNode;
     error?: boolean;
     size?: TextFieldProps["size"];
+    dropdownDirection?: "down" | "up";
 }
 
 export function SearchableSelect({
@@ -26,11 +27,13 @@ export function SearchableSelect({
     label,
     helperText,
     error = false,
-    size = "medium"
+    size = "medium",
+    dropdownDirection = "down"
 }: SearchableSelectProps) {
     const selectedOption = options.find((option) => option.value === value);
     const [query, setQuery] = useState(selectedOption?.label || "");
     const [open, setOpen] = useState(false);
+    const anchorRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         setQuery(selectedOption?.label || "");
@@ -54,7 +57,8 @@ export function SearchableSelect({
     }, [options, query]);
 
     return (
-        <div style={{ position: "relative" }}>
+        <ClickAwayListener onClickAway={() => setOpen(false)}>
+            <div ref={anchorRef} style={{ position: "relative" }}>
             <TextField
                 fullWidth
                 value={query}
@@ -70,44 +74,54 @@ export function SearchableSelect({
                 }}
                 onBlur={() => {
                     window.setTimeout(() => {
-                        setOpen(false);
                         setQuery(options.find((option) => option.value === value)?.label || "");
                     }, 150);
                 }}
             />
             {open ? (
-                <Paper
-                    variant="outlined"
-                    sx={{
-                        position: "absolute",
-                        top: "calc(100% + 6px)",
-                        left: 0,
-                        right: 0,
-                        zIndex: 10,
-                        maxHeight: 280,
-                        overflowY: "auto"
+                <Popper
+                    open
+                    anchorEl={anchorRef.current}
+                    placement={dropdownDirection === "up" ? "top-start" : "bottom-start"}
+                    modifiers={[
+                        { name: "offset", options: { offset: [0, 6] } },
+                        { name: "flip", enabled: true },
+                        { name: "preventOverflow", options: { padding: 12 } }
+                    ]}
+                    style={{
+                        zIndex: 1500,
+                        width: anchorRef.current?.clientWidth || undefined
                     }}
                 >
-                    <List dense disablePadding>
-                        {filteredOptions.length ? (
-                            filteredOptions.map((option) => (
-                                <ListItemButton
-                                    key={option.value}
-                                    onMouseDown={() => {
-                                        onChange(option.value);
-                                        setQuery(option.label);
-                                        setOpen(false);
-                                    }}
-                                >
-                                    <ListItemText primary={option.label} secondary={option.secondary} />
-                                </ListItemButton>
-                            ))
-                        ) : (
-                            <ListItemText sx={{ px: 2, py: 1.5 }} primary="No matches found." />
-                        )}
-                    </List>
-                </Paper>
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            maxHeight: 240,
+                            overflowY: "auto"
+                        }}
+                    >
+                        <List dense disablePadding>
+                            {filteredOptions.length ? (
+                                filteredOptions.map((option) => (
+                                    <ListItemButton
+                                        key={option.value}
+                                        onMouseDown={() => {
+                                            onChange(option.value);
+                                            setQuery(option.label);
+                                            setOpen(false);
+                                        }}
+                                    >
+                                        <ListItemText primary={option.label} secondary={option.secondary} />
+                                    </ListItemButton>
+                                ))
+                            ) : (
+                                <ListItemText sx={{ px: 2, py: 1.5 }} primary="No matches found." />
+                            )}
+                        </List>
+                    </Paper>
+                </Popper>
             ) : null}
-        </div>
+            </div>
+        </ClickAwayListener>
     );
 }

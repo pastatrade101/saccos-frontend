@@ -20,22 +20,25 @@ interface LoanEligibilitySummaryProps {
     error?: string | null;
     title?: string;
     helperText?: string;
+    compact?: boolean;
 }
 
 function MetricCard({
     label,
     value,
-    emphasize = false
+    emphasize = false,
+    compact = false
 }: {
     label: string;
     value: string;
     emphasize?: boolean;
+    compact?: boolean;
 }) {
     return (
         <Box
             sx={(theme) => ({
-                p: 1.5,
-                borderRadius: 2.5,
+                p: compact ? 1.15 : 1.5,
+                borderRadius: 1,
                 border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
                 backgroundColor: emphasize ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.18 : 0.08) : "background.paper"
             })}
@@ -43,7 +46,7 @@ function MetricCard({
             <Typography variant="caption" color="text.secondary">
                 {label}
             </Typography>
-            <Typography variant="body1" sx={{ fontWeight: emphasize ? 800 : 700, mt: 0.35 }}>
+            <Typography variant={compact ? "body2" : "body1"} sx={{ fontWeight: emphasize ? 800 : 700, mt: 0.35 }}>
                 {value}
             </Typography>
         </Box>
@@ -55,7 +58,8 @@ export function LoanEligibilitySummary({
     loading = false,
     error = null,
     title = "Loan Eligibility",
-    helperText = "These indicators are calculated from your contributions, the selected product rules, and current SACCO branch liquidity."
+    helperText = "These indicators are calculated from your contributions, the selected product rules, and current SACCO branch liquidity.",
+    compact = false
 }: LoanEligibilitySummaryProps) {
     const theme = useTheme();
 
@@ -63,13 +67,13 @@ export function LoanEligibilitySummary({
         <Card
             variant="outlined"
             sx={{
-                borderRadius: 3,
+                borderRadius: 1.1,
                 borderColor: alpha(theme.palette.primary.main, 0.18)
             }}
         >
-            <CardContent sx={{ display: "grid", gap: 1.5 }}>
+            <CardContent sx={{ display: "grid", gap: compact ? 1.15 : 1.5 }}>
                 <Box>
-                    <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                    <Typography variant={compact ? "subtitle1" : "h6"} sx={{ fontWeight: 800 }}>
                         {title}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -101,22 +105,22 @@ export function LoanEligibilitySummary({
                         ) : null}
                         <Grid container spacing={1.5}>
                             <Grid size={{ xs: 12, md: 6 }}>
-                                <MetricCard label="Member Contributions" value={formatCurrency(summary.total_contributions)} />
+                                <MetricCard label="Member Contributions" value={formatCurrency(summary.total_contributions)} compact={compact} />
                             </Grid>
                             <Grid size={{ xs: 12, md: 6 }}>
-                                <MetricCard label="Contribution Borrow Limit" value={formatCurrency(summary.contribution_limit)} />
+                                <MetricCard label="Contribution Borrow Limit" value={formatCurrency(summary.contribution_limit)} compact={compact} />
                             </Grid>
                             <Grid size={{ xs: 12, md: 6 }}>
-                                <MetricCard label="Loan Product Limit" value={formatCurrency(summary.product_limit)} />
+                                <MetricCard label="Loan Product Limit" value={formatCurrency(summary.product_limit)} compact={compact} />
                             </Grid>
                             <Grid size={{ xs: 12, md: 6 }}>
-                                <MetricCard label="SACCO Liquidity Limit" value={formatCurrency(summary.liquidity_limit)} />
+                                <MetricCard label="SACCO Liquidity Limit" value={formatCurrency(summary.liquidity_limit)} compact={compact} />
                             </Grid>
                             <Grid size={{ xs: 12 }}>
                                 <Box
                                     sx={{
-                                        p: { xs: 2, md: 2.3 },
-                                        borderRadius: 3,
+                                        p: compact ? { xs: 1.5, md: 1.75 } : { xs: 2, md: 2.3 },
+                                        borderRadius: 1.1,
                                         border: `1px solid ${alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.34 : 0.22)}`,
                                         background: theme.palette.mode === "dark"
                                             ? `linear-gradient(180deg, ${alpha(theme.palette.success.main, 0.18)} 0%, ${alpha(theme.palette.success.main, 0.1)} 100%)`
@@ -128,9 +132,9 @@ export function LoanEligibilitySummary({
                                         Maximum You Can Borrow
                                     </Typography>
                                     <Typography
-                                        variant="h4"
+                                        variant={compact ? "h5" : "h4"}
                                         sx={{
-                                            mt: 0.9,
+                                            mt: compact ? 0.55 : 0.9,
                                             fontWeight: 900,
                                             letterSpacing: "-0.03em",
                                             color: theme.palette.mode === "dark" ? "#F0FFF4" : theme.palette.success.dark
@@ -147,8 +151,8 @@ export function LoanEligibilitySummary({
                         <Paper
                             variant="outlined"
                             sx={{
-                                p: 1.7,
-                                borderRadius: 2.5,
+                                p: compact ? 1.3 : 1.7,
+                                borderRadius: 1,
                                 bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.08 : 0.03)
                             }}
                         >
