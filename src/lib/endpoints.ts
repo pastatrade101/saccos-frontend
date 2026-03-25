@@ -29,6 +29,11 @@ import type {
     ProductBootstrapPayload,
     LoanProduct,
     LoanApplication,
+    LoanCapacitySummary,
+    LoanProductPolicy,
+    BranchLiquidityPolicy,
+    BranchFundPool,
+    LoanCapacityDashboard,
     LoanGuarantor,
     CollateralItem,
     SavingsProduct,
@@ -149,6 +154,13 @@ const routeMap = {
         disburse: (applicationId: string) => `/loan-applications/${applicationId}/disburse`,
         guarantorRequests: "/loan-applications/guarantor-requests",
         guarantorConsent: (applicationId: string) => `/loan-applications/${applicationId}/guarantor-consent`
+    },
+    loanCapacity: {
+        capacity: "/loans/capacity",
+        productPolicy: (loanProductId: string) => `/loans/products/${loanProductId}/policy`,
+        branchLiquidityPolicy: (branchId: string) => `/loans/branches/${branchId}/liquidity-policy`,
+        branchFundPool: (branchId: string) => `/loans/branches/${branchId}/fund-pool`,
+        dashboard: (branchId: string) => `/loans/branches/${branchId}/dashboard`
     },
     imports: {
         members: "/imports/members",
@@ -326,6 +338,13 @@ export const endpoints = {
         disburse: (applicationId: string) => routeMap.loanApplications.disburse(applicationId),
         guarantorRequests: () => routeMap.loanApplications.guarantorRequests,
         guarantorConsent: (applicationId: string) => routeMap.loanApplications.guarantorConsent(applicationId)
+    },
+    loanCapacity: {
+        capacity: () => routeMap.loanCapacity.capacity,
+        productPolicy: (loanProductId: string) => routeMap.loanCapacity.productPolicy(loanProductId),
+        branchLiquidityPolicy: (branchId: string) => routeMap.loanCapacity.branchLiquidityPolicy(branchId),
+        branchFundPool: (branchId: string) => routeMap.loanCapacity.branchFundPool(branchId),
+        dashboard: (branchId: string) => routeMap.loanCapacity.dashboard(branchId)
     },
     imports: {
         members: () => routeMap.imports.members,
@@ -721,6 +740,11 @@ export interface ResetMemberPasswordRequest {
 export type LoansResponse = ApiEnvelope<Loan[]>;
 export type LoanApplicationResponse = ApiEnvelope<LoanApplication>;
 export type LoanApplicationsResponse = ApiEnvelope<LoanApplication[]>;
+export type LoanCapacityResponse = ApiEnvelope<LoanCapacitySummary>;
+export type LoanProductPolicyResponse = ApiEnvelope<LoanProductPolicy>;
+export type BranchLiquidityPolicyResponse = ApiEnvelope<BranchLiquidityPolicy>;
+export type BranchFundPoolResponse = ApiEnvelope<BranchFundPool>;
+export type LoanCapacityDashboardResponse = ApiEnvelope<LoanCapacityDashboard>;
 export type LoanSchedulesResponse = ApiEnvelope<LoanSchedule[]>;
 export type LoanTransactionsResponse = ApiEnvelope<LoanTransaction[]>;
 export type GuarantorRequestsResponse = ApiEnvelope<GuarantorRequestItem[]>;
@@ -734,6 +758,23 @@ export interface OpenTellerSessionRequest {
     branch_id?: string;
     opening_cash: number;
     notes?: string | null;
+}
+
+export interface UpdateLoanProductPolicyRequest {
+    tenant_id?: string;
+    contribution_multiplier?: number;
+    max_loan_amount?: number;
+    min_loan_amount?: number;
+    liquidity_buffer_percent?: number;
+    requires_guarantor?: boolean;
+    requires_collateral?: boolean;
+}
+
+export interface UpdateBranchLiquidityPolicyRequest {
+    tenant_id?: string;
+    max_lending_ratio?: number;
+    minimum_liquidity_reserve?: number;
+    auto_loan_freeze_threshold?: number;
 }
 
 export interface CreateLoanApplicationRequest {

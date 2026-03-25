@@ -113,3 +113,19 @@ export function getApiErrorMessage(error: unknown, fallback = "Request failed.")
 
     return fallback;
 }
+
+export function getApiErrorCode(error: unknown) {
+    if (axios.isAxiosError<ApiErrorPayload>(error)) {
+        return error.response?.data?.error?.code || null;
+    }
+
+    return null;
+}
+
+export function getApiErrorDetails<T = unknown>(error: unknown) {
+    if (axios.isAxiosError<ApiErrorPayload>(error)) {
+        return (error.response?.data?.error?.details as T | undefined) ?? null;
+    }
+
+    return null;
+}

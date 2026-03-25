@@ -22,6 +22,8 @@ import {
     MenuItem,
     Pagination,
     IconButton,
+    LinearProgress,
+    Paper,
     Stack,
     Tab,
     Tabs,
@@ -38,9 +40,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../auth/AuthContext";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { DataTable, type Column } from "../components/DataTable";
+import { LoanEligibilitySummary } from "../components/loan-capacity/LoanEligibilitySummary";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { useToast } from "../components/Toast";
-import { api, getApiErrorMessage } from "../lib/api";
+import { api, getApiErrorCode, getApiErrorDetails, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
     type AppraiseLoanApplicationRequest,
@@ -49,6 +52,7 @@ import {
     type PendingApprovalPayload,
     type LoanApplicationResponse,
     type LoanApplicationsResponse,
+    type LoanCapacityResponse,
     type LoanProductsResponse,
     type LoanRepaymentRequest,
     type LoansResponse,
@@ -58,7 +62,7 @@ import {
     type ApproveLoanApplicationRequest,
     type RejectLoanApplicationRequest
 } from "../lib/endpoints";
-import type { ApiEnvelope, FinanceResult, Loan, LoanApplication, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
+import type { ApiEnvelope, FinanceResult, Loan, LoanApplication, LoanCapacitySummary, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
 import { MotionCard, MotionModal } from "../ui/motion";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -171,6 +175,38 @@ type CreditRiskListResponse<T> = {
         total: number;
     };
 };
+
+function getNumericDetail(details: unknown, key: string) {
+    if (!details || typeof details !== "object") {
+        return null;
+    }
+
+    const value = Number((details as Record<string, unknown>)[key]);
+    return Number.isFinite(value) ? value : null;
+}
+
+function formatBorrowUtilization(value?: number | null) {
+    if (value === null || typeof value === "undefined" || !Number.isFinite(Number(value))) {
+        return "N/A";
+    }
+
+    return `${Number(value).toFixed(0)}%`;
+}
+
+function getLiquidityStatusLabel(status?: string | null) {
+    switch (status) {
+    case "healthy":
+        return "Healthy";
+    case "warning":
+        return "Warning";
+    case "risk":
+        return "Risk";
+    case "frozen":
+        return "Frozen";
+    default:
+        return "Unknown";
+    }
+}
 
 function getLoanScheduleOutstanding(schedule: LoanSchedule) {
     const principalOutstanding = Math.max(Number(schedule.principal_due || 0) - Number(schedule.principal_paid || 0), 0);
@@ -438,6 +474,12 @@ export function LoansPage() {
     const [activeTab, setActiveTab] = useState<LoanWorkspaceTab>("applications");
     const [referencesLoaded, setReferencesLoaded] = useState(false);
     const [referencesLoading, setReferencesLoading] = useState(false);
+    const [createLoanCapacity, setCreateLoanCapacity] = useState<LoanCapacitySummary | null>(null);
+    const [createLoanCapacityLoading, setCreateLoanCapacityLoading] = useState(false);
+    const [createLoanCapacityError, setCreateLoanCapacityError] = useState<string | null>(null);
+    const [appraisalCapacity, setAppraisalCapacity] = useState<LoanCapacitySummary | null>(null);
+    const [appraisalCapacityLoading, setAppraisalCapacityLoading] = useState(false);
+    const [appraisalCapacityError, setAppraisalCapacityError] = useState<string | null>(null);
     const [activityLoaded, setActivityLoaded] = useState(false);
     const [activityLoading, setActivityLoading] = useState(false);
     const [creditRiskLoaded, setCreditRiskLoaded] = useState(false);
@@ -809,6 +851,33 @@ export function LoansPage() {
             })),
         [loanProducts]
     );
+    const selectedCreateMemberId = createForm.watch("member_id");
+    const selectedCreateProductId = createForm.watch("product_id");
+    const selectedCreateMember = useMemo(
+        () => members.find((member) => member.id === selectedCreateMemberId) || null,
+        [members, selectedCreateMemberId]
+    );
+    const selectedCreateProduct = useMemo(
+        () => loanProducts.find((product) => product.id === selectedCreateProductId) || null,
+        [loanProducts, selectedCreateProductId]
+    );
+    const selectedCreateBranchId = selectedBranchId || selectedCreateMember?.branch_id || "";
+    const selectedCreateMinimumAmount = useMemo(
+        () => Math.max(10000, Number(createLoanCapacity?.minimum_loan_amount ?? selectedCreateProduct?.min_amount ?? 0)),
+        [createLoanCapacity, selectedCreateProduct]
+    );
+    const selectedCreateBorrowLimit = useMemo(
+        () => createLoanCapacity?.borrow_limit ?? 0,
+        [createLoanCapacity]
+    );
+    const selectedCreateMinimumTerm = useMemo(
+        () => Math.max(1, Number(selectedCreateProduct?.min_term_count || 1)),
+        [selectedCreateProduct]
+    );
+    const selectedCreateMaximumTerm = useMemo(
+        () => (selectedCreateProduct?.max_term_count ? Number(selectedCreateProduct.max_term_count) : null),
+        [selectedCreateProduct]
+    );
 
     const loanOptions = useMemo(
         () =>
@@ -822,6 +891,101 @@ export function LoansPage() {
             }),
         [loans, members]
     );
+
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!showCreateModal || !selectedTenantId || !selectedCreateMemberId || !selectedCreateProductId || !selectedCreateBranchId) {
+            setCreateLoanCapacity(null);
+            setCreateLoanCapacityError(null);
+            setCreateLoanCapacityLoading(false);
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        setCreateLoanCapacityLoading(true);
+        setCreateLoanCapacityError(null);
+
+        void api.get<LoanCapacityResponse>(endpoints.loanCapacity.capacity(), {
+            params: {
+                tenant_id: selectedTenantId,
+                member_id: selectedCreateMemberId,
+                loan_product_id: selectedCreateProductId,
+                branch_id: selectedCreateBranchId
+            }
+        })
+            .then(({ data }) => {
+                if (cancelled) {
+                    return;
+                }
+
+                setCreateLoanCapacity(data.data || null);
+            })
+            .catch((capacityError) => {
+                if (cancelled) {
+                    return;
+                }
+
+                setCreateLoanCapacity(null);
+                setCreateLoanCapacityError(getApiErrorMessage(capacityError, "Unable to load current borrowing capacity."));
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setCreateLoanCapacityLoading(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedCreateBranchId, selectedCreateMemberId, selectedCreateProductId, selectedTenantId, showCreateModal]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!appraisalTarget || !selectedTenantId || !appraisalTarget.member_id || !appraisalTarget.product_id || !appraisalTarget.branch_id) {
+            setAppraisalCapacity(null);
+            setAppraisalCapacityError(null);
+            setAppraisalCapacityLoading(false);
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        setAppraisalCapacityLoading(true);
+        setAppraisalCapacityError(null);
+
+        void api.get<LoanCapacityResponse>(endpoints.loanCapacity.capacity(), {
+            params: {
+                tenant_id: selectedTenantId,
+                member_id: appraisalTarget.member_id,
+                loan_product_id: appraisalTarget.product_id,
+                branch_id: appraisalTarget.branch_id
+            }
+        })
+            .then(({ data }) => {
+                if (!cancelled) {
+                    setAppraisalCapacity(data.data || null);
+                }
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    setAppraisalCapacity(null);
+                    setAppraisalCapacityError(getApiErrorMessage(error, "Unable to load borrowing capacity summary."));
+                }
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setAppraisalCapacityLoading(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [appraisalTarget, selectedTenantId]);
+
     const selectedRepaymentLoanId = repayForm.watch("loan_id");
     const selectedRepaymentAmount = Number(repayForm.watch("amount") || 0);
     const selectedRepaymentLoan = useMemo(
@@ -836,6 +1000,83 @@ export function LoansPage() {
         () => schedules.filter((schedule) => schedule.loan_id === selectedRepaymentLoanId),
         [schedules, selectedRepaymentLoanId]
     );
+    const appraisalRecommendedAmount = Number(appraiseForm.watch("recommended_amount") || 0);
+    const appraisalRiskRating = appraiseForm.watch("risk_rating");
+    const appraisalBorrowLimit = appraisalCapacity?.borrow_limit ?? appraisalTarget?.borrow_limit ?? 0;
+    const appraisalRequestedAmount = Number(appraisalTarget?.requested_amount || 0);
+    const appraisalRequestedUtilizationPercent = useMemo(() => {
+        if (!appraisalBorrowLimit || appraisalBorrowLimit <= 0) {
+            return null;
+        }
+
+        return (appraisalRequestedAmount / appraisalBorrowLimit) * 100;
+    }, [appraisalBorrowLimit, appraisalRequestedAmount]);
+    const appraisalDecisionUtilizationPercent = useMemo(() => {
+        if (!appraisalBorrowLimit || appraisalBorrowLimit <= 0) {
+            return null;
+        }
+
+        return (appraisalRecommendedAmount / appraisalBorrowLimit) * 100;
+    }, [appraisalBorrowLimit, appraisalRecommendedAmount]);
+    const appraisalUtilizationColor = useMemo(() => {
+        const percent = appraisalRequestedUtilizationPercent;
+        if (percent === null) {
+            return theme.palette.success.main;
+        }
+
+        if (percent > 100) {
+            return theme.palette.error.main;
+        }
+
+        if (percent >= 80) {
+            return theme.palette.warning.main;
+        }
+
+        return theme.palette.success.main;
+    }, [appraisalRequestedUtilizationPercent, theme.palette.error.main, theme.palette.success.main, theme.palette.warning.main]);
+    const appraisalRemainingPoolAfterApproval = useMemo(() => {
+        if (!appraisalCapacity) {
+            return null;
+        }
+
+        return Math.max(0, Number(appraisalCapacity.available_for_loans || 0) - appraisalRequestedAmount);
+    }, [appraisalCapacity, appraisalRequestedAmount]);
+    const appraisalLiquidityImpact = useMemo(() => {
+        if (!appraisalCapacity) {
+            return {
+                badge: "Unavailable",
+                severity: "info" as const
+            };
+        }
+
+        if (appraisalCapacity.loan_pool_frozen) {
+            return {
+                badge: "Critical Liquidity",
+                severity: "error" as const
+            };
+        }
+
+        const totalDeposits = Number(appraisalCapacity.total_deposits || 0);
+        const liquidityRatio = totalDeposits > 0 ? Number(appraisalCapacity.available_for_loans || 0) / totalDeposits : 0;
+        if (liquidityRatio > 0.4) {
+            return {
+                badge: "Healthy",
+                severity: "success" as const
+            };
+        }
+
+        if (liquidityRatio >= 0.2) {
+            return {
+                badge: "Low Liquidity",
+                severity: "warning" as const
+            };
+        }
+
+        return {
+            badge: "Critical Liquidity",
+            severity: "error" as const
+        };
+    }, [appraisalCapacity]);
     const selectedRepaymentInsights = useMemo(
         () => buildRepaymentInsights(selectedRepaymentLoan, selectedRepaymentSchedules, selectedRepaymentAmount),
         [selectedRepaymentAmount, selectedRepaymentLoan, selectedRepaymentSchedules]
@@ -1151,11 +1392,76 @@ export function LoansPage() {
     };
 
     const createApplication = createForm.handleSubmit(async (values) => {
+        let hasClientValidationError = false;
+        createForm.clearErrors();
+
+        if (!selectedCreateMember) {
+            createForm.setError("member_id", { message: "Select a member." });
+            return;
+        }
+
+        if (!selectedCreateProduct) {
+            createForm.setError("product_id", { message: "Select a loan product." });
+            return;
+        }
+
+        if (createLoanCapacityLoading) {
+            pushToast({
+                type: "error",
+                title: "Borrowing capacity still loading",
+                message: "Wait for the current loan eligibility summary to finish loading, then try again."
+            });
+            return;
+        }
+
+        if (!createLoanCapacity) {
+            pushToast({
+                type: "error",
+                title: "Borrowing capacity unavailable",
+                message: createLoanCapacityError || "Unable to load current borrowing capacity. Try again in a moment."
+            });
+            return;
+        }
+
+        if (createLoanCapacity.loan_pool_frozen) {
+            pushToast({
+                type: "error",
+                title: "Loan pool exhausted",
+                message: "SACCO loan pool temporarily exhausted. Please try again later."
+            });
+            return;
+        }
+
+        if (values.requested_amount < selectedCreateMinimumAmount) {
+            createForm.setError("requested_amount", {
+                message: `Requested amount must be at least ${formatCurrency(selectedCreateMinimumAmount)}`
+            });
+            hasClientValidationError = true;
+        } else if (values.requested_amount > selectedCreateBorrowLimit) {
+            createForm.setError("requested_amount", {
+                message: `Requested amount exceeds current borrowing capacity of ${formatCurrency(selectedCreateBorrowLimit)}`
+            });
+            hasClientValidationError = true;
+        }
+
+        if (values.requested_term_count < selectedCreateMinimumTerm || (selectedCreateMaximumTerm && values.requested_term_count > selectedCreateMaximumTerm)) {
+            createForm.setError("requested_term_count", {
+                message: selectedCreateMaximumTerm
+                    ? `Loan term must be between ${selectedCreateMinimumTerm} and ${selectedCreateMaximumTerm}.`
+                    : `Loan term must be at least ${selectedCreateMinimumTerm}.`
+            });
+            hasClientValidationError = true;
+        }
+
+        if (hasClientValidationError) {
+            return;
+        }
+
         setProcessing(true);
         try {
             const payload: CreateLoanApplicationRequest = {
                 tenant_id: selectedTenantId || undefined,
-                branch_id: selectedBranchId || undefined,
+                branch_id: selectedCreateBranchId || undefined,
                 member_id: values.member_id,
                 product_id: values.product_id,
                 external_reference: values.external_reference || null,
@@ -1184,10 +1490,30 @@ export function LoansPage() {
                 await loadCreditRiskData({ silent: true, force: true });
             }
         } catch (error) {
+            const errorCode = getApiErrorCode(error);
+            const errorDetails = getApiErrorDetails<Record<string, unknown>>(error);
+            const allowedLimit = getNumericDetail(errorDetails, "allowed_limit");
+            const minimumAmount = getNumericDetail(errorDetails, "minimum_amount");
+            let errorMessage = getApiErrorMessage(error);
+
+            if (errorCode === "LOAN_BORROW_LIMIT_EXCEEDED" && allowedLimit !== null) {
+                createForm.setError("requested_amount", {
+                    message: `Requested amount exceeds current borrowing capacity of ${formatCurrency(allowedLimit)}`
+                });
+                errorMessage = `Requested amount exceeds current borrowing capacity of ${formatCurrency(allowedLimit)}.`;
+            } else if (errorCode === "LOAN_AMOUNT_BELOW_MINIMUM" && minimumAmount !== null) {
+                createForm.setError("requested_amount", {
+                    message: `Requested amount must be at least ${formatCurrency(minimumAmount)}`
+                });
+                errorMessage = `Requested amount must be at least ${formatCurrency(minimumAmount)}.`;
+            } else if (errorCode === "LOAN_POOL_TEMPORARILY_EXHAUSTED") {
+                errorMessage = "SACCO loan pool temporarily exhausted. Please try again later.";
+            }
+
             pushToast({
                 type: "error",
                 title: "Unable to create application",
-                message: getApiErrorMessage(error)
+                message: errorMessage
             });
         } finally {
             setProcessing(false);
@@ -1612,7 +1938,7 @@ export function LoansPage() {
                 const canSubmit = row.status === "draft" && canCreateApplications;
                 const canRunAppraisal = ["submitted", "appraised"].includes(row.status) && canAppraise;
                 const canRunApproval = (["submitted", "appraised"].includes(row.status) || (row.status === "approved" && row.approval_count < row.required_approval_count)) && canApprove;
-                const canRunRejection = (["submitted", "appraised"].includes(row.status) || (row.status === "approved" && row.approval_count < row.required_approval_count)) && canReject;
+                const canRunRejection = row.status === "submitted" && canReject;
                 const canRunDisbursement = row.status === "approved" && !row.loan_id && canDisburse;
 
                 const openApproval = () => {
@@ -2788,6 +3114,15 @@ export function LoansPage() {
                                     </Typography>
                                 ) : null}
                             </Box>
+                            {(selectedCreateMember || selectedCreateProduct) ? (
+                                <LoanEligibilitySummary
+                                    summary={createLoanCapacity}
+                                    loading={createLoanCapacityLoading}
+                                    error={createLoanCapacityError}
+                                    title="Borrowing Capacity"
+                                    helperText="This live check runs before the application enters appraisal and approval workflow."
+                                />
+                            ) : null}
                             <TextField
                                 label="Purpose"
                                 fullWidth
@@ -2805,7 +3140,12 @@ export function LoansPage() {
                                         fullWidth
                                         {...createForm.register("requested_amount")}
                                         error={Boolean(createForm.formState.errors.requested_amount)}
-                                        helperText={createForm.formState.errors.requested_amount?.message}
+                                        helperText={
+                                            createForm.formState.errors.requested_amount?.message
+                                            || (selectedCreateProduct
+                                                ? `Min ${formatCurrency(selectedCreateMinimumAmount)} · Borrow up to ${formatCurrency(selectedCreateBorrowLimit)}`
+                                                : undefined)
+                                        }
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 4 }}>
@@ -2815,7 +3155,12 @@ export function LoansPage() {
                                         fullWidth
                                         {...createForm.register("requested_term_count")}
                                         error={Boolean(createForm.formState.errors.requested_term_count)}
-                                        helperText={createForm.formState.errors.requested_term_count?.message}
+                                        helperText={
+                                            createForm.formState.errors.requested_term_count?.message
+                                            || (selectedCreateProduct
+                                                ? `Min ${selectedCreateMinimumTerm}${selectedCreateMaximumTerm ? ` · Max ${selectedCreateMaximumTerm}` : ""}`
+                                                : undefined)
+                                        }
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 4 }}>
@@ -2850,7 +3195,7 @@ export function LoansPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setShowCreateModal(false)}>Cancel</Button>
-                    <Button variant="contained" type="submit" form="loan-application-form" disabled={processing || subscriptionInactive} sx={darkAccentContainedSx}>
+                    <Button variant="contained" type="submit" form="loan-application-form" disabled={processing || subscriptionInactive || createLoanCapacityLoading || Boolean(createLoanCapacityError)} sx={darkAccentContainedSx}>
                         {processing ? "Submitting..." : "Create & Submit"}
                     </Button>
                 </DialogActions>
@@ -2965,13 +3310,58 @@ export function LoansPage() {
                                     />
                                 </Grid>
                             </Grid>
+
+                            <Grid container spacing={2}>
+                                <Grid size={{ xs: 12, md: 3 }}>
+                                    <TextField
+                                        label="Borrow Limit"
+                                        value={reviewTarget.borrow_limit !== null && typeof reviewTarget.borrow_limit !== "undefined"
+                                            ? formatCurrency(reviewTarget.borrow_limit)
+                                            : "N/A"}
+                                        fullWidth
+                                        InputProps={{ readOnly: true }}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, md: 3 }}>
+                                    <TextField
+                                        label="Contribution Limit"
+                                        value={reviewTarget.contribution_limit !== null && typeof reviewTarget.contribution_limit !== "undefined"
+                                            ? formatCurrency(reviewTarget.contribution_limit)
+                                            : "N/A"}
+                                        fullWidth
+                                        InputProps={{ readOnly: true }}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, md: 3 }}>
+                                    <TextField
+                                        label="Liquidity Limit"
+                                        value={reviewTarget.liquidity_limit !== null && typeof reviewTarget.liquidity_limit !== "undefined"
+                                            ? formatCurrency(reviewTarget.liquidity_limit)
+                                            : "N/A"}
+                                        fullWidth
+                                        InputProps={{ readOnly: true }}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, md: 3 }}>
+                                    <TextField
+                                        label="Utilization"
+                                        value={formatBorrowUtilization(reviewTarget.borrow_utilization_percent)}
+                                        fullWidth
+                                        InputProps={{ readOnly: true }}
+                                    />
+                                </Grid>
+                            </Grid>
+                            <Alert severity={reviewTarget.liquidity_status === "healthy" ? "success" : reviewTarget.liquidity_status === "warning" ? "warning" : "info"} variant="outlined">
+                                Liquidity Status: {getLiquidityStatusLabel(reviewTarget.liquidity_status)}
+                                {reviewTarget.capacity_captured_at ? ` · Snapshot captured ${formatDate(reviewTarget.capacity_captured_at)}` : ""}
+                            </Alert>
                         </Stack>
                     ) : null}
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setReviewTarget(null)}>Close</Button>
                     {reviewTarget
-                    && (["submitted", "appraised"].includes(reviewTarget.status) || (reviewTarget.status === "approved" && reviewTarget.approval_count < reviewTarget.required_approval_count))
+                    && reviewTarget.status === "submitted"
                     && canReject ? (
                             <Button
                                 variant="outlined"
@@ -3005,6 +3395,147 @@ export function LoansPage() {
                 <DialogTitle>{appraisalTarget?.status === "appraised" ? "Update Loan Appraisal" : "Appraise Loan Application"}</DialogTitle>
                 <DialogContent dividers>
                     <Box component="form" id="loan-appraisal-form" onSubmit={saveAppraisal} sx={{ display: "grid", gap: 2, pt: 0.5 }}>
+                        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5 }}>
+                            <Stack spacing={1.5}>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                    Borrowing Capacity Summary
+                                </Typography>
+                                {appraisalCapacityLoading ? (
+                                    <Typography variant="body2" color="text.secondary">
+                                        Loading current borrowing capacity...
+                                    </Typography>
+                                ) : appraisalCapacityError ? (
+                                    <Alert severity="warning" variant="outlined">
+                                        {appraisalCapacityError}
+                                    </Alert>
+                                ) : null}
+                                <Grid container spacing={1.5}>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Member Contributions"
+                                            value={appraisalCapacity ? formatCurrency(appraisalCapacity.total_contributions) : "N/A"}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Contribution Borrow Limit"
+                                            value={appraisalCapacity ? formatCurrency(appraisalCapacity.contribution_limit) : "N/A"}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Loan Product Limit"
+                                            value={appraisalCapacity ? formatCurrency(appraisalCapacity.product_limit) : "N/A"}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="SACCO Liquidity Limit"
+                                            value={appraisalCapacity ? formatCurrency(appraisalCapacity.liquidity_limit) : "N/A"}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Maximum Borrow Limit"
+                                            value={appraisalBorrowLimit > 0 ? formatCurrency(appraisalBorrowLimit) : "N/A"}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Requested Loan Amount"
+                                            value={formatCurrency(appraisalRequestedAmount)}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12 }}>
+                                        <Stack spacing={0.8}>
+                                            <Stack direction="row" justifyContent="space-between" spacing={1}>
+                                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                                    Borrow Utilization %
+                                                </Typography>
+                                                <Typography variant="body2" sx={{ fontWeight: 700, color: appraisalUtilizationColor }}>
+                                                    {formatBorrowUtilization(appraisalRequestedUtilizationPercent)}
+                                                </Typography>
+                                            </Stack>
+                                            <LinearProgress
+                                                variant="determinate"
+                                                value={Math.min(appraisalRequestedUtilizationPercent || 0, 100)}
+                                                sx={{
+                                                    height: 10,
+                                                    borderRadius: 999,
+                                                    bgcolor: alpha(appraisalUtilizationColor, 0.16),
+                                                    "& .MuiLinearProgress-bar": {
+                                                        borderRadius: 999,
+                                                        bgcolor: appraisalUtilizationColor
+                                                    }
+                                                }}
+                                            />
+                                        </Stack>
+                                    </Grid>
+                                </Grid>
+                            </Stack>
+                        </Paper>
+                        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5 }}>
+                            <Stack spacing={1.5}>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                        SACCO Liquidity Impact
+                                    </Typography>
+                                    <Chip
+                                        size="small"
+                                        label={appraisalLiquidityImpact.badge}
+                                        color={appraisalLiquidityImpact.severity}
+                                        variant="outlined"
+                                        sx={{ fontWeight: 700 }}
+                                    />
+                                </Stack>
+                                <Grid container spacing={1.5}>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <TextField
+                                            label="Current Loan Pool Available"
+                                            value={appraisalCapacity ? formatCurrency(appraisalCapacity.available_for_loans) : "N/A"}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <TextField
+                                            label="Loan Requested"
+                                            value={formatCurrency(appraisalRequestedAmount)}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <TextField
+                                            label="Remaining Loan Pool After Approval"
+                                            value={appraisalRemainingPoolAfterApproval !== null ? formatCurrency(appraisalRemainingPoolAfterApproval) : "N/A"}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6 }}>
+                                        <TextField
+                                            label="Liquidity Status"
+                                            value={appraisalLiquidityImpact.badge}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                </Grid>
+                            </Stack>
+                        </Paper>
                         <Grid container spacing={2}>
                             <Grid size={{ xs: 12, md: 4 }}>
                                 <TextField
@@ -3028,7 +3559,7 @@ export function LoansPage() {
                             </Grid>
                             <Grid size={{ xs: 12, md: 4 }}>
                                 <TextField
-                                    label="Recommended Interest %"
+                                    label="Recommended Interest Rate (% per year)"
                                     type="number"
                                     fullWidth
                                     {...appraiseForm.register("recommended_interest_rate")}
@@ -3170,6 +3701,63 @@ export function LoansPage() {
                                 </Alert>
                             )}
                         </Stack>
+                        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5 }}>
+                            <Stack spacing={1.5}>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                    Loan Decision Summary
+                                </Typography>
+                                <Grid container spacing={1.5}>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Requested Loan"
+                                            value={formatCurrency(appraisalRequestedAmount)}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Recommended Loan"
+                                            value={formatCurrency(appraisalRecommendedAmount)}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Borrow Limit"
+                                            value={appraisalBorrowLimit > 0 ? formatCurrency(appraisalBorrowLimit) : "N/A"}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Borrow Utilization"
+                                            value={formatBorrowUtilization(appraisalDecisionUtilizationPercent)}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Risk Rating"
+                                            value={String(appraisalRiskRating || "").replace(/^\w/, (char) => char.toUpperCase())}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                        <TextField
+                                            label="Guarantor Count"
+                                            value={String(appraisalGuarantors.length)}
+                                            fullWidth
+                                            InputProps={{ readOnly: true }}
+                                        />
+                                    </Grid>
+                                </Grid>
+                            </Stack>
+                        </Paper>
                     </Box>
                 </DialogContent>
                 <DialogActions>
@@ -3187,6 +3775,44 @@ export function LoansPage() {
                         <Alert severity="info" variant="outlined" sx={darkAccentInfoAlertSx}>
                             Approval records governance consent only. The actual double-entry loan posting will occur later at disbursement.
                         </Alert>
+                        {approvalTarget ? (
+                            <Grid container spacing={1.5}>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                    <TextField
+                                        label="Borrow Limit"
+                                        value={approvalTarget.borrow_limit !== null && typeof approvalTarget.borrow_limit !== "undefined"
+                                            ? formatCurrency(approvalTarget.borrow_limit)
+                                            : "N/A"}
+                                        fullWidth
+                                        InputProps={{ readOnly: true }}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                    <TextField
+                                        label="Requested Amount"
+                                        value={formatCurrency(approvalTarget.requested_amount)}
+                                        fullWidth
+                                        InputProps={{ readOnly: true }}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                    <TextField
+                                        label="Utilization"
+                                        value={formatBorrowUtilization(approvalTarget.borrow_utilization_percent)}
+                                        fullWidth
+                                        InputProps={{ readOnly: true }}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                    <TextField
+                                        label="Liquidity Status"
+                                        value={getLiquidityStatusLabel(approvalTarget.liquidity_status)}
+                                        fullWidth
+                                        InputProps={{ readOnly: true }}
+                                    />
+                                </Grid>
+                            </Grid>
+                        ) : null}
                         <TextField label="Approval Notes" fullWidth multiline minRows={3} {...approveForm.register("notes")} />
                     </Box>
                 </DialogContent>

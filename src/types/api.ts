@@ -435,6 +435,13 @@ export interface LoanApplication {
     external_reference?: string | null;
     purpose: string;
     requested_amount: number;
+    contribution_limit?: number | null;
+    product_limit?: number | null;
+    liquidity_limit?: number | null;
+    borrow_limit?: number | null;
+    borrow_utilization_percent?: number | null;
+    liquidity_status?: "healthy" | "warning" | "risk" | "frozen" | "unknown" | string | null;
+    capacity_captured_at?: string | null;
     requested_term_count: number;
     requested_repayment_frequency: "daily" | "weekly" | "monthly";
     requested_interest_rate?: number | null;
@@ -471,6 +478,163 @@ export interface LoanApplication {
     loan_approvals?: LoanApproval[];
     loan_guarantors?: LoanGuarantor[];
     collateral_items?: CollateralItem[];
+}
+
+export interface LoanCapacitySummary {
+    tenant_id: string;
+    branch_id: string;
+    member_id: string;
+    loan_product_id: string;
+    total_contributions: number;
+    locked_savings: number;
+    withdrawable_balance: number;
+    current_loan_exposure: number;
+    guarantor_exposure: number;
+    contribution_limit: number;
+    product_limit: number;
+    liquidity_limit: number;
+    borrow_limit: number;
+    minimum_loan_amount: number;
+    requires_guarantor: boolean;
+    requires_collateral: boolean;
+    minimum_guarantor_count: number;
+    available_for_loans: number;
+    total_deposits: number;
+    reserved_liquidity: number;
+    active_loans_total: number;
+    max_lending_ratio: number;
+    minimum_liquidity_reserve: number;
+    auto_loan_freeze_threshold: number;
+    liquidity_buffer_percent: number;
+    loan_pool_frozen: boolean;
+    loan_pool_status: "frozen" | "available";
+    is_currently_eligible: boolean;
+}
+
+export interface LoanProductPolicy {
+    id: string | null;
+    tenant_id: string | null;
+    loan_product_id: string | null;
+    contribution_multiplier: number;
+    max_loan_amount: number;
+    min_loan_amount: number;
+    liquidity_buffer_percent: number;
+    requires_guarantor: boolean;
+    requires_collateral: boolean;
+    source: "configured" | "derived_from_loan_product";
+    created_at?: string | null;
+    updated_at?: string | null;
+}
+
+export interface BranchLiquidityPolicy {
+    id: string | null;
+    tenant_id: string;
+    branch_id: string;
+    max_lending_ratio: number;
+    minimum_liquidity_reserve: number;
+    auto_loan_freeze_threshold: number;
+    source: "configured" | "default";
+    created_at?: string | null;
+    updated_at?: string | null;
+}
+
+export interface BranchFundPool {
+    id: string;
+    tenant_id: string;
+    branch_id: string;
+    total_deposits: number;
+    reserved_liquidity: number;
+    active_loans_total: number;
+    available_for_loans: number;
+    last_updated?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+}
+
+export interface LoanCapacityTrendPoint {
+    snapshot_date: string;
+    total_deposits: number | null;
+    reserved_liquidity: number | null;
+    active_loans_total: number | null;
+    available_for_loans: number | null;
+    has_snapshot: boolean;
+}
+
+export interface LoanCapacityPolicyChange {
+    id: string;
+    source_audit_id: string;
+    event_at: string | null;
+    actor_user_id?: string | null;
+    actor_name?: string | null;
+    policy_key: string;
+    policy_label: string;
+    policy_scope: "borrowing_policy" | "liquidity_guardrail";
+    old_value: string;
+    new_value: string;
+}
+
+export interface LoanCapacityTopBorrower {
+    member_id: string;
+    member_name: string;
+    member_no?: string | null;
+    total_exposure: number;
+    loan_count: number;
+    contributions: number;
+    borrow_limit: number;
+    capacity_usage_percent?: number | null;
+}
+
+export interface LoanExposureOverview {
+    total_active_loans: number;
+    active_loan_count: number;
+    members_with_active_loans: number;
+    average_loan_size: number;
+    members_near_borrow_limit: number;
+    top_borrowers: LoanCapacityTopBorrower[];
+}
+
+export interface LoanCapacityDashboard {
+    tenant_id: string;
+    branch_id: string;
+    branch_name: string;
+    loan_product_id: string;
+    loan_product_name: string;
+    requested_days: number;
+    loan_product_policy: Pick<
+        LoanProductPolicy,
+        "contribution_multiplier" | "max_loan_amount" | "min_loan_amount" | "liquidity_buffer_percent" | "requires_guarantor" | "requires_collateral"
+    >;
+    branch_liquidity_policy: Pick<
+        BranchLiquidityPolicy,
+        "max_lending_ratio" | "minimum_liquidity_reserve" | "auto_loan_freeze_threshold"
+    >;
+    fund_pool: Pick<BranchFundPool, "total_deposits" | "reserved_liquidity" | "active_loans_total" | "available_for_loans" | "last_updated">;
+    liquidity_limit: number;
+    liquidity_health: {
+        ratio: number;
+        percent: number;
+        status: "healthy" | "warning" | "risk";
+        label: string;
+    };
+    loan_utilization: {
+        ratio: number;
+        percent: number;
+        active_loans_total: number;
+        total_deposits: number;
+    };
+    loan_status: {
+        status: "frozen" | "active";
+        is_frozen: boolean;
+        freeze_threshold: number;
+        message: string;
+    };
+    exposure_overview: LoanExposureOverview;
+    trend: {
+        requested_days: number;
+        coverage_days: number;
+        points: LoanCapacityTrendPoint[];
+    };
+    policy_change_history: LoanCapacityPolicyChange[];
 }
 
 export interface SavingsProduct {

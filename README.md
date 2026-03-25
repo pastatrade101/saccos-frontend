@@ -1,6 +1,8 @@
 # SACCOS Frontend
 
-React + TypeScript frontend for the SACCOS backend in the repository root.
+React + TypeScript frontend for the client-specific SACCOS deployment.
+
+The application still carries some compatibility types and helpers from the earlier SaaS version of the system, but the active route surface is a single client workspace rather than a self-service multi-tenant platform.
 
 ## Stack
 
@@ -39,7 +41,7 @@ npm install
 npm run dev
 ```
 
-From monorepo root:
+From the monorepo root:
 
 ```bash
 cd frontend
@@ -69,35 +71,14 @@ docker compose build
 docker compose up -d
 ```
 
-## Production Deploy (Important)
+## Production Deploy
 
-Vite reads `VITE_*` variables at build time. If they are missing during build, the app will crash at runtime with:
-`Missing Supabase frontend environment variables.`
-
-1. Create production env file:
+Vite reads `VITE_*` variables at build time. If they are missing during build, the app will fail at runtime.
 
 ```bash
 cp .env.production.example .env
-```
-
-2. Set real values:
-
-```env
-VITE_API_BASE_URL=https://api.yourdomain.com/api
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-```
-
-3. Rebuild frontend image without cache and restart:
-
-```bash
 docker compose build --no-cache frontend
 docker compose up -d frontend
-```
-
-4. Verify built values are embedded:
-
-```bash
 docker compose logs -f frontend
 ```
 
@@ -107,6 +88,10 @@ Public:
 
 - `/`
 - `/signin`
+- `/signup`
+- `/reset-password`
+- `/privacy-policy`
+- `/terms-and-agreement`
 - `/service-unavailable`
 - `/access-denied`
 
@@ -118,7 +103,7 @@ Setup:
 
 - `/setup/super-admin`
 
-Operational:
+Operational workspace:
 
 - `/dashboard`
 - `/staff-users`
@@ -126,13 +111,16 @@ Operational:
 - `/member-applications`
 - `/members`
 - `/members/import`
+- `/contributions`
+- `/savings`
+- `/payments`
 - `/cash`
 - `/cash-control`
-- `/contributions`
 - `/dividends`
+- `/follow-ups`
+- `/approvals`
 - `/loans`
 - `/loans/:loanId`
-- `/follow-ups`
 - `/reports`
 
 Auditor:
@@ -149,25 +137,20 @@ Member:
 
 ## Role Behavior
 
-- `platform_admin`: tenant and plan management only
 - `super_admin`: governance and approval controls
-- `branch_manager`: operations coordination and approvals
-- `loan_officer`: appraisal and loan workflow operations
-- `teller`: cash desk and disbursement execution
+- `branch_manager`: staff, members, products, contributions, dividends, and operational oversight
+- `loan_officer`: loan appraisal and lending workflow operations
+- `teller`: cash desk, disbursement, and repayment execution
 - `auditor`: read-only auditor pages
 - `member`: portal only
 
-Menu items are hidden by role and plan entitlements; backend authorization remains authoritative.
+Legacy internal roles such as `platform_admin` may still appear in shared types or compatibility logic, but there are no active platform management pages in the current route map.
 
-## Loan Workflow in UI
+## Workspace Status and Compatibility
 
-Implemented in `src/pages/Loans.tsx`:
-
-1. create/submit application
-2. appraise (loan officer)
-3. approve/reject (branch manager)
-4. disburse approved application (loan officer/teller only)
-5. repay and review portfolio/details
+- The frontend still reads `/api/me/subscription`.
+- In the current deployment, that endpoint is treated as workspace status/capability data rather than a public SaaS provisioning surface.
+- Some older UI copy still says "subscription" because the underlying backend contracts and types have not been fully renamed.
 
 ## Member Import
 

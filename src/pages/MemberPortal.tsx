@@ -76,16 +76,18 @@ import { useAuth } from "../auth/AuthContext";
 import { ChartPanel } from "../components/ChartPanel";
 import { DataTable, type Column } from "../components/DataTable";
 import { MemberOverview, type MemberAlertItem } from "../components/member-overview";
+import { LoanEligibilitySummary } from "../components/loan-capacity/LoanEligibilitySummary";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { useToast } from "../components/Toast";
 import { AppLoader } from "../components/AppLoader";
-import { api, getApiErrorMessage } from "../lib/api";
+import { api, getApiErrorCode, getApiErrorDetails, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
     type CreateLoanApplicationRequest,
     type UpdateLoanApplicationRequest,
     type LoanApplicationResponse,
     type LoanApplicationsResponse,
+    type LoanCapacityResponse,
     type LoanProductsResponse,
     type LoansResponse,
     type LoanSchedulesResponse,
@@ -105,7 +107,7 @@ import {
 } from "../lib/endpoints";
 import { brandColors, darkThemeColors } from "../theme/colors";
 import { useUI } from "../ui/UIProvider";
-import type { Loan, LoanApplication, LoanProduct, LoanSchedule, LoanTransaction, Member, MemberAccount, MemberApplication, MemberApplicationStatus, PaymentOrder, StatementRow } from "../types/api";
+import type { Loan, LoanApplication, LoanCapacitySummary, LoanProduct, LoanSchedule, LoanTransaction, Member, MemberAccount, MemberApplication, MemberApplicationStatus, PaymentOrder, StatementRow } from "../types/api";
 import { downloadLoanStatementPdf, downloadMemberStatementPdf } from "../utils/memberStatementPdf";
 import { memberApplicationStatusLabels } from "../utils/member-application-status";
 import { formatCurrency, formatDate, formatRole } from "../utils/format";
@@ -140,6 +142,15 @@ function toPositiveNumber(value: unknown, fallback: number | null) {
         return fallback;
     }
     return parsed;
+}
+
+function getNumericDetail(details: unknown, key: string) {
+    if (!details || typeof details !== "object") {
+        return null;
+    }
+
+    const value = Number((details as Record<string, unknown>)[key]);
+    return Number.isFinite(value) ? value : null;
 }
 
 function getLoanEligibilityRuleNumber(rules: Record<string, unknown> | undefined, keys: string[], fallback: number | null) {
@@ -827,6 +838,12 @@ export function MemberPortalPage() {
     const [warning, setWarning] = useState<string | null>(null);
     const [showApplyDialog, setShowApplyDialog] = useState(false);
     const [editingLoanApplicationId, setEditingLoanApplicationId] = useState<string | null>(null);
+    const [loanCapacity, setLoanCapacity] = useState<LoanCapacitySummary | null>(null);
+    const [loanCapacityLoading, setLoanCapacityLoading] = useState(false);
+    const [loanCapacityError, setLoanCapacityError] = useState<string | null>(null);
+    const [dashboardLoanCapacity, setDashboardLoanCapacity] = useState<LoanCapacitySummary | null>(null);
+    const [dashboardLoanCapacityLoading, setDashboardLoanCapacityLoading] = useState(false);
+    const [dashboardLoanCapacityError, setDashboardLoanCapacityError] = useState<string | null>(null);
     const [showContributionDialog, setShowContributionDialog] = useState(false);
     const [submittingApplication, setSubmittingApplication] = useState(false);
     const [submittingContribution, setSubmittingContribution] = useState(false);
@@ -904,6 +921,13 @@ export function MemberPortalPage() {
         () => loanProducts.find((product) => product.id === selectedLoanProductId) || null,
         [loanProducts, selectedLoanProductId]
     );
+    const dashboardLoanProduct = useMemo(
+        () => loanProducts.find((product) => product.status === "active" && product.is_default)
+            || loanProducts.find((product) => product.status === "active")
+            || null,
+        [loanProducts]
+    );
+    const selectedLoanBranchId = memberRecord?.branch_id || profile?.branch_id || "";
     const selectedLoanPolicy = useMemo(
         () => resolveLoanEligibilityPolicy(selectedLoanProduct),
         [selectedLoanProduct]
@@ -973,8 +997,41 @@ export function MemberPortalPage() {
         return Math.max(0, eligibleAmount);
     }, [selectedLoanPolicy, selectedLoanProduct, savingsEligibilityBalance, sharesEligibilityBalance]);
     const selectedLoanMinimumAmount = useMemo(
-        () => Math.max(10000, Number(selectedLoanProduct?.min_amount || 0)),
-        [selectedLoanProduct]
+        () => Math.max(10000, Number(loanCapacity?.minimum_loan_amount ?? selectedLoanProduct?.min_amount ?? 0)),
+        [loanCapacity, selectedLoanProduct]
+    );
+    const selectedLoanBorrowLimit = useMemo(
+        () => loanCapacity?.borrow_limit ?? selectedLoanEligibleAmount,
+        [loanCapacity, selectedLoanEligibleAmount]
+    );
+    const selectedLoanPoolFrozen = Boolean(loanCapacity?.loan_pool_frozen);
+    const requestedBorrowUtilizationPercent = useMemo(() => {
+        if (!selectedLoanBorrowLimit || selectedLoanBorrowLimit <= 0) {
+            return null;
+        }
+
+        return (Number(requestedLoanAmount || 0) / selectedLoanBorrowLimit) * 100;
+    }, [requestedLoanAmount, selectedLoanBorrowLimit]);
+    const requestedBorrowUtilizationTone = useMemo(() => {
+        if (requestedBorrowUtilizationPercent === null) {
+            return brandColors.success;
+        }
+
+        if (requestedBorrowUtilizationPercent > 100) {
+            return brandColors.danger;
+        }
+
+        if (requestedBorrowUtilizationPercent >= 80) {
+            return brandColors.warning;
+        }
+
+        return brandColors.success;
+    }, [requestedBorrowUtilizationPercent]);
+    const selectedLoanLiquidityRatio = useMemo(
+        () => (loanCapacity && loanCapacity.total_deposits > 0
+            ? loanCapacity.available_for_loans / loanCapacity.total_deposits
+            : 0),
+        [loanCapacity]
     );
     const selectedLoanMinimumTerm = useMemo(
         () => Math.max(1, Number(selectedLoanProduct?.min_term_count || 1)),
@@ -986,53 +1043,96 @@ export function MemberPortalPage() {
     );
     const selectedLoanConflict = useMemo(
         () => loanApplications.find((application) =>
-            application.product_id === selectedLoanProductId
-            && application.id !== editingLoanApplicationId
+            application.id !== editingLoanApplicationId
             && ["submitted", "appraised", "approved"].includes(application.status)
         ) || null,
-        [editingLoanApplicationId, loanApplications, selectedLoanProductId]
+        [editingLoanApplicationId, loanApplications]
     );
     const memberHasProblemLoan = useMemo(
         () => loans.some((loan) => ["in_arrears", "written_off"].includes(loan.status)),
         [loans]
     );
-    const loanSubmissionBlockers = useMemo(() => {
-        const blockers: string[] = [];
+    const loanSubmissionLocks = useMemo(() => {
+        const locks: string[] = [];
 
         if (!(subscription?.features?.loans_enabled ?? true)) {
-            blockers.push("Loan applications are not enabled for your current plan.");
+            locks.push("Loan applications are not enabled for your current plan.");
         }
 
         if (!selectedLoanProduct) {
-            blockers.push("Select a loan product to continue.");
+            locks.push("Select a loan product to continue.");
         }
 
         if (memberRecord?.status !== "active") {
-            blockers.push("Your member profile is not active, so loan submission is locked.");
+            locks.push("Your member profile is not active, so loan submission is locked.");
         }
 
         if (memberHasProblemLoan) {
-            blockers.push("You have an in-arrears or written-off loan that must be resolved first.");
+            locks.push("You have an in-arrears or written-off loan that must be resolved first.");
         }
 
         if (selectedLoanConflict) {
-            blockers.push(`You already have a ${selectedLoanConflict.status} application for this loan product.`);
+            locks.push(`You already have a ${selectedLoanConflict.status} loan application in progress.`);
         }
 
-        if (selectedLoanProduct && selectedLoanEligibleAmount < selectedLoanMinimumAmount) {
-            blockers.push(`Your eligibility limit of ${formatCurrency(selectedLoanEligibleAmount)} is below this product minimum of ${formatCurrency(selectedLoanMinimumAmount)}.`);
-        }
-
-        return blockers;
+        return locks;
     }, [
         memberHasProblemLoan,
         memberRecord?.status,
         selectedLoanConflict,
-        selectedLoanEligibleAmount,
-        selectedLoanMinimumAmount,
         selectedLoanProduct,
         subscription?.features?.loans_enabled
     ]);
+    const loanCapacityWarnings = useMemo(() => {
+        const warnings: string[] = [];
+
+        if (selectedLoanProduct && loanCapacityError) {
+            warnings.push("Current borrowing capacity could not be refreshed. You can still submit, but the branch will re-check the live limit during review.");
+        }
+
+        if (selectedLoanPoolFrozen) {
+            warnings.push("Loan pool liquidity is currently constrained. New requests may take longer to review and may not clear until liquidity improves.");
+        }
+
+        if (selectedLoanProduct && loanCapacity && selectedLoanBorrowLimit < selectedLoanMinimumAmount) {
+            warnings.push(`Your current maximum borrow limit of ${formatCurrency(selectedLoanBorrowLimit)} is below this product minimum of ${formatCurrency(selectedLoanMinimumAmount)}.`);
+        }
+
+        return warnings;
+    }, [
+        loanCapacity,
+        loanCapacityError,
+        selectedLoanBorrowLimit,
+        selectedLoanMinimumAmount,
+        selectedLoanPoolFrozen,
+        selectedLoanProduct
+    ]);
+    const requestedAmountExceedsBorrowLimit = useMemo(
+        () => Boolean(selectedLoanProduct && loanCapacity && requestedLoanAmount > selectedLoanBorrowLimit),
+        [loanCapacity, requestedLoanAmount, selectedLoanBorrowLimit, selectedLoanProduct]
+    );
+    const requestedAmountCapacityWarning = useMemo(() => {
+        if (!requestedAmountExceedsBorrowLimit) {
+            return null;
+        }
+
+        return `Requested amount exceeds your recommended borrowing capacity. Recommended maximum: ${formatCurrency(selectedLoanBorrowLimit)}.`;
+    }, [requestedAmountExceedsBorrowLimit, selectedLoanBorrowLimit]);
+    const liquidityApproachingFreeze = useMemo(() => {
+        if (!loanCapacity || selectedLoanPoolFrozen || loanCapacity.total_deposits <= 0) {
+            return false;
+        }
+
+        const warningThreshold = Math.min(1, Number(loanCapacity.auto_loan_freeze_threshold || 0) + 0.1);
+        return selectedLoanLiquidityRatio > 0 && selectedLoanLiquidityRatio <= warningThreshold;
+    }, [loanCapacity, selectedLoanLiquidityRatio, selectedLoanPoolFrozen]);
+    const loanLiquidityNotice = useMemo(() => {
+        if (!liquidityApproachingFreeze) {
+            return null;
+        }
+
+        return "Loan pool liquidity is currently limited. Loan approvals may take longer.";
+    }, [liquidityApproachingFreeze]);
     const visibleLoanFormErrors = useMemo(
         () =>
             Object.values(loanApplicationForm.formState.errors)
@@ -1057,6 +1157,104 @@ export function MemberPortalPage() {
 
         return fallback;
     };
+
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!showApplyDialog || !profile?.tenant_id || !memberRecord?.id || !selectedLoanProductId || !selectedLoanBranchId) {
+            setLoanCapacity(null);
+            setLoanCapacityError(null);
+            setLoanCapacityLoading(false);
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        setLoanCapacityLoading(true);
+        setLoanCapacityError(null);
+
+        void api.get<LoanCapacityResponse>(endpoints.loanCapacity.capacity(), {
+            params: {
+                tenant_id: profile.tenant_id,
+                member_id: memberRecord.id,
+                loan_product_id: selectedLoanProductId,
+                branch_id: selectedLoanBranchId
+            }
+        })
+            .then(({ data }) => {
+                if (cancelled) {
+                    return;
+                }
+
+                setLoanCapacity(data.data || null);
+            })
+            .catch((capacityError) => {
+                if (cancelled) {
+                    return;
+                }
+
+                setLoanCapacity(null);
+                setLoanCapacityError(getApiErrorMessage(capacityError, "Unable to load current borrowing capacity."));
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setLoanCapacityLoading(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [memberRecord?.id, profile?.tenant_id, selectedLoanBranchId, selectedLoanProductId, showApplyDialog]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!profile?.tenant_id || !memberRecord?.id || !selectedLoanBranchId || !dashboardLoanProduct?.id) {
+            setDashboardLoanCapacity(null);
+            setDashboardLoanCapacityError(null);
+            setDashboardLoanCapacityLoading(false);
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        setDashboardLoanCapacityLoading(true);
+        setDashboardLoanCapacityError(null);
+
+        void api.get<LoanCapacityResponse>(endpoints.loanCapacity.capacity(), {
+            params: {
+                tenant_id: profile.tenant_id,
+                member_id: memberRecord.id,
+                loan_product_id: dashboardLoanProduct.id,
+                branch_id: selectedLoanBranchId
+            }
+        })
+            .then(({ data }) => {
+                if (cancelled) {
+                    return;
+                }
+
+                setDashboardLoanCapacity(data.data || null);
+            })
+            .catch((capacityError) => {
+                if (cancelled) {
+                    return;
+                }
+
+                setDashboardLoanCapacity(null);
+                setDashboardLoanCapacityError(getApiErrorMessage(capacityError, "Unable to load borrowing capacity summary."));
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setDashboardLoanCapacityLoading(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [dashboardLoanProduct?.id, memberRecord?.id, profile?.tenant_id, selectedLoanBranchId]);
 
     useEffect(() => {
         if (!selectedLoanProduct) {
@@ -2003,6 +2201,42 @@ export function MemberPortalPage() {
         () => loans.reduce((sum, loan) => sum + loan.outstanding_principal + loan.accrued_interest, 0),
         [loans]
     );
+    const dashboardMaximumBorrowable = useMemo(
+        () => Math.max(0, Number(dashboardLoanCapacity?.borrow_limit || 0)),
+        [dashboardLoanCapacity]
+    );
+    const dashboardCurrentLoanExposure = useMemo(
+        () => Math.max(0, Number(dashboardLoanCapacity?.current_loan_exposure || totalOutstandingLoans || 0)),
+        [dashboardLoanCapacity, totalOutstandingLoans]
+    );
+    const dashboardRemainingBorrowCapacity = useMemo(
+        () => Math.max(0, dashboardMaximumBorrowable - dashboardCurrentLoanExposure),
+        [dashboardCurrentLoanExposure, dashboardMaximumBorrowable]
+    );
+    const dashboardLiquidityStatus = useMemo(() => {
+        if (!dashboardLoanCapacity) {
+            return null;
+        }
+
+        if (dashboardLoanCapacity.loan_pool_frozen) {
+            return "Frozen";
+        }
+
+        const totalDeposits = Number(dashboardLoanCapacity.total_deposits || 0);
+        const liquidityRatio = totalDeposits > 0
+            ? Number(dashboardLoanCapacity.available_for_loans || 0) / totalDeposits
+            : 0;
+
+        if (liquidityRatio > 0.4) {
+            return "Healthy";
+        }
+
+        if (liquidityRatio >= 0.2) {
+            return "Warning";
+        }
+
+        return "Risk";
+    }, [dashboardLoanCapacity]);
     const hasNoVisibleFinancialData = accounts.length === 0 && loans.length === 0 && statements.length === 0;
     const activeLoanIds = useMemo(
         () => loans.filter((loan) => ["active", "in_arrears"].includes(loan.status)).map((loan) => loan.id),
@@ -2948,7 +3182,7 @@ export function MemberPortalPage() {
             pushToast({
                 type: "error",
                 title: "Existing application in progress",
-                message: "You already have another pending application for this loan product."
+                message: "You already have another open loan application. Complete or resolve it before starting a new one."
             });
             return;
         }
@@ -2967,16 +3201,6 @@ export function MemberPortalPage() {
         if (values.requested_amount < selectedLoanMinimumAmount) {
             loanApplicationForm.setError("requested_amount", {
                 message: `Requested amount must be at least ${formatCurrency(selectedLoanMinimumAmount)}`
-            });
-            hasClientValidationError = true;
-        } else if (selectedProduct.max_amount && values.requested_amount > Number(selectedProduct.max_amount)) {
-            loanApplicationForm.setError("requested_amount", {
-                message: "Requested amount exceeds maximum allowed for this loan product"
-            });
-            hasClientValidationError = true;
-        } else if (values.requested_amount > selectedLoanEligibleAmount) {
-            loanApplicationForm.setError("requested_amount", {
-                message: `Requested amount exceeds your current eligibility limit of ${formatCurrency(selectedLoanEligibleAmount)}`
             });
             hasClientValidationError = true;
         }
@@ -3038,10 +3262,31 @@ export function MemberPortalPage() {
             setShowApplyDialog(false);
             await reloadLoanApplications(profile.tenant_id);
         } catch (loanApplicationError) {
+            const errorCode = getApiErrorCode(loanApplicationError);
+            const errorDetails = getApiErrorDetails<Record<string, unknown>>(loanApplicationError);
+            const allowedLimit = getNumericDetail(errorDetails, "allowed_limit");
+            const minimumAmount = getNumericDetail(errorDetails, "minimum_amount");
+            let errorMessage = getApiErrorMessage(loanApplicationError);
+
+            if (errorCode === "LOAN_BORROW_LIMIT_EXCEEDED" && allowedLimit !== null) {
+                const formattedLimit = formatCurrency(allowedLimit);
+                loanApplicationForm.setError("requested_amount", {
+                    message: `Requested amount exceeds your current borrow limit of ${formattedLimit}`
+                });
+                errorMessage = `Requested amount exceeds your current borrow limit of ${formattedLimit}.`;
+            } else if (errorCode === "LOAN_AMOUNT_BELOW_MINIMUM" && minimumAmount !== null) {
+                loanApplicationForm.setError("requested_amount", {
+                    message: `Requested amount must be at least ${formatCurrency(minimumAmount)}`
+                });
+                errorMessage = `Requested amount must be at least ${formatCurrency(minimumAmount)}.`;
+            } else if (errorCode === "LOAN_POOL_TEMPORARILY_EXHAUSTED") {
+                errorMessage = "SACCO loan pool temporarily exhausted. Please try again later.";
+            }
+
             pushToast({
                 type: "error",
                 title: editingLoanApplicationId ? "Unable to resubmit application" : "Unable to submit application",
-                message: getApiErrorMessage(loanApplicationError)
+                message: errorMessage
             });
         } finally {
             setSubmittingApplication(false);
@@ -3229,6 +3474,111 @@ export function MemberPortalPage() {
                 />
             </Grid>
         </Grid>
+    );
+
+    const renderBorrowingCapacityCard = () => (
+        <MotionCard
+            variant="outlined"
+            sx={{
+                ...contentCardSx,
+                borderRadius: 4
+            }}
+        >
+            <CardContent sx={{ p: { xs: 2.4, md: 2.8 }, display: "grid", gap: 2 }}>
+                <Stack
+                    direction={{ xs: "column", md: "row" }}
+                    spacing={1.5}
+                    justifyContent="space-between"
+                    alignItems={{ xs: "flex-start", md: "center" }}
+                >
+                    <Box>
+                        <Typography variant="overline" sx={{ letterSpacing: "0.18em", color: "text.secondary" }}>
+                            Your Borrowing Capacity
+                        </Typography>
+                        <Typography variant="h5" sx={{ fontWeight: 800, mt: 0.35 }}>
+                            {dashboardLoanCapacityLoading
+                                ? "Refreshing current limits..."
+                                : dashboardLoanProduct?.name
+                                    ? `Based on ${dashboardLoanProduct.name}`
+                                    : "Current lending position"}
+                        </Typography>
+                    </Box>
+                    <Chip
+                        label={
+                            dashboardLiquidityStatus
+                                ? dashboardLiquidityStatus
+                                : dashboardLoanCapacityError
+                                    ? "Capacity unavailable"
+                                    : "Live capacity"
+                        }
+                        sx={{
+                            borderRadius: 1.4,
+                            fontWeight: 700,
+                            bgcolor: dashboardLiquidityStatus === "Healthy"
+                                ? alpha(brandColors.success, 0.14)
+                                : dashboardLiquidityStatus === "Warning"
+                                    ? alpha(brandColors.warning, 0.18)
+                                    : dashboardLiquidityStatus === "Risk" || dashboardLiquidityStatus === "Frozen"
+                                        ? alpha(brandColors.danger, 0.14)
+                                        : alpha(memberAccent, 0.12),
+                            color: dashboardLiquidityStatus === "Healthy"
+                                ? brandColors.success
+                                : dashboardLiquidityStatus === "Warning"
+                                    ? "#9A6700"
+                                    : dashboardLiquidityStatus === "Risk" || dashboardLiquidityStatus === "Frozen"
+                                        ? brandColors.danger
+                                        : memberAccent
+                        }}
+                    />
+                </Stack>
+                <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, md: 4 }}>
+                        <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2.5, height: "100%" }}>
+                            <Typography variant="caption" color="text.secondary">
+                                Maximum Loan Available
+                            </Typography>
+                            <Typography variant="h6" sx={{ mt: 0.5, fontWeight: 800 }}>
+                                {formatCurrency(dashboardMaximumBorrowable)}
+                            </Typography>
+                        </Paper>
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 4 }}>
+                        <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2.5, height: "100%" }}>
+                            <Typography variant="caption" color="text.secondary">
+                                Current Loan Exposure
+                            </Typography>
+                            <Typography variant="h6" sx={{ mt: 0.5, fontWeight: 800 }}>
+                                {formatCurrency(dashboardCurrentLoanExposure)}
+                            </Typography>
+                        </Paper>
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 4 }}>
+                        <Paper
+                            variant="outlined"
+                            sx={{
+                                p: 1.75,
+                                borderRadius: 2.5,
+                                height: "100%",
+                                bgcolor: alpha(memberAccent, isDarkMode ? 0.14 : 0.06),
+                                borderColor: alpha(memberAccent, 0.24)
+                            }}
+                        >
+                            <Typography variant="caption" color="text.secondary">
+                                Remaining Borrow Capacity
+                            </Typography>
+                            <Typography variant="h6" sx={{ mt: 0.5, fontWeight: 800 }}>
+                                {formatCurrency(dashboardRemainingBorrowCapacity)}
+                            </Typography>
+                        </Paper>
+                    </Grid>
+                </Grid>
+                <Typography variant="body2" color="text.secondary">
+                    {dashboardLoanCapacityError
+                        ? dashboardLoanCapacityError
+                        : "This view is informational. Final approval still goes through branch appraisal and approval workflow."}
+                </Typography>
+            </CardContent>
+        </MotionCard>
     );
 
     const renderHero = () => (
@@ -6207,6 +6557,7 @@ export function MemberPortalPage() {
                                     </Grid>
                                 </Grid>
                                 {renderStatGrid()}
+                                {renderBorrowingCapacityCard()}
                             </>
                         ) : null}
                         {activeSection !== "member-overview" ? renderSectionLead() : null}
@@ -6884,26 +7235,40 @@ export function MemberPortalPage() {
                         ) : null}
                         {selectedLoanConflict ? (
                             <Alert severity="warning" variant="outlined">
-                                Another {selectedLoanProduct?.name || "loan"} application is already in progress. Complete or resolve it before submitting a new one.
+                                Another loan application is already in progress. Complete or resolve it before submitting a new one.
                             </Alert>
                         ) : null}
-                        {selectedLoanProduct && selectedLoanEligibleAmount < selectedLoanMinimumAmount ? (
-                            <Alert severity="warning" variant="outlined">
-                                Your current share and savings eligibility is {formatCurrency(selectedLoanEligibleAmount)}, which is below this product's minimum loan size of {formatCurrency(selectedLoanMinimumAmount)}.
-                            </Alert>
-                        ) : null}
-                        {loanSubmissionBlockers.length ? (
+                        {loanSubmissionLocks.length ? (
                             <Alert severity="warning" variant="outlined">
                                 <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
                                     Submission is currently locked
                                 </Typography>
                                 <Stack spacing={0.35}>
-                                    {loanSubmissionBlockers.map((reason) => (
+                                    {loanSubmissionLocks.map((reason) => (
                                         <Typography key={reason} variant="body2">
                                             • {reason}
                                         </Typography>
                                     ))}
                                 </Stack>
+                            </Alert>
+                        ) : null}
+                        {loanCapacityWarnings.length ? (
+                            <Alert severity="warning" variant="outlined">
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                                    Borrowing capacity advisory
+                                </Typography>
+                                <Stack spacing={0.35}>
+                                    {loanCapacityWarnings.map((reason) => (
+                                        <Typography key={reason} variant="body2">
+                                            • {reason}
+                                        </Typography>
+                                    ))}
+                                </Stack>
+                            </Alert>
+                        ) : null}
+                        {loanLiquidityNotice ? (
+                            <Alert severity="info" variant="outlined">
+                                {loanLiquidityNotice}
                             </Alert>
                         ) : null}
                         <Box component="form" id="member-loan-application-form" onSubmit={submitLoanApplication} sx={{ display: "grid", gap: 2 }}>
@@ -6955,7 +7320,7 @@ export function MemberPortalPage() {
                                             />
                                         </Stack>
                                         <Grid container spacing={1.5}>
-                                            <Grid size={{ xs: 12, md: 4 }}>
+                                            <Grid size={{ xs: 12, md: 6 }}>
                                                 <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
                                                     <Typography variant="caption" color="text.secondary">
                                                         Product range
@@ -6965,17 +7330,7 @@ export function MemberPortalPage() {
                                                     </Typography>
                                                 </Paper>
                                             </Grid>
-                                            <Grid size={{ xs: 12, md: 4 }}>
-                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        Eligibility cap
-                                                    </Typography>
-                                                    <Typography variant="body1" sx={{ fontWeight: 700, color: selectedLoanEligibleAmount >= selectedLoanMinimumAmount ? "success.main" : "warning.main" }}>
-                                                        {formatCurrency(selectedLoanEligibleAmount)}
-                                                    </Typography>
-                                                </Paper>
-                                            </Grid>
-                                            <Grid size={{ xs: 12, md: 4 }}>
+                                            <Grid size={{ xs: 12, md: 6 }}>
                                                 <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
                                                     <Typography variant="caption" color="text.secondary">
                                                         Allowed frequency
@@ -6985,29 +7340,17 @@ export function MemberPortalPage() {
                                                     </Typography>
                                                 </Paper>
                                             </Grid>
-                                            <Grid size={{ xs: 12, md: 6 }}>
-                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        Savings-backed amount
-                                                    </Typography>
-                                                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                                                        {formatCurrency(savingsEligibilityBalance)} x {selectedLoanPolicy.savingsMultiplier}
-                                                    </Typography>
-                                                </Paper>
-                                            </Grid>
-                                            <Grid size={{ xs: 12, md: 6 }}>
-                                                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5 }}>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        Shares-backed amount
-                                                    </Typography>
-                                                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                                                        {formatCurrency(sharesEligibilityBalance)} x {selectedLoanPolicy.sharesMultiplier}
-                                                    </Typography>
-                                                </Paper>
-                                            </Grid>
                                         </Grid>
                                     </CardContent>
                                 </Card>
+                            ) : null}
+                            {selectedLoanProduct ? (
+                                <LoanEligibilitySummary
+                                    summary={loanCapacity}
+                                    loading={loanCapacityLoading}
+                                    error={loanCapacityError}
+                                    title="Loan Eligibility"
+                                />
                             ) : null}
                             <TextField
                                 label="Loan Purpose *"
@@ -7035,7 +7378,7 @@ export function MemberPortalPage() {
                                         helperText={
                                             loanApplicationForm.formState.errors.requested_amount?.message
                                             || (selectedLoanProduct
-                                                ? `Min ${formatCurrency(selectedLoanMinimumAmount)} · Eligible up to ${formatCurrency(selectedLoanEligibleAmount)}`
+                                                ? `Maximum recommended amount: ${formatCurrency(selectedLoanBorrowLimit)} · Product minimum ${formatCurrency(selectedLoanMinimumAmount)}`
                                                 : "Use Tanzanian Shillings only.")
                                         }
                                         inputProps={{ inputMode: "numeric" }}
@@ -7066,6 +7409,47 @@ export function MemberPortalPage() {
                                         InputProps={{ readOnly: true }}
                                     />
                                 </Grid>
+                                {selectedLoanProduct && requestedBorrowUtilizationPercent !== null && requestedLoanAmount > 0 ? (
+                                    <Grid size={{ xs: 12 }}>
+                                        <Paper
+                                            variant="outlined"
+                                            sx={{
+                                                p: 1.6,
+                                                borderRadius: 2.5,
+                                                bgcolor: alpha(requestedBorrowUtilizationTone, isDarkMode ? 0.12 : 0.05),
+                                                borderColor: alpha(requestedBorrowUtilizationTone, 0.22)
+                                            }}
+                                        >
+                                            <Stack spacing={1}>
+                                                <Stack
+                                                    direction={{ xs: "column", sm: "row" }}
+                                                    justifyContent="space-between"
+                                                    spacing={0.75}
+                                                >
+                                                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                                        Borrow Utilization
+                                                    </Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 700, color: requestedBorrowUtilizationTone }}>
+                                                        {Math.round(requestedBorrowUtilizationPercent)}% of your borrowing capacity
+                                                    </Typography>
+                                                </Stack>
+                                                <LinearProgress
+                                                    variant="determinate"
+                                                    value={Math.min(requestedBorrowUtilizationPercent, 100)}
+                                                    sx={{
+                                                        height: 10,
+                                                        borderRadius: 999,
+                                                        bgcolor: alpha(requestedBorrowUtilizationTone, 0.16),
+                                                        "& .MuiLinearProgress-bar": {
+                                                            borderRadius: 999,
+                                                            bgcolor: requestedBorrowUtilizationTone
+                                                        }
+                                                    }}
+                                                />
+                                            </Stack>
+                                        </Paper>
+                                    </Grid>
+                                ) : null}
                                 <Grid size={{ xs: 12, md: 6 }}>
                                     <TextField
                                         select
@@ -7144,7 +7528,17 @@ export function MemberPortalPage() {
                                     {loanApplicationForm.formState.errors.confirmation_checked.message}
                                 </Typography>
                             ) : null}
-                            {!loanSubmissionBlockers.length && visibleLoanFormErrors.length ? (
+                            {requestedAmountCapacityWarning ? (
+                                <Alert severity="warning" variant="outlined">
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.4 }}>
+                                        Requested amount exceeds your recommended borrowing capacity.
+                                    </Typography>
+                                    <Typography variant="body2">
+                                        Recommended maximum: {formatCurrency(selectedLoanBorrowLimit)}
+                                    </Typography>
+                                </Alert>
+                            ) : null}
+                            {!loanSubmissionLocks.length && visibleLoanFormErrors.length ? (
                                 <Alert severity="info" variant="outlined">
                                     <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
                                         Complete these items before submitting
@@ -7176,10 +7570,7 @@ export function MemberPortalPage() {
                         variant="contained"
                         type="submit"
                         form="member-loan-application-form"
-                        disabled={
-                            submittingApplication
-                            || loanSubmissionBlockers.length > 0
-                        }
+                        disabled={submittingApplication || loanSubmissionLocks.length > 0}
                         sx={
                             isDarkMode
                                 ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }

@@ -1,6 +1,7 @@
 import { MotionCard, MotionModal } from "../ui/motion";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import CreditScoreRoundedIcon from "@mui/icons-material/CreditScoreRounded";
+import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SavingsRoundedIcon from "@mui/icons-material/SavingsRounded";
 import ShareRoundedIcon from "@mui/icons-material/PieChartRounded";
@@ -11,6 +12,9 @@ import {
     Box,
     Button,
     CardContent,
+    Chip,
+    Collapse,
+    Divider,
     DialogActions,
     DialogContent,
     DialogTitle,
@@ -24,23 +28,39 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { useAuth } from "../auth/AuthContext";
+import { ChartPanel } from "../components/ChartPanel";
+import { BorrowingSimulationCard } from "../components/loan-capacity/BorrowingSimulationCard";
+import { BranchLiquidityPolicyManager } from "../components/loan-capacity/BranchLiquidityPolicyManager";
+import { LoanExposureOverviewCard } from "../components/loan-capacity/LoanExposureOverviewCard";
+import { LoanProductPolicyManager } from "../components/loan-capacity/LoanProductPolicyManager";
+import { PolicyChangeHistoryCard } from "../components/loan-capacity/PolicyChangeHistoryCard";
 import { DataTable } from "../components/DataTable";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
+    type BranchFundPoolResponse,
+    type BranchLiquidityPolicyResponse,
+    type LoanCapacityDashboardResponse,
     type LoanProductsResponse,
+    type LoanProductPolicyResponse,
     type ProductBootstrapResponse,
     type FeeRulesResponse,
     type PenaltyRulesResponse,
     type PostingRulesResponse,
     type SavingsProductsResponse,
-    type ShareProductsResponse
+    type ShareProductsResponse,
+    type UpdateBranchLiquidityPolicyRequest,
+    type UpdateLoanProductPolicyRequest
 } from "../lib/endpoints";
 import type {
+    BranchFundPool,
+    BranchLiquidityPolicy,
     ChartOfAccountOption,
     FeeRule,
+    LoanCapacityDashboard,
     LoanProduct,
+    LoanProductPolicy,
     PenaltyRule,
     PostingRule,
     ProductBootstrapPayload,
@@ -56,6 +76,15 @@ interface CatalogDialogState {
     kind: CatalogKind;
     record?: CatalogRecord | null;
 }
+
+type LoanProductPolicyPreview = Pick<
+    LoanProductPolicy,
+    "contribution_multiplier" | "max_loan_amount" | "min_loan_amount" | "liquidity_buffer_percent" | "requires_guarantor" | "requires_collateral"
+>;
+type BranchLiquidityPolicyPreview = Pick<
+    BranchLiquidityPolicy,
+    "max_lending_ratio" | "minimum_liquidity_reserve" | "auto_loan_freeze_threshold"
+>;
 
 const emptyPayload: ProductBootstrapPayload = {
     savings_products: [],
@@ -152,13 +181,70 @@ function SectionCard({
     );
 }
 
+function mergeLoanProductPolicyPreview(
+    policy: LoanProductPolicy | null,
+    preview: UpdateLoanProductPolicyRequest | null
+): LoanProductPolicyPreview | null {
+    if (!policy) {
+        return null;
+    }
+
+    return {
+        contribution_multiplier: preview?.contribution_multiplier ?? policy.contribution_multiplier,
+        max_loan_amount: preview?.max_loan_amount ?? policy.max_loan_amount,
+        min_loan_amount: preview?.min_loan_amount ?? policy.min_loan_amount,
+        liquidity_buffer_percent: preview?.liquidity_buffer_percent ?? policy.liquidity_buffer_percent,
+        requires_guarantor: preview?.requires_guarantor ?? policy.requires_guarantor,
+        requires_collateral: preview?.requires_collateral ?? policy.requires_collateral
+    };
+}
+
+function mergeBranchLiquidityPreview(
+    policy: BranchLiquidityPolicy | null,
+    preview: UpdateBranchLiquidityPolicyRequest | null
+): BranchLiquidityPolicyPreview | null {
+    if (!policy) {
+        return null;
+    }
+
+    return {
+        max_lending_ratio: preview?.max_lending_ratio ?? policy.max_lending_ratio,
+        minimum_liquidity_reserve: preview?.minimum_liquidity_reserve ?? policy.minimum_liquidity_reserve,
+        auto_loan_freeze_threshold: preview?.auto_loan_freeze_threshold ?? policy.auto_loan_freeze_threshold
+    };
+}
+
+function formatTrendLabel(value: string) {
+    return new Intl.DateTimeFormat("en-TZ", {
+        month: "short",
+        day: "numeric"
+    }).format(new Date(value));
+}
+
 export function ProductCatalogPage() {
     const { pushToast } = useToast();
-    const { selectedTenantId } = useAuth();
+    const { profile, selectedBranchId, selectedBranchName, selectedTenantId } = useAuth();
     const [payload, setPayload] = useState<ProductBootstrapPayload>(emptyPayload);
     const [loading, setLoading] = useState(true);
     const [dialog, setDialog] = useState<CatalogDialogState | null>(null);
     const [saving, setSaving] = useState(false);
+    const [selectedLoanPolicyProductId, setSelectedLoanPolicyProductId] = useState("");
+    const [loanProductPolicy, setLoanProductPolicy] = useState<LoanProductPolicy | null>(null);
+    const [loanProductPolicyPreview, setLoanProductPolicyPreview] = useState<UpdateLoanProductPolicyRequest | null>(null);
+    const [loanProductPolicyLoading, setLoanProductPolicyLoading] = useState(false);
+    const [loanProductPolicySaving, setLoanProductPolicySaving] = useState(false);
+    const [loanProductPolicyError, setLoanProductPolicyError] = useState<string | null>(null);
+    const [borrowingPolicyExpanded, setBorrowingPolicyExpanded] = useState(false);
+    const [branchLiquidityPolicy, setBranchLiquidityPolicy] = useState<BranchLiquidityPolicy | null>(null);
+    const [branchLiquidityPreview, setBranchLiquidityPreview] = useState<UpdateBranchLiquidityPolicyRequest | null>(null);
+    const [branchFundPool, setBranchFundPool] = useState<BranchFundPool | null>(null);
+    const [branchLiquidityLoading, setBranchLiquidityLoading] = useState(false);
+    const [branchLiquiditySaving, setBranchLiquiditySaving] = useState(false);
+    const [branchLiquidityError, setBranchLiquidityError] = useState<string | null>(null);
+    const [liquidityGuardrailsExpanded, setLiquidityGuardrailsExpanded] = useState(false);
+    const [capacityDashboard, setCapacityDashboard] = useState<LoanCapacityDashboard | null>(null);
+    const [capacityDashboardLoading, setCapacityDashboardLoading] = useState(false);
+    const [capacityDashboardError, setCapacityDashboardError] = useState<string | null>(null);
     const form = useForm<Record<string, string | number | boolean | null>>({
         defaultValues: {}
     });
@@ -218,10 +304,24 @@ export function ProductCatalogPage() {
     const withdrawalFeeType = String(form.watch("withdrawal_fee_type") ?? "flat");
 
     const chartOptions = payload.chart_of_accounts;
+    const activeBranchId = selectedBranchId || profile?.branch_id || null;
+    const activeBranchName = selectedBranchName || null;
 
     const accountLabel = useMemo(
         () => new Map(chartOptions.map((account) => [account.id, `${account.account_code} · ${account.account_name}`])),
         [chartOptions]
+    );
+    const effectiveLoanProductPolicy = useMemo(
+        () => mergeLoanProductPolicyPreview(loanProductPolicy, loanProductPolicyPreview),
+        [loanProductPolicy, loanProductPolicyPreview]
+    );
+    const effectiveBranchLiquidityPolicy = useMemo(
+        () => mergeBranchLiquidityPreview(branchLiquidityPolicy, branchLiquidityPreview),
+        [branchLiquidityPolicy, branchLiquidityPreview]
+    );
+    const liquidityTrendLabels = useMemo(
+        () => (capacityDashboard?.trend.points || []).map((point) => formatTrendLabel(point.snapshot_date)),
+        [capacityDashboard?.trend.points]
     );
 
     const loadCatalog = async () => {
@@ -248,6 +348,182 @@ export function ProductCatalogPage() {
     useEffect(() => {
         void loadCatalog();
     }, [selectedTenantId]);
+
+    useEffect(() => {
+        if (!payload.loan_products.length) {
+            setSelectedLoanPolicyProductId("");
+            setLoanProductPolicy(null);
+            setLoanProductPolicyPreview(null);
+            setLoanProductPolicyError(null);
+            return;
+        }
+
+        const productStillExists = payload.loan_products.some((loanProduct) => loanProduct.id === selectedLoanPolicyProductId);
+        if (!selectedLoanPolicyProductId || !productStillExists) {
+            setSelectedLoanPolicyProductId(payload.loan_products[0].id);
+        }
+    }, [payload.loan_products, selectedLoanPolicyProductId]);
+
+    const loadSelectedLoanProductPolicy = async () => {
+        if (!selectedTenantId || !selectedLoanPolicyProductId) {
+            setLoanProductPolicy(null);
+            setLoanProductPolicyPreview(null);
+            setLoanProductPolicyError(null);
+            setLoanProductPolicyLoading(false);
+            return;
+        }
+
+        setLoanProductPolicyLoading(true);
+        try {
+            const { data } = await api.get<LoanProductPolicyResponse>(endpoints.loanCapacity.productPolicy(selectedLoanPolicyProductId));
+            setLoanProductPolicy(data.data);
+            setLoanProductPolicyError(null);
+        } catch (error) {
+            setLoanProductPolicy(null);
+            setLoanProductPolicyError(getApiErrorMessage(error, "Unable to load the loan borrowing policy."));
+        } finally {
+            setLoanProductPolicyLoading(false);
+        }
+    };
+
+    const loadBranchLiquidityGovernance = async () => {
+        if (!selectedTenantId || !activeBranchId) {
+            setBranchLiquidityPolicy(null);
+            setBranchLiquidityPreview(null);
+            setBranchFundPool(null);
+            setBranchLiquidityError(null);
+            setBranchLiquidityLoading(false);
+            return;
+        }
+
+        setBranchLiquidityLoading(true);
+        try {
+            const [{ data: policyResponse }, { data: fundPoolResponse }] = await Promise.all([
+                api.get<BranchLiquidityPolicyResponse>(endpoints.loanCapacity.branchLiquidityPolicy(activeBranchId)),
+                api.get<BranchFundPoolResponse>(endpoints.loanCapacity.branchFundPool(activeBranchId))
+            ]);
+            setBranchLiquidityPolicy(policyResponse.data);
+            setBranchFundPool(fundPoolResponse.data);
+            setBranchLiquidityError(null);
+        } catch (error) {
+            setBranchLiquidityPolicy(null);
+            setBranchFundPool(null);
+            setBranchLiquidityError(getApiErrorMessage(error, "Unable to load branch liquidity controls."));
+        } finally {
+            setBranchLiquidityLoading(false);
+        }
+    };
+
+    const loadCapacityDashboard = async () => {
+        if (!selectedTenantId || !activeBranchId || !selectedLoanPolicyProductId) {
+            setCapacityDashboard(null);
+            setCapacityDashboardError(null);
+            setCapacityDashboardLoading(false);
+            return;
+        }
+
+        setCapacityDashboardLoading(true);
+        try {
+            const { data } = await api.get<LoanCapacityDashboardResponse>(
+                endpoints.loanCapacity.dashboard(activeBranchId),
+                {
+                    params: {
+                        loan_product_id: selectedLoanPolicyProductId,
+                        days: 30
+                    }
+                }
+            );
+            setCapacityDashboard(data.data);
+            setCapacityDashboardError(null);
+        } catch (error) {
+            setCapacityDashboard(null);
+            setCapacityDashboardError(getApiErrorMessage(error, "Unable to load the SACCO liquidity dashboard."));
+        } finally {
+            setCapacityDashboardLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        void loadSelectedLoanProductPolicy();
+    }, [selectedLoanPolicyProductId, selectedTenantId]);
+
+    useEffect(() => {
+        void loadBranchLiquidityGovernance();
+    }, [activeBranchId, selectedTenantId]);
+
+    useEffect(() => {
+        void loadCapacityDashboard();
+    }, [activeBranchId, selectedLoanPolicyProductId, selectedTenantId]);
+
+    const saveLoanProductPolicy = async (policyUpdate: UpdateLoanProductPolicyRequest) => {
+        if (!selectedLoanPolicyProductId) {
+            return;
+        }
+
+        setLoanProductPolicySaving(true);
+        try {
+            const { data } = await api.patch<LoanProductPolicyResponse>(
+                endpoints.loanCapacity.productPolicy(selectedLoanPolicyProductId),
+                policyUpdate
+            );
+            setLoanProductPolicy(data.data);
+            setLoanProductPolicyError(null);
+            pushToast({
+                type: "success",
+                title: "Borrowing policy updated",
+                message: "Member and staff loan capacity checks will use the new product policy immediately."
+            });
+            setBorrowingPolicyExpanded(false);
+            await loadCapacityDashboard();
+        } catch (error) {
+            const message = getApiErrorMessage(error, "Unable to save the loan borrowing policy.");
+            setLoanProductPolicyError(message);
+            pushToast({
+                type: "error",
+                title: "Unable to save policy",
+                message
+            });
+        } finally {
+            setLoanProductPolicySaving(false);
+        }
+    };
+
+    const saveBranchLiquidityPolicy = async (policyUpdate: UpdateBranchLiquidityPolicyRequest) => {
+        if (!activeBranchId) {
+            return;
+        }
+
+        setBranchLiquiditySaving(true);
+        try {
+            const { data: policyResponse } = await api.patch<BranchLiquidityPolicyResponse>(
+                endpoints.loanCapacity.branchLiquidityPolicy(activeBranchId),
+                policyUpdate
+            );
+            const { data: fundPoolResponse } = await api.get<BranchFundPoolResponse>(
+                endpoints.loanCapacity.branchFundPool(activeBranchId)
+            );
+            setBranchLiquidityPolicy(policyResponse.data);
+            setBranchFundPool(fundPoolResponse.data);
+            setBranchLiquidityError(null);
+            pushToast({
+                type: "success",
+                title: "Liquidity guardrails updated",
+                message: "The branch lending pool has been refreshed with the new policy."
+            });
+            setLiquidityGuardrailsExpanded(false);
+            await loadCapacityDashboard();
+        } catch (error) {
+            const message = getApiErrorMessage(error, "Unable to save the branch liquidity policy.");
+            setBranchLiquidityError(message);
+            pushToast({
+                type: "error",
+                title: "Unable to save guardrails",
+                message
+            });
+        } finally {
+            setBranchLiquiditySaving(false);
+        }
+    };
 
     const openDialog = (kind: CatalogKind, record?: CatalogRecord | null) => {
         const defaults = (defaultDialogValues[kind] || {}) as Record<string, string | number | boolean | null>;
@@ -1499,21 +1775,269 @@ export function ProductCatalogPage() {
                 <CardContent>
                     <Stack spacing={1}>
                         <Typography variant="overline" sx={{ color: "rgba(255,255,255,0.72)" }}>
-                            Product foundation
+                            SACCO lending governance
                         </Typography>
-                        <Typography variant="h4">Member products, charges, and posting rules</Typography>
+                        <Typography variant="h4">SACCO products and lending governance</Typography>
                         <Typography variant="body1" sx={{ color: "rgba(255,255,255,0.82)", maxWidth: 760 }}>
-                            Configure tenant-scoped savings, shares, fees, penalties, and the debit-credit mappings that keep every transaction balanced before operations go live.
+                            Configure SACCO-wide borrowing policy, liquidity guardrails, member products, charges, and posting rules from one financial control workspace.
                         </Typography>
                     </Stack>
                 </CardContent>
             </MotionCard>
 
             <Alert severity="info">
-                Posting rules are enforced at transaction time. If a rule is disabled or missing, deposits, withdrawals, fees, and loan actions will be blocked until configuration is restored.
+                Borrowing policy and liquidity guardrails update manager simulations and loan-application limits in real time. Posting rules remain enforced at transaction time.
             </Alert>
 
             <Grid container spacing={3}>
+                <Grid size={{ xs: 12, xl: 6 }}>
+                    <SectionCard
+                        title="Borrowing policy"
+                        helper="Per-product loan multiplier, borrow caps, liquidity buffer, and collateral controls."
+                        icon={<CreditScoreRoundedIcon color="primary" />}
+                    >
+                        <Stack spacing={2}>
+                            {effectiveLoanProductPolicy ? (
+                                <Stack spacing={1.5}>
+                                    <Stack direction={{ xs: "column", md: "row" }} spacing={1.25} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }}>
+                                        <Box>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                                {payload.loan_products.find((row) => row.id === selectedLoanPolicyProductId)?.name || "Selected loan product"}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Current SACCO borrowing rules for the selected product.
+                                            </Typography>
+                                        </Box>
+                                        <Button
+                                            variant={borrowingPolicyExpanded ? "text" : "outlined"}
+                                            startIcon={<EditRoundedIcon />}
+                                            onClick={() => setBorrowingPolicyExpanded((current) => !current)}
+                                        >
+                                            {borrowingPolicyExpanded ? "Hide form" : "Edit policy"}
+                                        </Button>
+                                    </Stack>
+                                    <Stack direction={{ xs: "column", md: "row" }} spacing={1} useFlexGap flexWrap="wrap">
+                                        <Chip label={`Multiplier ${effectiveLoanProductPolicy.contribution_multiplier}x`} color="primary" variant="outlined" />
+                                        <Chip label={`Cap ${formatCurrency(effectiveLoanProductPolicy.max_loan_amount)}`} color="primary" variant="outlined" />
+                                        <Chip label={`Buffer ${effectiveLoanProductPolicy.liquidity_buffer_percent}%`} color="primary" variant="outlined" />
+                                        <Chip
+                                            label={effectiveLoanProductPolicy.requires_guarantor ? "Guarantor required" : "No guarantor"}
+                                            color={effectiveLoanProductPolicy.requires_guarantor ? "warning" : "default"}
+                                            variant="outlined"
+                                        />
+                                        <Chip
+                                            label={effectiveLoanProductPolicy.requires_collateral ? "Collateral required" : "No collateral"}
+                                            color={effectiveLoanProductPolicy.requires_collateral ? "warning" : "default"}
+                                            variant="outlined"
+                                        />
+                                    </Stack>
+                                </Stack>
+                            ) : null}
+
+                            <Collapse in={borrowingPolicyExpanded} unmountOnExit>
+                                <Stack spacing={2}>
+                                    <Divider />
+                                    <LoanProductPolicyManager
+                                        loanProducts={payload.loan_products}
+                                        selectedLoanProductId={selectedLoanPolicyProductId}
+                                        onSelectLoanProductId={setSelectedLoanPolicyProductId}
+                                        policy={loanProductPolicy}
+                                        loading={loanProductPolicyLoading}
+                                        saving={loanProductPolicySaving}
+                                        error={loanProductPolicyError}
+                                        onRefresh={() => {
+                                            void loadSelectedLoanProductPolicy();
+                                            void loadCapacityDashboard();
+                                        }}
+                                        onSave={(policyUpdate) => void saveLoanProductPolicy(policyUpdate)}
+                                        onPreviewChange={setLoanProductPolicyPreview}
+                                    />
+                                </Stack>
+                            </Collapse>
+
+                            {!effectiveLoanProductPolicy && !borrowingPolicyExpanded ? (
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<EditRoundedIcon />}
+                                    onClick={() => setBorrowingPolicyExpanded(true)}
+                                    sx={{ alignSelf: "flex-start" }}
+                                >
+                                    Open policy form
+                                </Button>
+                            ) : null}
+                        </Stack>
+                    </SectionCard>
+                </Grid>
+                <Grid size={{ xs: 12, xl: 6 }}>
+                    <SectionCard
+                        title="Liquidity guardrails"
+                        helper="Live SACCO liquidity visibility, lending ratio limits, reserve protection, and freeze threshold."
+                        icon={<WarningAmberRoundedIcon color="warning" />}
+                    >
+                        <Stack spacing={2}>
+                            {effectiveBranchLiquidityPolicy ? (
+                                <Stack spacing={1.5}>
+                                    <Stack direction={{ xs: "column", md: "row" }} spacing={1.25} justifyContent="space-between" alignItems={{ xs: "flex-start", md: "center" }}>
+                                        <Box>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                                SACCO liquidity position
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                Current lending guardrails and real-time loan pool status.
+                                            </Typography>
+                                        </Box>
+                                        <Button
+                                            variant={liquidityGuardrailsExpanded ? "text" : "outlined"}
+                                            startIcon={<EditRoundedIcon />}
+                                            onClick={() => setLiquidityGuardrailsExpanded((current) => !current)}
+                                        >
+                                            {liquidityGuardrailsExpanded ? "Hide form" : "Edit guardrails"}
+                                        </Button>
+                                    </Stack>
+                                    <Stack direction={{ xs: "column", md: "row" }} spacing={1} useFlexGap flexWrap="wrap">
+                                        <Chip label={`Max lending ${effectiveBranchLiquidityPolicy.max_lending_ratio}%`} color="warning" variant="outlined" />
+                                        <Chip label={`Reserve ${formatCurrency(effectiveBranchLiquidityPolicy.minimum_liquidity_reserve)}`} color="warning" variant="outlined" />
+                                        <Chip label={`Freeze at ${formatCurrency(effectiveBranchLiquidityPolicy.auto_loan_freeze_threshold)}`} color="warning" variant="outlined" />
+                                        <Chip
+                                            label={branchFundPool && branchFundPool.available_for_loans <= effectiveBranchLiquidityPolicy.auto_loan_freeze_threshold ? "Loan status frozen" : "Loan status active"}
+                                            color={branchFundPool && branchFundPool.available_for_loans <= effectiveBranchLiquidityPolicy.auto_loan_freeze_threshold ? "error" : "success"}
+                                            variant="outlined"
+                                        />
+                                    </Stack>
+                                </Stack>
+                            ) : null}
+
+                            <Collapse in={liquidityGuardrailsExpanded} unmountOnExit>
+                                <Stack spacing={2}>
+                                    <Divider />
+                                    <BranchLiquidityPolicyManager
+                                        branchId={activeBranchId}
+                                        branchName={activeBranchName}
+                                        policy={branchLiquidityPolicy}
+                                        fundPool={branchFundPool}
+                                        loading={branchLiquidityLoading}
+                                        saving={branchLiquiditySaving}
+                                        error={branchLiquidityError}
+                                        onRefresh={() => {
+                                            void loadBranchLiquidityGovernance();
+                                            void loadCapacityDashboard();
+                                        }}
+                                        onSave={(policyUpdate) => void saveBranchLiquidityPolicy(policyUpdate)}
+                                        onPreviewChange={setBranchLiquidityPreview}
+                                    />
+                                </Stack>
+                            </Collapse>
+
+                            {!effectiveBranchLiquidityPolicy && !liquidityGuardrailsExpanded ? (
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<EditRoundedIcon />}
+                                    onClick={() => setLiquidityGuardrailsExpanded(true)}
+                                    sx={{ alignSelf: "flex-start" }}
+                                >
+                                    Open guardrails form
+                                </Button>
+                            ) : null}
+                        </Stack>
+                    </SectionCard>
+                </Grid>
+                <Grid size={{ xs: 12, xl: 6 }}>
+                    <BorrowingSimulationCard
+                        loanProductPolicy={effectiveLoanProductPolicy}
+                        branchLiquidityPolicy={effectiveBranchLiquidityPolicy}
+                        fundPool={branchFundPool}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12, xl: 6 }}>
+                    <LoanExposureOverviewCard
+                        overview={capacityDashboard?.exposure_overview || null}
+                        loading={capacityDashboardLoading}
+                        error={capacityDashboardError}
+                    />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                    {capacityDashboardLoading ? (
+                        <MotionCard variant="outlined">
+                            <CardContent>
+                                <Alert severity="info" variant="outlined">
+                                    Loading loan pool trend...
+                                </Alert>
+                            </CardContent>
+                        </MotionCard>
+                    ) : capacityDashboardError ? (
+                        <MotionCard variant="outlined">
+                            <CardContent>
+                                <Alert severity="warning" variant="outlined">
+                                    {capacityDashboardError}
+                                </Alert>
+                            </CardContent>
+                        </MotionCard>
+                    ) : capacityDashboard ? (
+                        <Stack spacing={1.25}>
+                            {capacityDashboard.trend.coverage_days < capacityDashboard.trend.requested_days ? (
+                                <Alert severity="info" variant="outlined">
+                                    Trend history is still building. {capacityDashboard.trend.coverage_days} of {capacityDashboard.trend.requested_days} daily snapshot(s) are available so far.
+                                </Alert>
+                            ) : null}
+                            <ChartPanel
+                                title="Loan Pool Trend (Last 30 Days)"
+                                subtitle="Daily SACCO liquidity movement across total deposits, active loans, and available loan pool."
+                                data={{
+                                    labels: liquidityTrendLabels,
+                                    datasets: [
+                                        {
+                                            label: "Total Deposits",
+                                            data: (capacityDashboard.trend.points || []).map((point) => point.total_deposits),
+                                            borderColor: "#0B6BCB",
+                                            backgroundColor: "rgba(11, 107, 203, 0.14)",
+                                            fill: false,
+                                            tension: 0.35
+                                        },
+                                        {
+                                            label: "Active Loans",
+                                            data: (capacityDashboard.trend.points || []).map((point) => point.active_loans_total),
+                                            borderColor: "#D97706",
+                                            backgroundColor: "rgba(217, 119, 6, 0.14)",
+                                            fill: false,
+                                            tension: 0.35
+                                        },
+                                        {
+                                            label: "Available Loan Pool",
+                                            data: (capacityDashboard.trend.points || []).map((point) => point.available_for_loans),
+                                            borderColor: "#15803D",
+                                            backgroundColor: "rgba(21, 128, 61, 0.14)",
+                                            fill: false,
+                                            tension: 0.35
+                                        }
+                                    ]
+                                }}
+                                options={{
+                                    maintainAspectRatio: false,
+                                    interaction: {
+                                        mode: "index",
+                                        intersect: false
+                                    },
+                                    spanGaps: true,
+                                    scales: {
+                                        y: {
+                                            ticks: {
+                                                callback: (value) => formatCurrency(Number(value))
+                                            }
+                                        }
+                                    }
+                                }}
+                                height={320}
+                            />
+                        </Stack>
+                    ) : null}
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                    <PolicyChangeHistoryCard
+                        rows={capacityDashboard?.policy_change_history || []}
+                        loading={capacityDashboardLoading}
+                        error={capacityDashboardError}
+                    />
+                </Grid>
                 <Grid size={{ xs: 12, xl: 6 }}>
                     <SectionCard
                         title="Loan products"
@@ -1524,7 +2048,20 @@ export function ProductCatalogPage() {
                         <DataTable
                             rows={payload.loan_products}
                             columns={[
-                                { key: "name", header: "Product", render: (row) => <Button onClick={() => openDialog("loans", row)}>{row.name}</Button> },
+                                {
+                                    key: "name",
+                                    header: "Product",
+                                    render: (row) => (
+                                        <Button
+                                            onClick={() => {
+                                                setSelectedLoanPolicyProductId(row.id);
+                                                openDialog("loans", row);
+                                            }}
+                                        >
+                                            {row.name}
+                                        </Button>
+                                    )
+                                },
                                 { key: "code", header: "Code", render: (row) => row.code },
                                 { key: "pricing", header: "Pricing", render: (row) => `${row.annual_interest_rate}% · ${row.interest_method.replace(/_/g, " ")}` },
                                 { key: "range", header: "Range", render: (row) => `${formatCurrency(row.min_amount)} · ${row.max_amount ? formatCurrency(row.max_amount) : "Open cap"}` },
