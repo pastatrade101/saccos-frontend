@@ -54,10 +54,11 @@ export function DataTable<T>({
                 component="div"
                 sx={{
                     maxHeight,
+                    overflowX: "auto",
                     overflowY: maxHeight ? "auto" : undefined
                 }}
             >
-                <Table size="small" stickyHeader={stickyHeader}>
+                <Table size="small" stickyHeader={stickyHeader} sx={{ minWidth: { xs: 680, md: "100%" } }}>
                     <TableHead>
                         <TableRow>
                             {columns.map((column) => (

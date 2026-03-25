@@ -29,7 +29,17 @@ function getAlertIcon(severity: MemberAlertItem["severity"]) {
 
 export function Alerts({ alerts }: AlertsProps) {
     return (
-        <MotionCard variant="outlined" sx={{ borderRadius: 2, borderColor: "divider" }}>
+        <MotionCard
+            variant="outlined"
+            sx={{
+                width: { xs: "calc(100vw - 20px)", sm: "100%" },
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                boxSizing: "border-box",
+                borderRadius: 2,
+                borderColor: "divider"
+            }}
+        >
             <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
                 <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>
                     Alerts

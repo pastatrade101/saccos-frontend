@@ -37,12 +37,16 @@ export function MotionCard({
             viewport={inView && shouldAnimate ? { once, amount: 0.2 } : undefined}
             whileHover={interactive && shouldAnimate && !reducedMotion ? "hover" : undefined}
             whileTap={interactive && shouldAnimate && !reducedMotion ? "tap" : undefined}
-            layout={!reducedMotion}
-            style={{ width: "100%" }}
+            layout={false}
+            style={{ width: "100%", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", display: "block" }}
         >
             <Card
                 sx={[
                     {
+                        width: "100%",
+                        minWidth: 0,
+                        maxWidth: "100%",
+                        boxSizing: "border-box",
                         position: "relative",
                         overflow: "hidden",
                         ...(interactive && !reducedMotion
@@ -95,10 +99,21 @@ export function MotionListItem({
             viewport={inView && shouldAnimate ? { once, amount: 0.18 } : undefined}
             whileHover={interactive && shouldAnimate && !reducedMotion ? "hover" : undefined}
             whileTap={interactive && shouldAnimate && !reducedMotion ? "tap" : undefined}
-            layout={!reducedMotion}
-            style={{ width: "100%" }}
+            layout={false}
+            style={{ width: "100%", minWidth: 0, maxWidth: "100%", boxSizing: "border-box", display: "block" }}
         >
-            <Paper {...props} />
+            <Paper
+                {...props}
+                sx={[
+                    {
+                        width: "100%",
+                        minWidth: 0,
+                        maxWidth: "100%",
+                        boxSizing: "border-box"
+                    },
+                    ...(Array.isArray(props.sx) ? props.sx : props.sx ? [props.sx] : [])
+                ]}
+            />
         </motion.div>
     );
 }

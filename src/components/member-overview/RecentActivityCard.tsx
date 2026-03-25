@@ -25,11 +25,14 @@ export function RecentActivityCard({ lastTransactionDate, lastContribution, last
         <MotionCard
             variant="outlined"
             sx={{
+                width: { xs: "calc(100vw - 20px)", sm: 1 },
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                boxSizing: "border-box",
                 borderRadius: 2,
                 borderColor: "divider",
                 height: "100%",
                 minHeight: 260,
-                width: 1,
                 display: "flex"
             }}
         >
@@ -56,9 +59,10 @@ export function RecentActivityCard({ lastTransactionDate, lastContribution, last
 
                     <Stack spacing={0.9}>
                         <Stack
-                            direction="row"
+                            direction={{ xs: "column", sm: "row" }}
                             justifyContent="space-between"
-                            alignItems="center"
+                            alignItems={{ xs: "flex-start", sm: "center" }}
+                            spacing={1}
                             sx={{
                                 p: 1.2,
                                 borderRadius: 1.5,
@@ -73,15 +77,16 @@ export function RecentActivityCard({ lastTransactionDate, lastContribution, last
                                     Last Transaction Date
                                 </Typography>
                             </Stack>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>
                                 {formatDate(lastTransactionDate)}
                             </Typography>
                         </Stack>
 
                         <Stack
-                            direction="row"
+                            direction={{ xs: "column", sm: "row" }}
                             justifyContent="space-between"
-                            alignItems="center"
+                            alignItems={{ xs: "flex-start", sm: "center" }}
+                            spacing={1}
                             sx={{
                                 p: 1.2,
                                 borderRadius: 1.5,
@@ -96,15 +101,16 @@ export function RecentActivityCard({ lastTransactionDate, lastContribution, last
                                     Last Contribution
                                 </Typography>
                             </Stack>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>
                                 {lastContribution ? formatCurrency(lastContribution.amount) : "N/A"}
                             </Typography>
                         </Stack>
 
                         <Stack
-                            direction="row"
+                            direction={{ xs: "column", sm: "row" }}
                             justifyContent="space-between"
-                            alignItems="center"
+                            alignItems={{ xs: "flex-start", sm: "center" }}
+                            spacing={1}
                             sx={{
                                 p: 1.2,
                                 borderRadius: 1.5,
@@ -119,7 +125,7 @@ export function RecentActivityCard({ lastTransactionDate, lastContribution, last
                                     Last Loan Payment
                                 </Typography>
                             </Stack>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>
                                 {lastLoanPayment ? formatCurrency(lastLoanPayment.amount) : "N/A"}
                             </Typography>
                         </Stack>

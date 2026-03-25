@@ -25,11 +25,14 @@ export function LoanCard({ outstandingAmount, nextInstallmentDueDate, monthlyIns
         <MotionCard
             variant="outlined"
             sx={{
+                width: { xs: "calc(100vw - 20px)", sm: 1 },
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                boxSizing: "border-box",
                 borderRadius: 2,
                 borderColor: "divider",
                 height: "100%",
                 minHeight: 260,
-                width: 1,
                 display: "flex"
             }}
         >
@@ -73,9 +76,10 @@ export function LoanCard({ outstandingAmount, nextInstallmentDueDate, monthlyIns
 
                     <Stack spacing={0.9}>
                         <Stack
-                            direction="row"
+                            direction={{ xs: "column", sm: "row" }}
                             justifyContent="space-between"
-                            alignItems="center"
+                            alignItems={{ xs: "flex-start", sm: "center" }}
+                            spacing={1}
                             sx={{
                                 p: 1.2,
                                 borderRadius: 1.5,
@@ -90,15 +94,16 @@ export function LoanCard({ outstandingAmount, nextInstallmentDueDate, monthlyIns
                                     Next Installment Due
                                 </Typography>
                             </Stack>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>
                                 {formatDate(nextInstallmentDueDate)}
                             </Typography>
                         </Stack>
 
                         <Stack
-                            direction="row"
+                            direction={{ xs: "column", sm: "row" }}
                             justifyContent="space-between"
-                            alignItems="center"
+                            alignItems={{ xs: "flex-start", sm: "center" }}
+                            spacing={1}
                             sx={{
                                 p: 1.2,
                                 borderRadius: 1.5,
@@ -113,7 +118,7 @@ export function LoanCard({ outstandingAmount, nextInstallmentDueDate, monthlyIns
                                     Monthly Installment
                                 </Typography>
                             </Stack>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>
                                 {formatCurrency(monthlyInstallment)}
                             </Typography>
                         </Stack>

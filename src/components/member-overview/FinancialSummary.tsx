@@ -108,19 +108,38 @@ export function FinancialSummary({
     ];
 
     return (
-        <MotionCard variant="outlined" sx={{ borderRadius: 2, borderColor: "divider", boxShadow: "0 6px 18px rgba(15, 23, 42, 0.05)" }}>
+        <MotionCard
+            variant="outlined"
+            sx={{
+                width: { xs: "calc(100vw - 20px)", sm: "100%" },
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                boxSizing: "border-box",
+                borderRadius: 2,
+                borderColor: "divider",
+                boxShadow: "0 6px 18px rgba(15, 23, 42, 0.05)"
+            }}
+        >
             <CardContent sx={{ p: { xs: 2.25, md: 3 } }}>
                 <Stack spacing={2.25}>
                     <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={1.5}>
-                        <Box>
+                        <Box sx={{ minWidth: 0 }}>
                             <Typography variant="overline" color="text.secondary">
                                 Financial Position
                             </Typography>
-                            <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                            <Typography
+                                variant="h4"
+                                sx={{
+                                    fontWeight: 800,
+                                    lineHeight: 1.1,
+                                    fontSize: { xs: "2rem", sm: undefined },
+                                    overflowWrap: "anywhere"
+                                }}
+                            >
                                 Your Financial Position
                             </Typography>
                             {standing.details ? (
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, overflowWrap: "anywhere" }}>
                                     {standing.details}
                                 </Typography>
                             ) : null}
@@ -208,10 +227,13 @@ export function FinancialSummary({
 
                     <Box
                         sx={{
+                            width: "100%",
+                            minWidth: 0,
                             display: "grid",
                             gap: 2,
                             gridTemplateColumns: {
-                                xs: "repeat(2, minmax(0, 1fr))",
+                                xs: "minmax(0, 1fr)",
+                                sm: "repeat(2, minmax(0, 1fr))",
                                 md: "repeat(3, minmax(0, 1fr))",
                                 xl: "repeat(5, minmax(0, 1fr))"
                             }
@@ -224,6 +246,7 @@ export function FinancialSummary({
                                 <Box
                                     key={item.label}
                                     sx={{
+                                        minWidth: 0,
                                         p: 1.5,
                                         borderRadius: 1.5,
                                         border: "1px solid",
@@ -236,7 +259,7 @@ export function FinancialSummary({
                                     }}
                                 >
                                     <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, minWidth: 0, overflowWrap: "anywhere" }}>
                                             {item.label}
                                         </Typography>
                                         <Box
@@ -253,7 +276,7 @@ export function FinancialSummary({
                                             <Icon sx={{ fontSize: 16 }} />
                                         </Box>
                                     </Stack>
-                                    <Typography variant="h6" sx={{ mt: 1.25, fontWeight: 800, color: item.valueColor as string }}>
+                                    <Typography variant="h6" sx={{ mt: 1.25, fontWeight: 800, color: item.valueColor as string, overflowWrap: "anywhere" }}>
                                         {item.value}
                                     </Typography>
                                 </Box>

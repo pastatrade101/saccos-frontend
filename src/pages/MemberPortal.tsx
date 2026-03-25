@@ -1,4 +1,4 @@
-import { MotionCard, MotionModal, MotionSection, easeOutFast, springSoft, useReducedMotionSafe } from "../ui/motion";
+import { MotionCard, MotionModal, easeOutFast, springSoft, useReducedMotionSafe } from "../ui/motion";
 import AccountBalanceWalletRoundedIcon from "@mui/icons-material/AccountBalanceWalletRounded";
 import ApartmentRoundedIcon from "@mui/icons-material/ApartmentRounded";
 import ApprovalRoundedIcon from "@mui/icons-material/ApprovalRounded";
@@ -590,6 +590,10 @@ const portalSections = [
 ] as const;
 
 const contentCardSx = {
+    width: { xs: "calc(100vw - 20px)", sm: "100%" },
+    maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+    minWidth: 0,
+    boxSizing: "border-box",
     borderRadius: 2,
     borderColor: "divider",
     boxShadow: "0 8px 24px rgba(15, 23, 42, 0.05)"
@@ -3502,8 +3506,21 @@ export function MemberPortalPage() {
     };
 
     const renderStatGrid = () => (
-        <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+        <Box
+            sx={{
+                width: { xs: "calc(100vw - 20px)", sm: "100%" },
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                display: "grid",
+                gap: 2,
+                gridTemplateColumns: {
+                    xs: "minmax(0, 1fr)",
+                    sm: "repeat(2, minmax(0, 1fr))",
+                    xl: "repeat(4, minmax(0, 1fr))"
+                }
+            }}
+        >
+            <Box sx={{ minWidth: 0 }}>
                 <MetricCard
                     icon={WalletRoundedIcon}
                     label="Accounts Live"
@@ -3512,8 +3529,8 @@ export function MemberPortalPage() {
                     tone="primary"
                     delta={hasNoVisibleFinancialData ? "New" : "Active"}
                 />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
                 <MetricCard
                     icon={TrendingUpRoundedIcon}
                     label="Total Bal"
@@ -3522,8 +3539,8 @@ export function MemberPortalPage() {
                     tone="success"
                     delta={totalVisibleCapital > 0 ? "Growing" : "Pending"}
                 />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
                 <MetricCard
                     icon={SavingsRoundedIcon}
                     label="Share Cap"
@@ -3532,8 +3549,8 @@ export function MemberPortalPage() {
                     tone="warning"
                     delta={totalDividends > 0 ? "Credited" : "Building"}
                 />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
                 <MetricCard
                     icon={CreditScoreRoundedIcon}
                     label="Loans"
@@ -3542,8 +3559,8 @@ export function MemberPortalPage() {
                     tone="danger"
                     delta={activeLoanCount ? "Monitor" : "Clear"}
                 />
-            </Grid>
-        </Grid>
+            </Box>
+        </Box>
     );
 
     const renderBorrowingCapacityCard = () => (
@@ -3601,8 +3618,14 @@ export function MemberPortalPage() {
                         }}
                     />
                 </Stack>
-                <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, md: 4 }}>
+                <Box
+                    sx={{
+                        display: "grid",
+                        gap: 2,
+                        gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(3, minmax(0, 1fr))" }
+                    }}
+                >
+                    <Box sx={{ minWidth: 0 }}>
                         <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2.5, height: "100%" }}>
                             <Typography variant="caption" color="text.secondary">
                                 Maximum Loan Available
@@ -3611,8 +3634,8 @@ export function MemberPortalPage() {
                                 {formatCurrency(dashboardMaximumBorrowable)}
                             </Typography>
                         </Paper>
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 4 }}>
+                    </Box>
+                    <Box sx={{ minWidth: 0 }}>
                         <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2.5, height: "100%" }}>
                             <Typography variant="caption" color="text.secondary">
                                 Current Loan Exposure
@@ -3621,8 +3644,8 @@ export function MemberPortalPage() {
                                 {formatCurrency(dashboardCurrentLoanExposure)}
                             </Typography>
                         </Paper>
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 4 }}>
+                    </Box>
+                    <Box sx={{ minWidth: 0 }}>
                         <Paper
                             variant="outlined"
                             sx={{
@@ -3640,8 +3663,8 @@ export function MemberPortalPage() {
                                 {formatCurrency(dashboardRemainingBorrowCapacity)}
                             </Typography>
                         </Paper>
-                    </Grid>
-                </Grid>
+                    </Box>
+                </Box>
                 <Typography variant="body2" color="text.secondary">
                     {dashboardLoanCapacityError
                         ? dashboardLoanCapacityError
@@ -3654,7 +3677,10 @@ export function MemberPortalPage() {
     const renderHero = () => (
         <MotionCard
             sx={{
-                borderRadius: 4,
+                width: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                borderRadius: { xs: 3, md: 4 },
                 height: "100%",
                 color: theme.palette.mode === "dark" ? "#fff" : brandColors.neutral.textPrimary,
                 overflow: "hidden",
@@ -3683,9 +3709,9 @@ export function MemberPortalPage() {
                 }
             }}
         >
-            <CardContent sx={{ position: "relative", p: { xs: 3, md: 4 }, height: "100%" }}>
+            <CardContent sx={{ position: "relative", p: { xs: 2.25, sm: 2.5, md: 4 }, height: "100%" }}>
                 <Stack direction={{ xs: "column", xl: "row" }} spacing={3} justifyContent="space-between" sx={{ height: "100%" }}>
-                    <Stack spacing={1.25} sx={{ maxWidth: 640 }}>
+                    <Stack spacing={1.25} sx={{ maxWidth: 640, minWidth: 0 }}>
                         <Typography
                             variant="overline"
                             sx={{
@@ -3695,40 +3721,60 @@ export function MemberPortalPage() {
                         >
                             Member Dashboard
                         </Typography>
-                        <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1.05 }}>
+                        <Typography
+                            variant="h3"
+                            sx={{
+                                fontWeight: 800,
+                                letterSpacing: "-0.03em",
+                                lineHeight: 1.05,
+                                fontSize: { xs: "2.55rem", sm: "3rem", md: undefined },
+                                overflowWrap: "anywhere"
+                            }}
+                        >
                             Welcome back, {profile?.full_name?.split(" ")[0] || "Member"}.
                         </Typography>
                         <Typography
                             variant="body1"
                             sx={{
                                 color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.78) : brandColors.neutral.textSecondary,
-                                maxWidth: 560
+                                maxWidth: 560,
+                                overflowWrap: "anywhere"
                             }}
                         >
                             Track your savings, share capital, loan obligations, and contribution history from one secure workspace tied to {selectedTenantName || "your SACCOS"}.
                         </Typography>
-                        <Stack direction="row" spacing={1.25} useFlexGap flexWrap="wrap" sx={{ pt: 1 }}>
+                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ pt: 0.85, minWidth: 0 }}>
                             <Chip
                                 label={selectedBranchName || "Assigned branch"}
                                 sx={{
+                                    maxWidth: "100%",
                                     bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.12) : alpha(brandColors.primary[100], 0.92),
                                     color: theme.palette.mode === "dark" ? "#fff" : brandColors.primary[900],
                                     borderRadius: 1.5,
                                     backdropFilter: "blur(10px)",
                                     border: theme.palette.mode === "dark" ? "none" : `1px solid ${alpha(brandColors.primary[300], 0.36)}`,
-                                    fontWeight: 700
+                                    fontWeight: 700,
+                                    "& .MuiChip-label": {
+                                        display: "block",
+                                        whiteSpace: "normal"
+                                    }
                                 }}
                             />
                             <Chip
                                 label={hasNoVisibleFinancialData ? "Awaiting first posted activity" : "Financial activity visible"}
                                 sx={{
+                                    maxWidth: "100%",
                                     bgcolor: theme.palette.mode === "dark"
                                         ? hasNoVisibleFinancialData ? alpha("#FFFFFF", 0.08) : alpha(brandColors.success, 0.18)
                                         : hasNoVisibleFinancialData ? alpha(brandColors.warning, 0.12) : alpha(brandColors.success, 0.12),
                                     color: theme.palette.mode === "dark"
                                         ? "#fff"
                                         : hasNoVisibleFinancialData ? "#9A6700" : brandColors.success,
-                                    borderRadius: 1.5
+                                    borderRadius: 1.5,
+                                    "& .MuiChip-label": {
+                                        display: "block",
+                                        whiteSpace: "normal"
+                                    }
                                 }}
                             />
                         </Stack>
@@ -3736,10 +3782,11 @@ export function MemberPortalPage() {
                     <Paper
                         variant="outlined"
                         sx={{
-                            minWidth: { xs: "100%", xl: 320 },
-                            maxWidth: 360,
-                            p: 2,
-                            borderRadius: 3,
+                            width: "100%",
+                            minWidth: 0,
+                            maxWidth: { xs: "100%", xl: 360 },
+                            p: { xs: 1.5, sm: 2 },
+                            borderRadius: { xs: 2.2, md: 3 },
                             bgcolor: theme.palette.mode === "dark" ? alpha("#030712", 0.2) : alpha("#FFFFFF", 0.9),
                             borderColor: theme.palette.mode === "dark"
                                 ? alpha("#FFFFFF", 0.12)
@@ -3751,7 +3798,12 @@ export function MemberPortalPage() {
                         }}
                     >
                         <Stack spacing={1.6}>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                            <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                justifyContent="space-between"
+                                alignItems={{ xs: "flex-start", sm: "center" }}
+                                spacing={1}
+                            >
                                 <Typography
                                     variant="overline"
                                     sx={{
@@ -3765,9 +3817,14 @@ export function MemberPortalPage() {
                                     size="small"
                                     label={standing.label}
                                     sx={{
+                                        maxWidth: "100%",
                                         bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.12) : alpha(brandColors.primary[100], 0.9),
                                         color: theme.palette.mode === "dark" ? "#fff" : brandColors.primary[900],
-                                        fontWeight: 700
+                                        fontWeight: 700,
+                                        alignSelf: { xs: "flex-start", sm: "auto" },
+                                        "& .MuiChip-label": {
+                                            px: { xs: 1.2, sm: 1.5 }
+                                        }
                                     }}
                                 />
                             </Stack>
@@ -3787,8 +3844,14 @@ export function MemberPortalPage() {
                                         : "Use this portal to keep savings, contributions, and loan activity moving without visiting the branch."}
                                 </Typography>
                             </Box>
-                            <Grid container spacing={1.2}>
-                                <Grid size={{ xs: 6 }}>
+                            <Box
+                                sx={{
+                                    display: "grid",
+                                    gap: 1.2,
+                                    gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))" }
+                                }}
+                            >
+                                <Box sx={{ minWidth: 0 }}>
                                     <Paper
                                         sx={{
                                             p: 1.25,
@@ -3809,8 +3872,8 @@ export function MemberPortalPage() {
                                             {pendingPaymentCount}
                                         </Typography>
                                     </Paper>
-                                </Grid>
-                                <Grid size={{ xs: 6 }}>
+                                </Box>
+                                <Box sx={{ minWidth: 0 }}>
                                     <Paper
                                         sx={{
                                             p: 1.25,
@@ -3831,12 +3894,13 @@ export function MemberPortalPage() {
                                             {activeLoanCount}
                                         </Typography>
                                     </Paper>
-                                </Grid>
-                            </Grid>
+                                </Box>
+                            </Box>
                             <Stack
                                 direction={{ xs: "column", sm: "row" }}
                                 spacing={1.25}
                                 useFlexGap
+                                sx={{ "& > *": { width: { xs: "100%", sm: "auto" } } }}
                             >
                                 <Button
                                     variant="contained"
@@ -3896,7 +3960,10 @@ export function MemberPortalPage() {
     const renderSpotlightCard = () => (
         <MotionCard
             sx={{
-                borderRadius: 4,
+                width: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                borderRadius: { xs: 3, md: 4 },
                 height: "100%",
                 overflow: "hidden",
                 color: theme.palette.mode === "dark" ? "#fff" : brandColors.neutral.textPrimary,
@@ -3911,10 +3978,10 @@ export function MemberPortalPage() {
                     : `0 20px 38px ${alpha(brandColors.primary[300], 0.14)}`
             }}
         >
-            <CardContent sx={{ p: { xs: 2.75, md: 3 }, height: "100%" }}>
-                <Stack spacing={2.25} sx={{ height: "100%" }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Stack direction="row" spacing={0.8} alignItems="center">
+            <CardContent sx={{ p: { xs: 2.25, sm: 2.5, md: 3 }, height: "100%" }}>
+                    <Stack spacing={{ xs: 1.6, md: 2.25 }} sx={{ height: "100%" }}>
+                    <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={1}>
+                        <Stack direction="row" spacing={0.8} alignItems="center" sx={{ minWidth: 0 }}>
                             <Box sx={{ display: "flex", gap: 0.9 }}>
                                 {[0, 1, 2].map((index) => (
                                     <Box
@@ -3946,9 +4013,15 @@ export function MemberPortalPage() {
                             size="small"
                             label={failedPaymentCount ? `${failedPaymentCount} issue${failedPaymentCount === 1 ? "" : "s"}` : "Stable"}
                             sx={{
+                                maxWidth: "100%",
                                 bgcolor: failedPaymentCount ? alpha(brandColors.danger, 0.22) : alpha(brandColors.success, 0.18),
                                 color: theme.palette.mode === "dark" ? "#fff" : failedPaymentCount ? brandColors.danger : brandColors.success,
-                                fontWeight: 700
+                                fontWeight: 700,
+                                alignSelf: { xs: "flex-start", sm: "auto" },
+                                "& .MuiChip-label": {
+                                    display: "block",
+                                    whiteSpace: "normal"
+                                }
                             }}
                         />
                     </Stack>
@@ -3963,7 +4036,16 @@ export function MemberPortalPage() {
                         >
                             Featured status
                         </Typography>
-                        <Typography variant="h4" sx={{ mt: 1.2, fontWeight: 800, lineHeight: 1.08 }}>
+                        <Typography
+                            variant="h4"
+                            sx={{
+                                mt: 1.2,
+                                fontWeight: 800,
+                                lineHeight: 1.08,
+                                fontSize: { xs: "2.1rem", sm: "2.45rem", md: undefined },
+                                overflowWrap: "anywhere"
+                            }}
+                        >
                             {hasOverdueLoan
                                 ? "Repayment attention is needed."
                                 : activeLoanCount
@@ -3974,7 +4056,8 @@ export function MemberPortalPage() {
                             variant="body2"
                             sx={{
                                 mt: 1.15,
-                                color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.72) : brandColors.neutral.textSecondary
+                                color: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.72) : brandColors.neutral.textSecondary,
+                                overflowWrap: "anywhere"
                             }}
                         >
                             {hasOverdueLoan
@@ -4014,8 +4097,8 @@ export function MemberPortalPage() {
                                     key={item.label}
                                     variant="outlined"
                                     sx={{
-                                        p: 1.35,
-                                        borderRadius: 2.2,
+                                        p: { xs: 1.1, md: 1.35 },
+                                        borderRadius: { xs: 1.6, md: 2.2 },
                                         bgcolor: theme.palette.mode === "dark" ? alpha("#FFFFFF", 0.04) : alpha(brandColors.primary[100], 0.42),
                                         borderColor: theme.palette.mode === "dark"
                                             ? alpha("#FFFFFF", 0.08)
@@ -4045,7 +4128,11 @@ export function MemberPortalPage() {
                                             </Typography>
                                             <Typography
                                                 variant="body2"
-                                                sx={{ color: theme.palette.mode === "dark" ? "#fff" : brandColors.neutral.textPrimary, fontWeight: 600 }}
+                                                sx={{
+                                                    color: theme.palette.mode === "dark" ? "#fff" : brandColors.neutral.textPrimary,
+                                                    fontWeight: 600,
+                                                    overflowWrap: "anywhere"
+                                                }}
                                             >
                                                 {item.value}
                                             </Typography>
@@ -4084,7 +4171,7 @@ export function MemberPortalPage() {
                             {currentView.subtitle}
                         </Typography>
                     </Box>
-                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ "& > *": { maxWidth: "100%" } }}>
                         <Chip label={selectedBranchName || "Assigned branch"} variant="outlined" />
                         <Chip label={standing.label} variant="outlined" />
                         <Chip label={`${pendingPaymentCount} pending payment${pendingPaymentCount === 1 ? "" : "s"}`} variant="outlined" />
@@ -4504,14 +4591,14 @@ export function MemberPortalPage() {
                     boxShadow: `0 18px 38px ${alpha(memberAccentStrong, 0.22)}`
                 }}
             >
-                <CardContent sx={{ p: { xs: 2.5, md: 3.25 } }}>
+                <CardContent sx={{ p: { xs: 2.1, sm: 2.5, md: 3.25 } }}>
                     <Grid container spacing={2.5} alignItems="stretch">
                         <Grid size={{ xs: 12, lg: 8 }}>
                             <Stack spacing={1.5}>
                                 <Typography variant="overline" sx={{ color: alpha("#FFFFFF", 0.76), letterSpacing: 1.4 }}>
                                     Lending workspace
                                 </Typography>
-                                <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08, maxWidth: 680 }}>
+                                <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08, maxWidth: 680, fontSize: { xs: "2rem", sm: "2.35rem", md: undefined } }}>
                                     Track applications, repayment exposure, and loan readiness from one member view.
                                 </Typography>
                                 <Typography variant="body2" sx={{ color: alpha("#FFFFFF", 0.78), maxWidth: 620 }}>
@@ -4572,6 +4659,7 @@ export function MemberPortalPage() {
                                         onClick={() => openLoanApplicationEditor()}
                                         sx={{
                                             alignSelf: "flex-start",
+                                            width: { xs: "100%", sm: "auto" },
                                             bgcolor: "#fff",
                                             color: memberAccentStrong,
                                             fontWeight: 700,
@@ -5072,7 +5160,7 @@ export function MemberPortalPage() {
                                 label="Type"
                                 value={transactionTypeFilter}
                                 onChange={(event) => setTransactionTypeFilter(event.target.value)}
-                                sx={{ minWidth: 200 }}
+                                sx={{ minWidth: { xs: 0, md: 200 } }}
                             >
                                 <MenuItem value="all">All types</MenuItem>
                                 <MenuItem value="deposit">Deposit</MenuItem>
@@ -5087,7 +5175,7 @@ export function MemberPortalPage() {
                                 placeholder="Search by reference"
                                 value={transactionSearch}
                                 onChange={(event) => setTransactionSearch(event.target.value)}
-                                sx={{ minWidth: 220 }}
+                                sx={{ minWidth: { xs: 0, md: 220 } }}
                             />
                             <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                                 <Button
@@ -5821,7 +5909,7 @@ export function MemberPortalPage() {
                                     label="Purpose"
                                     value={paymentPurposeFilter}
                                     onChange={(event) => setPaymentPurposeFilter(event.target.value)}
-                                    sx={{ minWidth: 180 }}
+                                    sx={{ minWidth: { xs: 0, sm: 180 } }}
                                 >
                                     <MenuItem value="all">All payments</MenuItem>
                                     <MenuItem value="share_contribution">Share contributions</MenuItem>
@@ -5834,7 +5922,7 @@ export function MemberPortalPage() {
                                     label="Status"
                                     value={paymentStatusFilter}
                                     onChange={(event) => setPaymentStatusFilter(event.target.value)}
-                                    sx={{ minWidth: 180 }}
+                                    sx={{ minWidth: { xs: 0, sm: 180 } }}
                                 >
                                     <MenuItem value="all">All statuses</MenuItem>
                                     <MenuItem value="posted">Posted</MenuItem>
@@ -6060,13 +6148,7 @@ export function MemberPortalPage() {
                             const active = activeSection === section.id;
 
                             return (
-                                <Box
-                                    key={section.id}
-                                    component={motion.div}
-                                    initial={prefersReducedMotion ? false : { opacity: 0, x: -10 }}
-                                    animate={prefersReducedMotion ? undefined : { opacity: 1, x: 0 }}
-                                    transition={prefersReducedMotion ? undefined : { ...springSoft, delay: 0.03 * visiblePortalSections.findIndex((item) => item.id === section.id) }}
-                                >
+                                <Box key={section.id}>
                                     <ListItemButton
                                         selected={active}
                                         onClick={() => handleSectionSelect(section.id)}
@@ -6222,6 +6304,10 @@ export function MemberPortalPage() {
         <Box
             sx={{
                 minHeight: "100vh",
+                width: "100%",
+                maxWidth: { xs: "100vw", lg: "none" },
+                boxSizing: "border-box",
+                overflowX: "clip",
                 bgcolor: theme.palette.mode === "dark" ? darkThemeColors.background : brandColors.neutral.background,
                 backgroundImage: theme.palette.mode === "dark"
                     ? `radial-gradient(circle at 14% 18%, ${alpha(memberAccentStrong, 0.18)} 0%, transparent 30%),
@@ -6259,13 +6345,7 @@ export function MemberPortalPage() {
                     bgcolor: theme.palette.mode === "dark" ? darkThemeColors.paper : "#fff"
                 }}
             >
-                <Box
-                    component={motion.div}
-                    initial={prefersReducedMotion ? false : { opacity: 0, x: -20 }}
-                    animate={prefersReducedMotion ? undefined : { opacity: 1, x: 0 }}
-                    transition={prefersReducedMotion ? undefined : springSoft}
-                    sx={{ width: "100%", display: "flex" }}
-                >
+                <Box sx={{ width: "100%", display: "flex" }}>
                     {renderSidebarContent(!sidebarOpen)}
                 </Box>
             </Box>
@@ -6288,6 +6368,11 @@ export function MemberPortalPage() {
                 component="main"
                 sx={{
                     minHeight: "100vh",
+                    minWidth: 0,
+                    width: "auto",
+                    maxWidth: { xs: "100vw", lg: "none" },
+                    boxSizing: "border-box",
+                    overflowX: "clip",
                     ml: { lg: `${drawerWidth}px` },
                     transition: "margin-left 220ms ease"
                 }}
@@ -6297,7 +6382,8 @@ export function MemberPortalPage() {
                         position: "sticky",
                         top: 0,
                         zIndex: theme.zIndex.appBar,
-                        px: { xs: 2, md: 3.5 },
+                        boxSizing: "border-box",
+                        px: { xs: 1.25, sm: 1.5, md: 3.5 },
                         py: 1.35,
                         borderBottom: `1px solid ${alpha(theme.palette.divider, 0.72)}`,
                         bgcolor: theme.palette.mode === "dark"
@@ -6306,16 +6392,7 @@ export function MemberPortalPage() {
                         backdropFilter: "blur(18px)"
                     }}
                 >
-                    <Stack
-                        component={motion.div}
-                        direction="row"
-                        justifyContent="space-between"
-                        alignItems="center"
-                        spacing={2}
-                        initial={prefersReducedMotion ? false : { opacity: 0, y: -10 }}
-                        animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-                        transition={prefersReducedMotion ? undefined : springSoft}
-                    >
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
                         <Stack direction="row" spacing={1.5} alignItems="center">
                             <IconButton
                                 onClick={() => {
@@ -6562,12 +6639,16 @@ export function MemberPortalPage() {
                     </Box>
                 </Menu>
 
-                <MotionSection
+                <Box
                     sx={{
-                        px: { xs: 2, md: 3.5 },
+                        width: "100%",
+                        minWidth: 0,
+                        boxSizing: "border-box",
+                        overflowX: "clip",
+                        px: { xs: 1.25, sm: 1.5, md: 3.5 },
                         py: { xs: 2.5, md: 3.5 },
                         pb: { xs: 10, lg: 4 },
-                        maxWidth: 1600,
+                        maxWidth: { xs: "100vw", lg: 1600 },
                         mx: "auto"
                     }}
                 >
@@ -6640,36 +6721,36 @@ export function MemberPortalPage() {
                                 </CardContent>
                             </MotionCard>
                         ) : null}
-                        <AnimatePresence mode="wait" initial={false}>
-                            <Box
-                                key={activeSection}
-                                component={motion.div}
-                                initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 14 }}
-                                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-                                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -10 }}
-                                transition={prefersReducedMotion ? easeOutFast : springSoft}
-                                sx={{ display: "grid", gap: 3 }}
-                            >
+                        <Box sx={{ display: "grid", gap: 3, width: { xs: "calc(100vw - 20px)", sm: "100%" }, maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" }, minWidth: 0 }}>
                                 {activeSection === "member-overview" ? (
                                     <>
-                                        <Grid container spacing={2.5} alignItems="stretch">
-                                            <Grid size={{ xs: 12, xl: 8 }} sx={{ display: "flex" }}>
+                                        <Box
+                                            sx={{
+                                                display: "grid",
+                                                gap: 2.5,
+                                                gridTemplateColumns: {
+                                                    xs: "minmax(0, 1fr)",
+                                                    xl: "minmax(0, 2fr) minmax(0, 1fr)"
+                                                },
+                                                alignItems: "stretch"
+                                            }}
+                                        >
+                                            <Box sx={{ display: "flex", minWidth: 0 }}>
                                                 {renderHero()}
-                                            </Grid>
-                                            <Grid size={{ xs: 12, xl: 4 }} sx={{ display: "flex" }}>
+                                            </Box>
+                                            <Box sx={{ display: "flex", minWidth: 0 }}>
                                                 {renderSpotlightCard()}
-                                            </Grid>
-                                        </Grid>
+                                            </Box>
+                                        </Box>
                                         {renderStatGrid()}
                                         {renderBorrowingCapacityCard()}
                                     </>
                                 ) : null}
                                 {activeSection !== "member-overview" ? renderSectionLead() : null}
                                 {renderActiveView()}
-                            </Box>
-                        </AnimatePresence>
+                        </Box>
                     </Stack>
-                </MotionSection>
+                </Box>
             </Box>
 
             <MotionModal open={showContributionDialog} onClose={submittingContribution ? undefined : () => setShowContributionDialog(false)} maxWidth="md" fullWidth>

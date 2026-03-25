@@ -17,7 +17,17 @@ export function TransactionsPreview({ rows, onViewFullStatement }: TransactionsP
     const accent = isDarkMode ? "#D9B273" : brandColors.primary[700];
 
     return (
-        <MotionCard variant="outlined" sx={{ borderRadius: 2, borderColor: "divider" }}>
+        <MotionCard
+            variant="outlined"
+            sx={{
+                width: { xs: "calc(100vw - 20px)", sm: "100%" },
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                boxSizing: "border-box",
+                borderRadius: 2,
+                borderColor: "divider"
+            }}
+        >
             <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
                 <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.25} sx={{ mb: 1.5 }}>
                     <Typography variant="h6" sx={{ fontWeight: 700 }}>
@@ -53,11 +63,14 @@ export function TransactionsPreview({ rows, onViewFullStatement }: TransactionsP
                     <TableContainer
                         component="div"
                         sx={{
+                            width: "100%",
+                            minWidth: 0,
+                            overflowX: "auto",
                             border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
                             borderRadius: 1.5
                         }}
                     >
-                        <Table size="small">
+                        <Table size="small" sx={{ minWidth: { xs: 620, sm: "100%" } }}>
                             <TableHead>
                                 <TableRow>
                                     <TableCell>Date</TableCell>

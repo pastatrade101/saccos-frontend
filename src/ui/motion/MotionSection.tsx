@@ -28,6 +28,7 @@ export function MotionSection({
             animate={!inView && canAnimate ? "visible" : undefined}
             whileInView={inView && canAnimate ? "visible" : undefined}
             viewport={inView && canAnimate ? { once, amount: 0.16 } : undefined}
+            style={{ width: "100%", minWidth: 0, boxSizing: "border-box" }}
         >
             <Box {...props}>{children}</Box>
         </motion.div>

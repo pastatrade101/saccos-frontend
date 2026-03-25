@@ -55,7 +55,7 @@ export function MemberOverview({
     onViewFullStatement
 }: MemberOverviewProps) {
     return (
-        <Stack spacing={2.5}>
+        <Stack spacing={2.5} sx={{ width: "100%", minWidth: 0 }}>
             <FinancialSummary
                 summary={summary}
                 standing={standing}
@@ -64,28 +64,28 @@ export function MemberOverview({
                 onDownloadStatement={onDownloadStatement}
             />
 
-            <Grid container spacing={2} alignItems="stretch">
-                <Grid size={{ xs: 12, md: 6, xl: 3 }} sx={{ display: "flex" }}>
+            <Grid container spacing={2} alignItems="stretch" sx={{ width: "100%", minWidth: 0 }}>
+                <Grid size={{ xs: 12, md: 6, xl: 3 }} sx={{ display: "flex", minWidth: 0 }}>
                     <SavingsCard {...savingsCard} />
                 </Grid>
-                <Grid size={{ xs: 12, md: 6, xl: 3 }} sx={{ display: "flex" }}>
+                <Grid size={{ xs: 12, md: 6, xl: 3 }} sx={{ display: "flex", minWidth: 0 }}>
                     <ShareCapitalCard {...shareCard} />
                 </Grid>
-                <Grid size={{ xs: 12, md: 6, xl: 3 }} sx={{ display: "flex" }}>
+                <Grid size={{ xs: 12, md: 6, xl: 3 }} sx={{ display: "flex", minWidth: 0 }}>
                     <LoanCard {...loanExposure} />
                 </Grid>
-                <Grid size={{ xs: 12, md: 6, xl: 3 }} sx={{ display: "flex" }}>
+                <Grid size={{ xs: 12, md: 6, xl: 3 }} sx={{ display: "flex", minWidth: 0 }}>
                     <RecentActivityCard {...recentActivity} />
                 </Grid>
             </Grid>
 
             <Alerts alerts={alerts} />
 
-            <Grid container spacing={2}>
-                <Grid size={{ xs: 12, lg: 8 }}>
+            <Grid container spacing={2} sx={{ width: "100%", minWidth: 0 }}>
+                <Grid size={{ xs: 12, lg: 8 }} sx={{ minWidth: 0 }}>
                     <SavingsTrendChart labels={savingsTrend.labels} values={savingsTrend.values} />
                 </Grid>
-                <Grid size={{ xs: 12, lg: 4 }}>
+                <Grid size={{ xs: 12, lg: 4 }} sx={{ minWidth: 0 }}>
                     <LoanRepaymentProgress progressPercent={loanExposure.loanProgressPercent} />
                 </Grid>
             </Grid>

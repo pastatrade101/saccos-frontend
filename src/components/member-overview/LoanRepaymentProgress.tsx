@@ -16,7 +16,18 @@ export function LoanRepaymentProgress({ progressPercent, label = "Loan Repayment
     const progress = Math.max(0, Math.min(progressPercent, 100));
 
     return (
-        <MotionCard variant="outlined" sx={{ borderRadius: 2, borderColor: "divider", height: "100%" }}>
+        <MotionCard
+            variant="outlined"
+            sx={{
+                width: { xs: "calc(100vw - 20px)", sm: "100%" },
+                maxWidth: { xs: "calc(100vw - 20px)", sm: "100%" },
+                minWidth: 0,
+                boxSizing: "border-box",
+                borderRadius: 2,
+                borderColor: "divider",
+                height: "100%"
+            }}
+        >
             <CardContent>
                 <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
                     {label}
