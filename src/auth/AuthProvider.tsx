@@ -65,6 +65,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const [backendUnavailable, setBackendUnavailable] = useState(false);
     const selectedBranchIdRef = useRef(selectedBranchId);
     const selectedBranchNameRef = useRef(selectedBranchName);
+    const sessionRef = useRef<Session | null>(null);
     const refreshProfileRequestIdRef = useRef(0);
     const authBootstrappedRef = useRef(false);
 
@@ -75,6 +76,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     useEffect(() => {
         selectedBranchNameRef.current = selectedBranchName;
     }, [selectedBranchName]);
+
+    useEffect(() => {
+        sessionRef.current = session;
+    }, [session]);
 
     const clearAuthState = useCallback(() => {
         refreshProfileRequestIdRef.current += 1;
@@ -182,6 +187,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const {
             data: { subscription: authSubscription }
         } = supabase.auth.onAuthStateChange((event, nextSession) => {
+            const hadSession = Boolean(sessionRef.current);
             setSession(nextSession);
             setUser(nextSession?.user ?? null);
 
@@ -196,7 +202,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
             const shouldShowGlobalLoader =
                 !authBootstrappedRef.current
                 || event === "INITIAL_SESSION"
-                || event === "SIGNED_IN";
+                || (event === "SIGNED_IN" && !hadSession);
 
             if (shouldShowGlobalLoader) {
                 setLoading(true);
