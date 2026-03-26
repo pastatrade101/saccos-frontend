@@ -15,6 +15,7 @@ import {
     DialogContent,
     DialogTitle,
     Grid,
+    InputAdornment,
     InputLabel,
     Pagination,
     Stack,
@@ -65,6 +66,22 @@ const actionSchema = z.object({
 type CashValues = z.infer<typeof actionSchema>;
 type ActionType = "deposit" | "withdraw" | "share_contribution";
 type PendingAction = { type: ActionType; values: CashValues; receiptFile: File | null } | null;
+
+function formatWholeMoneyInput(value: string) {
+    const digits = value.replace(/[^\d]/g, "");
+    if (!digits) {
+        return "";
+    }
+
+    return new Intl.NumberFormat("en-TZ").format(Number(digits));
+}
+
+function generateCashReference(type: ActionType) {
+    const prefix = type === "deposit" ? "DEP" : type === "withdraw" ? "WDL" : "SHR";
+    const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+    const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+    return `${prefix}-${stamp}-${suffix}`;
+}
 
 function MetricCard({
     title,
@@ -135,7 +152,7 @@ export function CashPage() {
     const theme = useTheme();
     const navigate = useNavigate();
     const { pushToast } = useToast();
-    const { selectedTenantId, selectedTenantName, selectedBranchId, subscriptionInactive } = useAuth();
+    const { selectedTenantId, selectedTenantName, selectedBranchId, selectedBranchName, subscriptionInactive } = useAuth();
     const [members, setMembers] = useState<Member[]>([]);
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
     const [transactions, setTransactions] = useState<StatementRow[]>([]);
@@ -148,13 +165,18 @@ export function CashPage() {
     const [actionDialog, setActionDialog] = useState<ActionType | null>(null);
     const [receiptFile, setReceiptFile] = useState<File | null>(null);
     const [openingSession, setOpeningSession] = useState(false);
+    const [openingCashInput, setOpeningCashInput] = useState("");
     const [closingSession, setClosingSession] = useState(false);
+    const [closingCashInput, setClosingCashInput] = useState("");
     const [openSessionDialog, setOpenSessionDialog] = useState(false);
     const [closeSessionDialog, setCloseSessionDialog] = useState(false);
     const [pendingApprovalNotice, setPendingApprovalNotice] = useState<{
         requestId: string;
         payload: CashRequest;
     } | null>(null);
+    const [depositAmountInput, setDepositAmountInput] = useState("");
+    const [withdrawAmountInput, setWithdrawAmountInput] = useState("");
+    const [shareAmountInput, setShareAmountInput] = useState("");
     const [page, setPage] = useState(1);
     const pageSize = 10;
 
@@ -326,6 +348,35 @@ export function CashPage() {
     const deskWithdrawalTotal = todaySummary?.withdrawals_total ?? todayWithdrawalTotal;
     const deskNetMovement = todaySummary?.net_movement ?? (deskDepositTotal - deskWithdrawalTotal);
     const deskExpectedCash = todaySummary?.expected_cash_total ?? currentSession?.expected_cash ?? 0;
+    const countedOpeningCash = Number(openSessionForm.watch("opening_cash") || 0);
+    const countedClosingCash = Number(closeSessionForm.watch("closing_cash") || 0);
+    const closingVariance = countedClosingCash - deskExpectedCash;
+    const closingVarianceStatus = closingVariance === 0 ? "balanced" : closingVariance > 0 ? "over" : "short";
+
+    useEffect(() => {
+        if (!openSessionDialog) {
+            return;
+        }
+
+        openSessionForm.reset({
+            branch_id: selectedBranchId || "",
+            opening_cash: 0,
+            notes: ""
+        });
+        setOpeningCashInput(formatWholeMoneyInput("0"));
+    }, [openSessionDialog, openSessionForm, selectedBranchId]);
+
+    useEffect(() => {
+        if (!closeSessionDialog) {
+            return;
+        }
+
+        closeSessionForm.reset({
+            closing_cash: Number(deskExpectedCash || 0),
+            notes: ""
+        });
+        setClosingCashInput(formatWholeMoneyInput(String(Math.round(Number(deskExpectedCash || 0)))));
+    }, [closeSessionDialog, closeSessionForm, deskExpectedCash]);
     const highValueThreshold = Math.max(receiptPolicy?.required_threshold || 0, 250000);
     const highValueTransactions = useMemo(
         () => deskTransactions.filter((entry) => entry.amount >= highValueThreshold).length,
@@ -404,6 +455,7 @@ export function CashPage() {
                 opening_cash: 0,
                 notes: ""
             });
+            setOpeningCashInput(formatWholeMoneyInput("0"));
             await loadCashData();
         } catch (error) {
             pushToast({
@@ -503,9 +555,12 @@ export function CashPage() {
             setPendingAction(null);
             setActionDialog(null);
             setReceiptFile(null);
-            depositForm.reset({ account_id: payload.account_id, amount: 0, reference: "", description: "" });
-            withdrawForm.reset({ account_id: payload.account_id, amount: 0, reference: "", description: "" });
-            shareForm.reset({ account_id: "", amount: 0, reference: "", description: "" });
+            depositForm.reset({ account_id: payload.account_id, amount: 0, reference: generateCashReference("deposit"), description: "" });
+            withdrawForm.reset({ account_id: payload.account_id, amount: 0, reference: generateCashReference("withdraw"), description: "" });
+            shareForm.reset({ account_id: "", amount: 0, reference: generateCashReference("share_contribution"), description: "" });
+            setDepositAmountInput("");
+            setWithdrawAmountInput("");
+            setShareAmountInput("");
             await loadCashData();
         } catch (error) {
             pushToast({
@@ -561,6 +616,12 @@ export function CashPage() {
                 : shareForm;
     const currentActionOptions = actionDialog === "share_contribution" ? shareAccountOptions : savingsAccountOptions;
     const currentActionValue = currentForm.watch("account_id");
+    const currentAmountInput =
+        actionDialog === "deposit"
+            ? depositAmountInput
+            : actionDialog === "withdraw"
+                ? withdrawAmountInput
+                : shareAmountInput;
     const currentActionAccount = accounts.find((account) => account.id === currentActionValue);
     const currentActionMember = members.find((member) => member.id === currentActionAccount?.member_id);
 
@@ -570,6 +631,24 @@ export function CashPage() {
             : actionDialog === "withdraw"
                 ? "Start Withdrawal"
                 : "Post Share Contribution";
+
+    useEffect(() => {
+        if (!actionDialog) {
+            return;
+        }
+
+        const form = actionDialog === "deposit" ? depositForm : actionDialog === "withdraw" ? withdrawForm : shareForm;
+        form.setValue("reference", generateCashReference(actionDialog), { shouldDirty: false, shouldValidate: true });
+
+        const formattedAmount = formatWholeMoneyInput(String(form.getValues("amount") || ""));
+        if (actionDialog === "deposit") {
+            setDepositAmountInput(formattedAmount);
+        } else if (actionDialog === "withdraw") {
+            setWithdrawAmountInput(formattedAmount);
+        } else {
+            setShareAmountInput(formattedAmount);
+        }
+    }, [actionDialog, depositForm, withdrawForm, shareForm]);
 
     return (
         <Stack spacing={3}>
@@ -1149,32 +1228,46 @@ export function CashPage() {
                                 </Grid>
                             ) : null}
 
+                            {actionDialog === "deposit" && currentActionAccount ? (
+                                <Alert severity="info" variant="outlined">
+                                    Teller deposit will post directly into the selected savings account after review. The reference below is generated automatically for audit traceability.
+                                </Alert>
+                            ) : null}
+
                             <Grid container spacing={2}>
                                 <Grid size={{ xs: 12, md: 6 }}>
                                     <TextField
                                         label="Amount"
-                                        type="number"
                                         fullWidth
-                                        inputProps={{ step: "0.01" }}
-                                        {...currentForm.register("amount")}
+                                        value={currentAmountInput}
+                                        onChange={(event) => {
+                                            const digits = event.target.value.replace(/[^\d]/g, "");
+                                            const formatted = formatWholeMoneyInput(digits);
+                                            if (actionDialog === "deposit") {
+                                                setDepositAmountInput(formatted);
+                                            } else if (actionDialog === "withdraw") {
+                                                setWithdrawAmountInput(formatted);
+                                            } else {
+                                                setShareAmountInput(formatted);
+                                            }
+                                            currentForm.setValue("amount", digits ? Number(digits) : 0, { shouldValidate: true, shouldDirty: true });
+                                        }}
                                         error={Boolean(currentForm.formState.errors.amount)}
-                                        helperText={currentForm.formState.errors.amount?.message}
+                                        helperText={currentForm.formState.errors.amount?.message || "Enter amount in TSh. Example: 1,000,000"}
+                                        inputProps={{ inputMode: "numeric" }}
+                                        InputProps={{
+                                            startAdornment: <InputAdornment position="start">TSh</InputAdornment>
+                                        }}
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 6 }}>
                                     <TextField
                                         label="Reference"
                                         fullWidth
-                                        placeholder={
-                                            actionDialog === "deposit"
-                                                ? "DEP-0001"
-                                                : actionDialog === "withdraw"
-                                                    ? "WDL-0001"
-                                                    : "SHR-0001"
-                                        }
-                                        {...currentForm.register("reference")}
+                                        value={currentForm.watch("reference") || ""}
+                                        InputProps={{ readOnly: true }}
                                         error={Boolean(currentForm.formState.errors.reference)}
-                                        helperText={currentForm.formState.errors.reference?.message}
+                                        helperText={currentForm.formState.errors.reference?.message || "Generated automatically by the system."}
                                     />
                                 </Grid>
                             </Grid>
@@ -1238,21 +1331,93 @@ export function CashPage() {
                 <DialogTitle>Open teller session</DialogTitle>
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
+                        <Alert severity="info" variant="outlined">
+                            Start the teller day with the physical cash currently in hand. Expected cash will begin from this amount and update as deposits and withdrawals post.
+                        </Alert>
+                        <Grid container spacing={1.5}>
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Box
+                                    sx={{
+                                        p: 1.5,
+                                        border: `1px solid ${theme.palette.divider}`,
+                                        borderRadius: 2,
+                                        bgcolor: alpha(theme.palette.background.default, 0.45)
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary">
+                                        Branch
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700 }}>
+                                        {selectedBranchName || selectedBranchId || "Active branch"}
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Box
+                                    sx={{
+                                        p: 1.5,
+                                        border: `1px solid ${theme.palette.divider}`,
+                                        borderRadius: 2,
+                                        bgcolor: alpha(theme.palette.background.default, 0.45)
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary">
+                                        Business date
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700 }}>
+                                        {deskBusinessDate ? formatDate(deskBusinessDate) : "Today"}
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                            <Grid size={{ xs: 12 }}>
+                                <Box
+                                    sx={{
+                                        p: 1.5,
+                                        border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+                                        borderRadius: 2,
+                                        bgcolor: alpha(theme.palette.primary.main, 0.05)
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary">
+                                        Opening expected cash
+                                    </Typography>
+                                    <Typography variant="h6" sx={{ mt: 0.5 }}>
+                                        {formatCurrency(countedOpeningCash)}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                        This becomes the starting point for teller cash balancing until the session is closed.
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                        </Grid>
                         <TextField
-                            label="Opening cash"
-                            type="number"
-                            inputProps={{ step: "0.01" }}
-                            {...openSessionForm.register("opening_cash", { valueAsNumber: true })}
+                            label="Opening cash counted"
+                            value={openingCashInput}
+                            onChange={(event) => {
+                                const formatted = formatWholeMoneyInput(event.target.value);
+                                setOpeningCashInput(formatted);
+                                const numeric = Number(formatted.replace(/,/g, "")) || 0;
+                                openSessionForm.setValue("opening_cash", numeric, { shouldDirty: true, shouldValidate: true });
+                            }}
+                            inputMode="numeric"
+                            placeholder="0"
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start">TSh</InputAdornment>
+                            }}
+                            helperText="Count the physical cash at the desk before opening the session."
+                            error={Boolean(openSessionForm.formState.errors.opening_cash)}
                         />
                         <TextField
                             label="Opening notes"
                             multiline
                             minRows={3}
+                            placeholder="Optional handover note, vault drawdown note, or start-of-day remark"
                             {...openSessionForm.register("notes")}
+                            helperText="Use notes if this opening cash came from vault issue, previous handover, or any exception."
                         />
                     </Stack>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ px: 3, py: 2 }}>
                     <Button onClick={() => setOpenSessionDialog(false)} disabled={openingSession}>Cancel</Button>
                     <Button variant="contained" onClick={() => void openSession()} disabled={openingSession}>
                         {openingSession ? "Opening..." : "Open session"}
@@ -1267,17 +1432,146 @@ export function CashPage() {
                         <Alert severity="info" variant="outlined">
                             Expected cash currently tracks as {formatCurrency(deskExpectedCash)}.
                         </Alert>
+                        <Grid container spacing={1.5}>
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Box
+                                    sx={{
+                                        p: 1.5,
+                                        border: `1px solid ${theme.palette.divider}`,
+                                        borderRadius: 2,
+                                        bgcolor: alpha(theme.palette.background.default, 0.45)
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary">
+                                        Opening cash
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700 }}>
+                                        {formatCurrency(currentSession?.opening_cash || 0)}
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Box
+                                    sx={{
+                                        p: 1.5,
+                                        border: `1px solid ${theme.palette.divider}`,
+                                        borderRadius: 2,
+                                        bgcolor: alpha(theme.palette.background.default, 0.45)
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary">
+                                        Expected closing cash
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700 }}>
+                                        {formatCurrency(deskExpectedCash)}
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Box
+                                    sx={{
+                                        p: 1.5,
+                                        border: `1px solid ${theme.palette.divider}`,
+                                        borderRadius: 2,
+                                        bgcolor: alpha(theme.palette.background.default, 0.45)
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary">
+                                        Cash received
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700, color: theme.palette.success.main }}>
+                                        {formatCurrency(deskDepositTotal)}
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Box
+                                    sx={{
+                                        p: 1.5,
+                                        border: `1px solid ${theme.palette.divider}`,
+                                        borderRadius: 2,
+                                        bgcolor: alpha(theme.palette.background.default, 0.45)
+                                    }}
+                                >
+                                    <Typography variant="caption" color="text.secondary">
+                                        Cash paid out
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700, color: theme.palette.warning.main }}>
+                                        {formatCurrency(deskWithdrawalTotal)}
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                        </Grid>
                         <TextField
-                            label="Closing cash counted"
-                            type="number"
-                            inputProps={{ step: "0.01" }}
-                            {...closeSessionForm.register("closing_cash", { valueAsNumber: true })}
+                            label="Counted cash"
+                            fullWidth
+                            value={closingCashInput}
+                            onChange={(event) => {
+                                const digits = event.target.value.replace(/[^\d]/g, "");
+                                setClosingCashInput(formatWholeMoneyInput(digits));
+                                closeSessionForm.setValue("closing_cash", digits ? Number(digits) : 0, { shouldValidate: true, shouldDirty: true });
+                            }}
+                            helperText="Enter the physical cash counted at the desk."
+                            inputProps={{ inputMode: "numeric" }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start">TSh</InputAdornment>
+                            }}
                         />
+                        <Box
+                            sx={{
+                                p: 1.5,
+                                border: `1px solid ${
+                                    closingVarianceStatus === "balanced"
+                                        ? alpha(theme.palette.success.main, 0.32)
+                                        : closingVarianceStatus === "over"
+                                            ? alpha(theme.palette.warning.main, 0.32)
+                                            : alpha(theme.palette.error.main, 0.32)
+                                }`,
+                                borderRadius: 2,
+                                bgcolor:
+                                    closingVarianceStatus === "balanced"
+                                        ? alpha(theme.palette.success.main, 0.08)
+                                        : closingVarianceStatus === "over"
+                                            ? alpha(theme.palette.warning.main, 0.08)
+                                            : alpha(theme.palette.error.main, 0.08)
+                            }}
+                        >
+                            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }}>
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Balancing status
+                                    </Typography>
+                                    <Typography variant="subtitle1" sx={{ mt: 0.35, fontWeight: 700, textTransform: "capitalize" }}>
+                                        {closingVarianceStatus === "balanced"
+                                            ? "Balanced"
+                                            : closingVarianceStatus === "over"
+                                                ? "Cash over"
+                                                : "Cash short"}
+                                    </Typography>
+                                </Box>
+                                <Chip
+                                    label={formatCurrency(Math.abs(closingVariance))}
+                                    color={
+                                        closingVarianceStatus === "balanced"
+                                            ? "success"
+                                            : closingVarianceStatus === "over"
+                                                ? "warning"
+                                                : "error"
+                                    }
+                                    variant={closingVarianceStatus === "balanced" ? "outlined" : "filled"}
+                                    sx={{ fontWeight: 700 }}
+                                />
+                            </Stack>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                Variance is calculated automatically from expected cash and the physical cash counted at close.
+                            </Typography>
+                        </Box>
                         <TextField
-                            label="Closing notes"
+                            label={closingVariance === 0 ? "Closing notes" : "Variance explanation *"}
                             multiline
                             minRows={3}
                             {...closeSessionForm.register("notes")}
+                            helperText={closingVariance === 0 ? "Optional shift notes." : "Required because counted cash does not match expected cash."}
                         />
                     </Stack>
                 </DialogContent>

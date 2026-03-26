@@ -825,6 +825,7 @@ export function MemberPortalPage() {
     const theme = useTheme();
     const navigate = useNavigate();
     const isDesktop = useMediaQuery(theme.breakpoints.up("lg"));
+    const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
     const { profile, selectedTenantName, selectedBranchName, signOut, subscription, user } = useAuth();
     const canUsePortalDeposits = Boolean(subscription?.features?.contributions_enabled);
     const { pushToast } = useToast();
@@ -7399,6 +7400,7 @@ export function MemberPortalPage() {
                 PaperProps={{
                     sx: {
                         width: "100%",
+                        maxWidth: { xs: "calc(100vw - 16px)", sm: "calc(100vw - 32px)", md: "960px" },
                         maxHeight: { xs: "calc(100vh - 16px)", md: "calc(100vh - 32px)" },
                         minHeight: { md: 620 },
                         display: "flex",
@@ -7479,52 +7481,95 @@ export function MemberPortalPage() {
                             <Paper
                                 variant="outlined"
                                 sx={{
-                                    p: { xs: 1.1, md: 1.4 },
+                                    p: { xs: 0.95, sm: 1.1, md: 1.4 },
                                     borderRadius: 1.25,
                                     bgcolor: alpha(memberAccent, isDarkMode ? 0.08 : 0.03),
                                     borderColor: alpha(memberAccent, 0.2)
                                 }}
                             >
                                 <Stack spacing={0.9}>
-                                    <Stepper
-                                        activeStep={loanFormStep}
-                                        alternativeLabel
-                                        sx={{
-                                            "& .MuiStepLabel-root": {
-                                                px: 0
-                                            },
-                                            "& .MuiStepConnector-line": {
-                                                borderColor: alpha(memberAccent, 0.2)
-                                            },
-                                            "& .MuiStepLabel-label": {
-                                                fontWeight: 700,
-                                                mt: 0.35,
-                                                fontSize: { xs: "0.82rem", sm: "0.9rem" }
-                                            },
-                                            "& .MuiStepLabel-label.Mui-active": {
-                                                color: "text.primary"
-                                            },
-                                            "& .MuiStepLabel-label.Mui-completed": {
-                                                color: "text.secondary"
-                                            },
-                                            "& .MuiStepIcon-root": {
-                                                color: alpha(memberAccent, 0.2),
-                                                fontSize: "1.55rem"
-                                            },
-                                            "& .MuiStepIcon-root.Mui-active": {
-                                                color: memberAccent
-                                            },
-                                            "& .MuiStepIcon-root.Mui-completed": {
-                                                color: memberAccentStrong
-                                            }
-                                        }}
-                                    >
-                                        {loanApplicationSteps.map((step) => (
-                                            <Step key={step.label}>
-                                                <StepLabel>{step.label}</StepLabel>
-                                            </Step>
-                                        ))}
-                                    </Stepper>
+                                    {isMobile ? (
+                                        <Stack spacing={0.85}>
+                                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                                <Chip
+                                                    size="small"
+                                                    label={`Step ${loanFormStep + 1} of ${loanApplicationSteps.length}`}
+                                                    sx={{
+                                                        borderRadius: 1.15,
+                                                        fontWeight: 700,
+                                                        bgcolor: alpha(memberAccent, 0.12),
+                                                        color: memberAccent
+                                                    }}
+                                                />
+                                                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                                                    {Math.round(loanStepProgressPercent)}%
+                                                </Typography>
+                                            </Stack>
+                                            <Stack direction="row" spacing={0.75} sx={{ overflowX: "auto", pb: 0.25, "&::-webkit-scrollbar": { display: "none" }, scrollbarWidth: "none" }}>
+                                                {loanApplicationSteps.map((step, index) => {
+                                                    const isActive = index === loanFormStep;
+                                                    const isCompleted = index < loanFormStep;
+
+                                                    return (
+                                                        <Chip
+                                                            key={step.label}
+                                                            label={`${index + 1}. ${step.label}`}
+                                                            size="small"
+                                                            variant={isActive ? "filled" : "outlined"}
+                                                            sx={{
+                                                                flexShrink: 0,
+                                                                borderRadius: 1.1,
+                                                                fontWeight: 700,
+                                                                bgcolor: isActive ? memberAccent : isCompleted ? alpha(memberAccentStrong, 0.1) : "transparent",
+                                                                color: isActive ? "#fff" : isCompleted ? memberAccentStrong : "text.secondary",
+                                                                borderColor: isActive ? memberAccent : alpha(memberAccent, 0.2)
+                                                            }}
+                                                        />
+                                                    );
+                                                })}
+                                            </Stack>
+                                        </Stack>
+                                    ) : (
+                                        <Stepper
+                                            activeStep={loanFormStep}
+                                            alternativeLabel
+                                            sx={{
+                                                "& .MuiStepLabel-root": {
+                                                    px: 0
+                                                },
+                                                "& .MuiStepConnector-line": {
+                                                    borderColor: alpha(memberAccent, 0.2)
+                                                },
+                                                "& .MuiStepLabel-label": {
+                                                    fontWeight: 700,
+                                                    mt: 0.35,
+                                                    fontSize: { xs: "0.82rem", sm: "0.9rem" }
+                                                },
+                                                "& .MuiStepLabel-label.Mui-active": {
+                                                    color: "text.primary"
+                                                },
+                                                "& .MuiStepLabel-label.Mui-completed": {
+                                                    color: "text.secondary"
+                                                },
+                                                "& .MuiStepIcon-root": {
+                                                    color: alpha(memberAccent, 0.2),
+                                                    fontSize: "1.55rem"
+                                                },
+                                                "& .MuiStepIcon-root.Mui-active": {
+                                                    color: memberAccent
+                                                },
+                                                "& .MuiStepIcon-root.Mui-completed": {
+                                                    color: memberAccentStrong
+                                                }
+                                            }}
+                                        >
+                                            {loanApplicationSteps.map((step) => (
+                                                <Step key={step.label}>
+                                                    <StepLabel>{step.label}</StepLabel>
+                                                </Step>
+                                            ))}
+                                        </Stepper>
+                                    )}
                                     <Box>
                                         <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
                                             {loanApplicationSteps[loanFormStep].label}
@@ -7566,7 +7611,7 @@ export function MemberPortalPage() {
                                     style={{ width: "100%" }}
                                 >
                                     {isLoanProductStep ? (
-                                        <Stack spacing={2}>
+                                        <Stack spacing={2} sx={{ width: "100%", minWidth: 0 }}>
                                     <Box>
                                         <Typography variant="body2" fontWeight={600} sx={{ mb: 0.75 }}>
                                             Loan Product
@@ -7588,23 +7633,28 @@ export function MemberPortalPage() {
                                         <Card
                                             variant="outlined"
                                             sx={{
+                                                width: "100%",
+                                                minWidth: 0,
+                                                maxWidth: "100%",
+                                                boxSizing: "border-box",
                                                 borderRadius: 1.1,
                                                 borderColor: alpha(memberAccent, 0.24),
                                                 bgcolor: alpha(memberAccent, isDarkMode ? 0.14 : 0.05)
                                             }}
                                         >
-                                            <CardContent sx={{ display: "grid", gap: 1.5 }}>
+                                            <CardContent sx={{ display: "grid", gap: 1.5, minWidth: 0 }}>
                                                 <Stack
                                                     direction={{ xs: "column", md: "row" }}
                                                     spacing={1.5}
                                                     justifyContent="space-between"
                                                     alignItems={{ xs: "flex-start", md: "center" }}
+                                                    sx={{ minWidth: 0 }}
                                                 >
-                                                    <Box>
-                                                        <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                                                    <Box sx={{ minWidth: 0 }}>
+                                                        <Typography variant="h6" sx={{ fontWeight: 800, overflowWrap: "anywhere" }}>
                                                             {selectedLoanProduct.name}
                                                         </Typography>
-                                                        <Typography variant="body2" color="text.secondary">
+                                                        <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
                                                             {selectedLoanProduct.description || "Configured limits and eligibility rules apply automatically to this application."}
                                                         </Typography>
                                                     </Box>
@@ -7612,26 +7662,34 @@ export function MemberPortalPage() {
                                                         label={`${selectedLoanProduct.annual_interest_rate}% per year`}
                                                         color="primary"
                                                         variant={isDarkMode ? "filled" : "outlined"}
-                                                        sx={{ fontWeight: 700 }}
+                                                        sx={{
+                                                            maxWidth: "100%",
+                                                            fontWeight: 700,
+                                                            alignSelf: { xs: "flex-start", md: "auto" },
+                                                            "& .MuiChip-label": {
+                                                                display: "block",
+                                                                whiteSpace: "normal"
+                                                            }
+                                                        }}
                                                     />
                                                 </Stack>
-                                                <Grid container spacing={1.5}>
+                                                <Grid container spacing={1.5} sx={{ minWidth: 0 }}>
                                                     <Grid size={{ xs: 12, md: 6 }}>
-                                                        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                                        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1, width: "100%", minWidth: 0, boxSizing: "border-box" }}>
                                                             <Typography variant="caption" color="text.secondary">
                                                                 Product range
                                                             </Typography>
-                                                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                            <Typography variant="body1" sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>
                                                                 {formatCurrency(selectedLoanMinimumAmount)} to {selectedLoanProduct.max_amount ? formatCurrency(selectedLoanProduct.max_amount) : "No capped max"}
                                                             </Typography>
                                                         </Paper>
                                                     </Grid>
                                                     <Grid size={{ xs: 12, md: 6 }}>
-                                                        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                                                        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1, width: "100%", minWidth: 0, boxSizing: "border-box" }}>
                                                             <Typography variant="caption" color="text.secondary">
                                                                 Allowed frequency
                                                             </Typography>
-                                                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                                                            <Typography variant="body1" sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>
                                                                 {selectedLoanPolicy.allowedRepaymentFrequencies.map((frequency) => getRepaymentFrequencyLabel(frequency)).join(", ")}
                                                             </Typography>
                                                         </Paper>
@@ -7926,7 +7984,15 @@ export function MemberPortalPage() {
                         </Box>
                     </Stack>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions
+                    sx={{
+                        flexDirection: { xs: "column-reverse", sm: "row" },
+                        alignItems: { xs: "stretch", sm: "center" },
+                        gap: { xs: 1, sm: 0.5 },
+                        px: { xs: 2, sm: 3 },
+                        pb: { xs: 2, sm: 1.5 }
+                    }}
+                >
                     <Button onClick={closeLoanApplicationDialog}>
                         Cancel
                     </Button>
@@ -7941,6 +8007,7 @@ export function MemberPortalPage() {
                             type="submit"
                             form="member-loan-application-form"
                             disabled={submittingApplication || loanSubmissionLocks.length > 0}
+                            fullWidth={isMobile}
                             sx={
                                 isDarkMode
                                     ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
@@ -7954,6 +8021,7 @@ export function MemberPortalPage() {
                             variant="contained"
                             onClick={() => void handleAdvanceLoanFormStep()}
                             disabled={loanSubmissionLocks.length > 0 && isLoanProductStep}
+                            fullWidth={isMobile}
                             sx={
                                 isDarkMode
                                     ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
