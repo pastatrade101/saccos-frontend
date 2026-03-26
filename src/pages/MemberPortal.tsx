@@ -6587,12 +6587,33 @@ export function MemberPortalPage() {
                                 </ListItemIcon>
                                 <ListItemText primary="Download Statement" />
                             </ListItemButton>
-                            <ListItemButton sx={{ borderRadius: 0.5, minHeight: 42 }} onClick={() => handleProfileMenuAction(() => navigate("/security"))}>
+                            <ListItem
+                                sx={{ py: 0.25, px: 1.25 }}
+                                secondaryAction={
+                                    <Switch
+                                        edge="end"
+                                        checked={Boolean(profile?.two_factor_enabled && profile?.two_factor_verified)}
+                                        onChange={() =>
+                                            handleProfileMenuAction(() =>
+                                                navigate(
+                                                    Boolean(profile?.two_factor_enabled && profile?.two_factor_verified)
+                                                        ? "/security"
+                                                        : "/security?intent=setup"
+                                                )
+                                            )
+                                        }
+                                        inputProps={{ "aria-label": "Manage two-factor authentication" }}
+                                    />
+                                }
+                            >
                                 <ListItemIcon sx={{ minWidth: 34 }}>
                                     <ShieldRoundedIcon fontSize="small" />
                                 </ListItemIcon>
-                                <ListItemText primary="Two-Factor Authentication" />
-                            </ListItemButton>
+                                <ListItemText
+                                    primary="Two-Factor Authentication"
+                                    secondary={Boolean(profile?.two_factor_enabled && profile?.two_factor_verified) ? "Enabled" : "Tap to enable"}
+                                />
+                            </ListItem>
                             <ListItemButton sx={{ borderRadius: 0.5, minHeight: 42 }} onClick={() => handleProfileMenuAction(() => navigate("/change-password"))}>
                                 <ListItemIcon sx={{ minWidth: 34 }}>
                                     <ShieldRoundedIcon fontSize="small" />

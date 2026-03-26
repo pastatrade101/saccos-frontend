@@ -4,6 +4,7 @@ import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import VerifiedRoundedIcon from "@mui/icons-material/VerifiedRounded";
+import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import {
     Alert,
     Box,
@@ -16,8 +17,8 @@ import {
     TextField,
     Typography
 } from "@mui/material";
-import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toast";
@@ -42,6 +43,8 @@ function buildVerificationPayload(totpCode: string, recoveryCode: string): TwoFa
 export function SecuritySettingsPage() {
     const { session, profile, refreshProfile, twoFactorSetupRequired } = useAuth();
     const { pushToast } = useToast();
+    const navigate = useNavigate();
+    const location = useLocation();
     const [setupData, setSetupData] = useState<TwoFactorSetupResponse | null>(null);
     const [setupCode, setSetupCode] = useState("");
     const [totpCode, setTotpCode] = useState("");
@@ -62,6 +65,9 @@ export function SecuritySettingsPage() {
     }
 
     const twoFactorEnabled = Boolean(profile.two_factor_enabled && profile.two_factor_verified);
+    const backTarget = profile.role === "member" ? "/portal" : "/dashboard";
+    const backLabel = profile.role === "member" ? "Back to portal" : "Back to workspace";
+    const setupIntent = new URLSearchParams(location.search).get("intent");
 
     const managementPayload = buildVerificationPayload(totpCode, recoveryCode);
 
@@ -199,10 +205,28 @@ export function SecuritySettingsPage() {
         }
     };
 
+    useEffect(() => {
+        if (setupIntent !== "setup" || twoFactorEnabled || setupData || loadingAction) {
+            return;
+        }
+
+        void startSetup();
+    }, [loadingAction, setupData, setupIntent, twoFactorEnabled]);
+
     return (
         <Box sx={{ maxWidth: 1040, mx: "auto", px: { xs: 2, md: 3 }, py: 3 }}>
             <Stack spacing={3}>
-                <Stack spacing={1}>
+                <Stack spacing={1.25}>
+                    <Box>
+                        <Button
+                            variant="text"
+                            startIcon={<ArrowBackRoundedIcon />}
+                            onClick={() => navigate(backTarget)}
+                            sx={{ px: 0.5, minHeight: 34 }}
+                        >
+                            {backLabel}
+                        </Button>
+                    </Box>
                     <Typography variant="overline" color="primary.main" sx={{ letterSpacing: 2 }}>
                         Security
                     </Typography>
