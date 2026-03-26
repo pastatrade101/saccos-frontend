@@ -15,7 +15,7 @@ export function ProtectedRoute({
     allowWithoutProfile = false,
     allowInternalOps = true
 }: ProtectedRouteProps) {
-    const { loading, session, profile, isInternalOps, backendUnavailable } = useAuth();
+    const { loading, session, profile, isInternalOps, backendUnavailable, twoFactorSetupRequired } = useAuth();
     const location = useLocation();
 
     if (loading) {
@@ -32,6 +32,10 @@ export function ProtectedRoute({
 
     if (profile?.must_change_password && location.pathname !== "/change-password") {
         return <Navigate to="/change-password" replace />;
+    }
+
+    if (twoFactorSetupRequired && location.pathname !== "/security") {
+        return <Navigate to="/security" replace />;
     }
 
     if (!profile && !isInternalOps && !allowWithoutProfile) {

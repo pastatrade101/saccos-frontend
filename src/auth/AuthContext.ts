@@ -1,7 +1,6 @@
 import { createContext, useContext } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 
-import type { OtpChallengeResponse } from "../lib/endpoints";
 import type { AuthMe } from "../types/api";
 
 export interface AuthContextValue {
@@ -21,17 +20,12 @@ export interface AuthContextValue {
         message: string;
     } | null;
     backendUnavailable: boolean;
+    twoFactorSetupRequired: boolean;
     signIn: (
         email: string,
         password: string,
-        options?: { challengeId?: string | null; otpCode?: string | null }
+        options?: { totpCode?: string | null; recoveryCode?: string | null }
     ) => Promise<void>;
-    requestOtp: (
-        email: string,
-        password: string,
-        challengeId?: string | null,
-        phone?: string | null
-    ) => Promise<OtpChallengeResponse>;
     signOut: () => Promise<void>;
     refreshProfile: () => Promise<void>;
     markPasswordChanged: () => void;

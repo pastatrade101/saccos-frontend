@@ -876,6 +876,17 @@ export function AppLayout() {
                 <MenuItem
                     onClick={() => {
                         setAccountMenuAnchor(null);
+                        navigate("/security");
+                    }}
+                >
+                    <ListItemIcon>
+                        <SettingsRoundedIcon fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText primary="Security" />
+                </MenuItem>
+                <MenuItem
+                    onClick={() => {
+                        setAccountMenuAnchor(null);
                         void signOut();
                     }}
                 >

@@ -1,10 +1,4 @@
-import {
-    useEffect,
-    useRef,
-    useState,
-    type ClipboardEvent,
-    type KeyboardEvent
-} from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -29,44 +23,26 @@ const schema = z.object({
 
 type SignInValues = z.infer<typeof schema>;
 
-interface OtpRequiredDetails {
-    challenge_id?: string;
-    expires_at?: string;
-    destination_hint?: string;
-    otp_enroll_required?: boolean;
-}
-
 interface AuthFlowError extends Error {
     code?: string;
     details?: unknown;
 }
 
-const OTP_LENGTH = 6;
-
 export function SignInPage() {
     const navigate = useNavigate();
     const { pushToast } = useToast();
-    const { signIn, requestOtp } = useAuth();
+    const { signIn } = useAuth();
     const { theme, toggleTheme } = useUI();
     const [submitting, setSubmitting] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
-    const [verifyingOtp, setVerifyingOtp] = useState(false);
-    const [resendingOtp, setResendingOtp] = useState(false);
-    const [otpModalOpen, setOtpModalOpen] = useState(false);
-    const [otpDigits, setOtpDigits] = useState<string[]>(() =>
-        Array.from({ length: OTP_LENGTH }, () => "")
-    );
-    const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
-    const [otpDestinationHint, setOtpDestinationHint] = useState<string | null>(null);
-    const [otpExpiresAt, setOtpExpiresAt] = useState<string | null>(null);
-    const [otpPhoneRequired, setOtpPhoneRequired] = useState(false);
-    const [otpPhoneInput, setOtpPhoneInput] = useState("");
-    const [lastAutoSubmittedOtp, setLastAutoSubmittedOtp] = useState<string | null>(null);
     const [showFirstTimeSetup, setShowFirstTimeSetup] = useState(false);
     const [setupEmail, setSetupEmail] = useState("");
     const [sendingSetupLink, setSendingSetupLink] = useState(false);
-    const otpInputRefs = useRef<Array<HTMLInputElement | null>>([]);
-    const otpCode = otpDigits.join("");
+    const [twoFactorModalOpen, setTwoFactorModalOpen] = useState(false);
+    const [showRecoveryCode, setShowRecoveryCode] = useState(false);
+    const [totpCode, setTotpCode] = useState("");
+    const [recoveryCode, setRecoveryCode] = useState("");
+    const [verifyingTwoFactor, setVerifyingTwoFactor] = useState(false);
 
     const form = useForm<SignInValues>({
         resolver: zodResolver(schema),
@@ -76,207 +52,11 @@ export function SignInPage() {
         }
     });
 
-    const clearOtpState = () => {
-        setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ""));
-        setOtpChallengeId(null);
-        setOtpDestinationHint(null);
-        setOtpExpiresAt(null);
-        setOtpPhoneRequired(false);
-        setOtpPhoneInput("");
-        setLastAutoSubmittedOtp(null);
-    };
-
-    const handleOtpChallenge = (details: OtpRequiredDetails | null | undefined) => {
-        if (!details?.challenge_id) {
-            return;
-        }
-
-        setOtpChallengeId(details.challenge_id);
-        setOtpDestinationHint(details.destination_hint || null);
-        setOtpExpiresAt(details.expires_at || null);
-        setOtpPhoneRequired(false);
-        setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ""));
-        setOtpModalOpen(true);
-        window.setTimeout(() => {
-            otpInputRefs.current[0]?.focus();
-        }, 0);
-    };
-
-    const closeOtpModal = () => {
-        setOtpModalOpen(false);
-        clearOtpState();
-    };
-
-    const toOtpDetails = (details: unknown): OtpRequiredDetails => {
-        if (!details || typeof details !== "object") {
-            return {};
-        }
-
-        return details as OtpRequiredDetails;
-    };
-
-    const handleEnrollPhoneAndSendOtp = async () => {
-        const values = form.getValues();
-        const valid = await form.trigger(["email", "password"]);
-
-        if (!valid) {
-            return;
-        }
-
-        if (!otpPhoneInput.trim()) {
-            pushToast({
-                type: "error",
-                title: "Phone required",
-                message: "Enter a phone number in 2557XXXXXXXX format."
-            });
-            return;
-        }
-
-        setResendingOtp(true);
-
-        try {
-            const result = await requestOtp(
-                values.email,
-                values.password,
-                otpChallengeId,
-                otpPhoneInput.trim()
-            );
-            setOtpPhoneRequired(false);
-            handleOtpChallenge(result);
-            pushToast({
-                type: "success",
-                title: "OTP sent",
-                message: "Verification code sent to the enrolled phone number."
-            });
-        } catch (error) {
-            pushToast({
-                type: "error",
-                title: "OTP send failed",
-                message: error instanceof Error ? error.message : "Unable to send OTP."
-            });
-        } finally {
-            setResendingOtp(false);
-        }
-    };
-
-    const handleResendOtp = async () => {
-        const values = form.getValues();
-        const valid = await form.trigger(["email", "password"]);
-
-        if (!valid) {
-            return;
-        }
-
-        if (otpPhoneRequired) {
-            await handleEnrollPhoneAndSendOtp();
-            return;
-        }
-
-        setResendingOtp(true);
-
-        try {
-            const result = await requestOtp(values.email, values.password, otpChallengeId);
-            setOtpChallengeId(result.challenge_id);
-            setOtpDestinationHint(result.destination_hint || null);
-            setOtpExpiresAt(result.expires_at || null);
-            setOtpDigits(Array.from({ length: OTP_LENGTH }, () => ""));
-            setLastAutoSubmittedOtp(null);
-            window.setTimeout(() => {
-                otpInputRefs.current[0]?.focus();
-            }, 0);
-            pushToast({
-                type: "success",
-                title: "OTP resent",
-                message: "A new verification code has been sent to your registered phone."
-            });
-        } catch (error) {
-            const otpError = error as AuthFlowError;
-            if (otpError.code === "OTP_ENROLL_REQUIRED") {
-                setOtpPhoneRequired(true);
-                pushToast({
-                    type: "error",
-                    title: "Phone required",
-                    message: "Add a phone number to receive OTP."
-                });
-                return;
-            }
-
-            pushToast({
-                type: "error",
-                title: "OTP resend failed",
-                message: error instanceof Error ? error.message : "Unable to resend OTP."
-            });
-        } finally {
-            setResendingOtp(false);
-        }
-    };
-
-    const handleOtpDigitChange = (index: number, value: string) => {
-        const nextDigit = value.replace(/\D/g, "").slice(-1);
-
-        setOtpDigits((prev) => {
-            const next = [...prev];
-            next[index] = nextDigit;
-            return next;
-        });
-        setLastAutoSubmittedOtp(null);
-
-        if (nextDigit && index < OTP_LENGTH - 1) {
-            otpInputRefs.current[index + 1]?.focus();
-        }
-    };
-
-    const handleOtpDigitKeyDown = (
-        index: number,
-        event: KeyboardEvent<HTMLInputElement>
-    ) => {
-        if (event.key === "Backspace") {
-            if (otpDigits[index]) {
-                setOtpDigits((prev) => {
-                    const next = [...prev];
-                    next[index] = "";
-                    return next;
-                });
-                return;
-            }
-
-            if (index > 0) {
-                setOtpDigits((prev) => {
-                    const next = [...prev];
-                    next[index - 1] = "";
-                    return next;
-                });
-                otpInputRefs.current[index - 1]?.focus();
-            }
-        }
-
-        if (event.key === "ArrowLeft" && index > 0) {
-            otpInputRefs.current[index - 1]?.focus();
-        }
-
-        if (event.key === "ArrowRight" && index < OTP_LENGTH - 1) {
-            otpInputRefs.current[index + 1]?.focus();
-        }
-    };
-
-    const handleOtpPaste = (event: ClipboardEvent<HTMLInputElement>) => {
-        const value = event.clipboardData
-            .getData("text")
-            .replace(/\D/g, "")
-            .slice(0, OTP_LENGTH);
-
-        if (!value) {
-            return;
-        }
-
-        event.preventDefault();
-
-        const next = Array.from({ length: OTP_LENGTH }, (_, index) => value[index] || "");
-        setOtpDigits(next);
-        setLastAutoSubmittedOtp(null);
-
-        const focusIndex = Math.min(value.length, OTP_LENGTH - 1);
-        otpInputRefs.current[focusIndex]?.focus();
+    const closeTwoFactorModal = () => {
+        setTwoFactorModalOpen(false);
+        setShowRecoveryCode(false);
+        setTotpCode("");
+        setRecoveryCode("");
     };
 
     const handleSendSetupLink = async () => {
@@ -332,66 +112,24 @@ export function SignInPage() {
                 title: "Signed in",
                 message: "You are now signed in."
             });
-            closeOtpModal();
+            closeTwoFactorModal();
             navigate("/", { replace: true });
         } catch (error) {
             const authFlowError = error as AuthFlowError;
-            const details = toOtpDetails(authFlowError.details);
 
-            if (authFlowError.code === "OTP_REQUIRED" || authFlowError.code === "OTP_ENROLL_REQUIRED") {
-                setOtpModalOpen(true);
-
-                const requiresPhone =
-                    authFlowError.code === "OTP_ENROLL_REQUIRED" ||
-                    details.otp_enroll_required === true;
-
-                if (requiresPhone) {
-                    setOtpPhoneRequired(true);
-                    setOtpChallengeId(details.challenge_id || null);
-                    setOtpDestinationHint(details.destination_hint || null);
-                    setOtpExpiresAt(details.expires_at || null);
-                    pushToast({
-                        type: "error",
-                        title: "Phone required",
-                        message: "Add a phone number in 2557XXXXXXXX format to receive OTP."
-                    });
-                    return;
-                }
-
-                try {
-                    const result = await requestOtp(values.email, values.password, otpChallengeId);
-                    handleOtpChallenge(result);
-                    pushToast({
-                        type: "success",
-                        title: "OTP required",
-                        message: "A one-time verification code has been sent to your registered phone."
-                    });
-                } catch (otpError) {
-                    const otpFlowError = otpError as AuthFlowError;
-                    if (otpFlowError.code === "OTP_ENROLL_REQUIRED") {
-                        setOtpPhoneRequired(true);
-                        pushToast({
-                            type: "error",
-                            title: "Phone required",
-                            message: "Add a phone number in 2557XXXXXXXX format to receive OTP."
-                        });
-                        return;
-                    }
-
-                    pushToast({
-                        type: "error",
-                        title: "OTP send failed",
-                        message: otpError instanceof Error
-                            ? otpError.message
-                            : "Credentials passed, but OTP delivery failed. Retry in popup."
-                    });
-                }
+            if (authFlowError.code === "TWO_FACTOR_REQUIRED") {
+                setTwoFactorModalOpen(true);
+                pushToast({
+                    type: "success",
+                    title: "Authenticator code required",
+                    message: "Enter the code from your authenticator app or use a backup recovery code."
+                });
                 return;
             }
 
             pushToast({
                 type: "error",
-                title: "Sign-in failed",
+                title: "Sign in failed",
                 message: error instanceof Error ? error.message : "Unable to sign in."
             });
         } finally {
@@ -399,134 +137,80 @@ export function SignInPage() {
         }
     });
 
-    const handleVerifyOtp = async (codeOverride?: string) => {
+    const handleVerifyTwoFactor = async () => {
         const values = form.getValues();
         const valid = await form.trigger(["email", "password"]);
-        const code = codeOverride || otpCode;
 
-        if (!valid || !otpChallengeId) {
+        if (!valid) {
             return;
         }
 
-        if (!/^\d{6}$/.test(code)) {
+        if (!showRecoveryCode && !/^\d{6}$/.test(totpCode.trim())) {
             pushToast({
                 type: "error",
-                title: "Invalid OTP",
-                message: "Enter the 6-digit code sent to your phone."
+                title: "Invalid code",
+                message: "Enter a valid 6-digit authenticator code."
             });
             return;
         }
 
-        setLastAutoSubmittedOtp(code);
-        setVerifyingOtp(true);
+        if (showRecoveryCode && !recoveryCode.trim()) {
+            pushToast({
+                type: "error",
+                title: "Backup code required",
+                message: "Enter one unused backup recovery code."
+            });
+            return;
+        }
+
+        setVerifyingTwoFactor(true);
 
         try {
             await signIn(values.email, values.password, {
-                challengeId: otpChallengeId,
-                otpCode: code
+                totpCode: showRecoveryCode ? undefined : totpCode.trim(),
+                recoveryCode: showRecoveryCode ? recoveryCode.trim() : undefined
             });
             pushToast({
                 type: "success",
-                title: "Signed in",
-                message: "OTP verified successfully."
+                title: "Two-factor verified",
+                message: "You are now signed in."
             });
-            closeOtpModal();
+            closeTwoFactorModal();
             navigate("/", { replace: true });
         } catch (error) {
             pushToast({
                 type: "error",
-                title: "OTP verification failed",
-                message: error instanceof Error ? error.message : "Unable to verify OTP."
+                title: "Verification failed",
+                message: error instanceof Error ? error.message : "Unable to verify the authenticator code."
             });
         } finally {
-            setVerifyingOtp(false);
+            setVerifyingTwoFactor(false);
         }
     };
 
-    useEffect(() => {
-        if (!otpModalOpen || !otpChallengeId || verifyingOtp || otpPhoneRequired) {
-            return;
-        }
-
-        if (otpCode.length !== OTP_LENGTH) {
-            return;
-        }
-
-        if (lastAutoSubmittedOtp === otpCode) {
-            return;
-        }
-
-        void handleVerifyOtp(otpCode);
-    }, [lastAutoSubmittedOtp, otpChallengeId, otpCode, otpModalOpen, otpPhoneRequired, verifyingOtp]);
-
     return (
-        <div className={pageStyles.authShell}>
-            <div className={pageStyles.authFrame}>
-                <section className={pageStyles.authVisual}>
-                    <img
-                        alt="SACCOS dashboard preview"
-                        className={pageStyles.authVisualImage}
-                        src="/13321.jpg"
-                    />
-                    <div className={pageStyles.authVisualOverlay} />
-                    <div className={pageStyles.authVisualContent}>
-                        <span className={pageStyles.authVisualEyebrow}>Core SACCOS Platform</span>
-                        <h1 className={pageStyles.authVisualTitle}>Run savings, loans, dividends, and controls from one governed workspace.</h1>
-                        <p className={pageStyles.authVisualCopy}>
-                            Built for operational discipline, auditability, and fast branch execution with your existing brand system.
-                        </p>
-                        <div className={pageStyles.authVisualAssistRow}>
-                            <span className={pageStyles.authVisualAssistLabel}>Need product overview?</span>
-                            <RouterLink className={pageStyles.authVisualAssistLink} to="/">
-                                Go to home page
-                            </RouterLink>
-                        </div>
-                        <div className={pageStyles.authVisualMetrics}>
-                            <div className={pageStyles.authVisualMetric}>
-                                <strong>Multi-tenant</strong>
-                                <span>Strict tenant isolation</span>
+        <div className={pageStyles.authPage}>
+            <div className={pageStyles.authGrid}>
+                <section className={pageStyles.authContentPanel}>
+                    <div className={pageStyles.authHeroCard}>
+                        <div className={pageStyles.authHeroHeader}>
+                            <div>
+                                <span className={pageStyles.authPanelEyebrow}>Welcome back</span>
+                                <h2 className={pageStyles.authTitle}>Sign in to SMART SACCOS</h2>
+                                <p className={pageStyles.authCopy}>
+                                    Use your assigned credentials to enter the correct workspace for your role.
+                                </p>
                             </div>
-                            <div className={pageStyles.authVisualMetric}>
-                                <strong>Double-entry</strong>
-                                <span>Real-money safe postings</span>
-                            </div>
-                            <div className={pageStyles.authVisualMetric}>
-                                <strong>Role-based</strong>
-                                <span>Controlled operator access</span>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <section className={pageStyles.authPanel}>
-                    <div className={pageStyles.authPanelTop}>
-                        <div>
-                            <div className={pageStyles.authBrandRow}>
-                                <div className={pageStyles.authBrandIdentity}>
-                                    <img
-                                        src="/SACCOSS-LOGO.png"
-                                        alt="SMART SACCOS logo"
-                                        className={pageStyles.authBrandLogo}
-                                    />
-                                    <div>
-                                        <span className={pageStyles.authBrandText}>SMART SACCOS</span>
-                                        <span className={pageStyles.authBrandSubtext}>Secure workforce portal</span>
-                                    </div>
-                                </div>
+                            <div className={pageStyles.authThemeToggleWrap}>
                                 <button
-                                    aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-                                    className={pageStyles.authThemeToggle}
                                     type="button"
+                                    className={pageStyles.authThemeToggle}
+                                    aria-label="Toggle color mode"
                                     onClick={toggleTheme}
                                 >
                                     {theme === "dark" ? <LightModeRoundedIcon fontSize="small" /> : <DarkModeRoundedIcon fontSize="small" />}
                                 </button>
                             </div>
-                            <span className={pageStyles.authPanelEyebrow}>Welcome back</span>
-                            <h2 className={pageStyles.authTitle}>Sign in to SMART SACCOS</h2>
-                            <p className={pageStyles.authCopy}>
-                                Use your assigned credentials to enter the correct workspace for your role.
-                            </p>
                         </div>
                     </div>
 
@@ -534,13 +218,7 @@ export function SignInPage() {
                         <FormField label="Email" error={form.formState.errors.email?.message}>
                             <input
                                 type="email"
-                                {...form.register("email", {
-                                    onChange: () => {
-                                        if (otpChallengeId) {
-                                            clearOtpState();
-                                        }
-                                    }
-                                })}
+                                {...form.register("email")}
                                 placeholder="name@saccos.local"
                             />
                         </FormField>
@@ -548,13 +226,7 @@ export function SignInPage() {
                             <div className={pageStyles.passwordField}>
                                 <input
                                     type={showPassword ? "text" : "password"}
-                                    {...form.register("password", {
-                                        onChange: () => {
-                                            if (otpChallengeId) {
-                                                clearOtpState();
-                                            }
-                                        }
-                                    })}
+                                    {...form.register("password")}
                                     placeholder="Enter your password"
                                 />
                                 <button
@@ -639,82 +311,72 @@ export function SignInPage() {
                         </div>
                     ) : null}
 
-                    {otpModalOpen ? (
+                    {twoFactorModalOpen ? (
                         <div className={pageStyles.otpModalBackdrop}>
-                            <div className={pageStyles.otpModalCard} role="dialog" aria-modal="true" aria-label="OTP verification">
+                            <div className={pageStyles.otpModalCard} role="dialog" aria-modal="true" aria-label="Two-factor verification">
                                 <div className={pageStyles.otpModalHeader}>
-                                    <h3>{otpPhoneRequired ? "Add phone for OTP" : "Verify one-time code"}</h3>
+                                    <h3>{showRecoveryCode ? "Use backup recovery code" : "Verify authenticator code"}</h3>
                                     <p>
-                                        {otpPhoneRequired
-                                            ? "Provide your phone number in 2557XXXXXXXX format to receive the sign-in OTP."
-                                            : `Enter the OTP sent to ${otpDestinationHint || "your registered phone"} to complete sign in.`}
+                                        {showRecoveryCode
+                                            ? "Enter one unused backup code to recover access if your authenticator device is unavailable."
+                                            : "Open your authenticator app and enter the current 6-digit TOTP code to complete sign in."}
                                     </p>
                                 </div>
 
-                                {otpPhoneRequired ? (
-                                    <FormField label="Phone number" error={undefined}>
+                                {showRecoveryCode ? (
+                                    <FormField label="Backup recovery code">
                                         <input
-                                            type="tel"
-                                            inputMode="numeric"
-                                            placeholder="2557XXXXXXXX"
-                                            value={otpPhoneInput}
-                                            onChange={(event) => setOtpPhoneInput(event.target.value.replace(/\s+/g, ""))}
+                                            type="text"
+                                            placeholder="8F4K-3P92"
+                                            value={recoveryCode}
+                                            onChange={(event) => setRecoveryCode(event.target.value.toUpperCase())}
                                         />
                                     </FormField>
                                 ) : (
-                                    <FormField label="OTP code" error={otpCode && !/^\d{6}$/.test(otpCode) ? "Enter a valid 6-digit code." : undefined}>
-                                        <div className={pageStyles.otpDigitsRow}>
-                                            {otpDigits.map((digit, index) => (
-                                                <input
-                                                    key={index}
-                                                    ref={(element) => {
-                                                        otpInputRefs.current[index] = element;
-                                                    }}
-                                                    className={pageStyles.otpDigitBox}
-                                                    type="text"
-                                                    inputMode="numeric"
-                                                    pattern="[0-9]*"
-                                                    maxLength={1}
-                                                    value={digit}
-                                                    onChange={(event) =>
-                                                        handleOtpDigitChange(index, event.target.value)
-                                                    }
-                                                    onKeyDown={(event) =>
-                                                        handleOtpDigitKeyDown(index, event)
-                                                    }
-                                                    onPaste={handleOtpPaste}
-                                                    aria-label={`OTP digit ${index + 1}`}
-                                                />
-                                            ))}
-                                        </div>
+                                    <FormField
+                                        label="Authenticator code"
+                                        error={totpCode && !/^\d{6}$/.test(totpCode) ? "Enter a valid 6-digit code." : undefined}
+                                    >
+                                        <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
+                                            placeholder="123456"
+                                            value={totpCode}
+                                            onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                                        />
                                     </FormField>
                                 )}
 
                                 <p className={pageStyles.authCopy}>
-                                    {!otpPhoneRequired && otpExpiresAt
-                                        ? `Code expires at ${new Date(otpExpiresAt).toLocaleTimeString()}.`
-                                        : otpPhoneRequired
-                                            ? "Phone is saved after password verification and OTP send."
-                                            : "Your OTP expires in a few minutes."}
+                                    {showRecoveryCode
+                                        ? "Backup codes are single-use. A used code cannot be used again."
+                                        : "Authenticator apps supported: Google Authenticator, Microsoft Authenticator, Authy, Bitwarden, and 1Password."}
                                 </p>
 
                                 <div className={pageStyles.otpModalActions}>
                                     <button
                                         className="secondary-button"
-                                        disabled={resendingOtp || verifyingOtp}
+                                        disabled={verifyingTwoFactor}
                                         type="button"
-                                        onClick={otpPhoneRequired ? handleEnrollPhoneAndSendOtp : handleResendOtp}
+                                        onClick={() => void handleVerifyTwoFactor()}
                                     >
-                                        {resendingOtp ? "Sending..." : otpPhoneRequired ? "Save Phone & Send OTP" : "Resend OTP"}
+                                        {verifyingTwoFactor ? "Verifying..." : "Verify & Sign In"}
                                     </button>
                                     <button
                                         className={pageStyles.otpModalLink}
                                         type="button"
-                                        onClick={closeOtpModal}
+                                        onClick={() => setShowRecoveryCode((current) => !current)}
+                                    >
+                                        {showRecoveryCode ? "Use authenticator code instead" : "Use backup recovery code"}
+                                    </button>
+                                    <button
+                                        className={pageStyles.otpModalLink}
+                                        type="button"
+                                        onClick={closeTwoFactorModal}
                                     >
                                         Change credentials
                                     </button>
-                                    {verifyingOtp ? <span className={pageStyles.authCopy}>Verifying OTP...</span> : null}
                                 </div>
                             </div>
                         </div>

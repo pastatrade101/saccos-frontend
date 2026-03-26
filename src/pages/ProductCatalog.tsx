@@ -35,8 +35,9 @@ import { LoanExposureOverviewCard } from "../components/loan-capacity/LoanExposu
 import { LoanProductPolicyManager } from "../components/loan-capacity/LoanProductPolicyManager";
 import { PolicyChangeHistoryCard } from "../components/loan-capacity/PolicyChangeHistoryCard";
 import { DataTable } from "../components/DataTable";
+import { TwoFactorStepUpDialog, type TwoFactorStepUpPayload } from "../components/TwoFactorStepUpDialog";
 import { useToast } from "../components/Toast";
-import { api, getApiErrorMessage } from "../lib/api";
+import { api, getApiErrorCode, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
     type BranchFundPoolResponse,
@@ -245,6 +246,11 @@ export function ProductCatalogPage() {
     const [capacityDashboard, setCapacityDashboard] = useState<LoanCapacityDashboard | null>(null);
     const [capacityDashboardLoading, setCapacityDashboardLoading] = useState(false);
     const [capacityDashboardError, setCapacityDashboardError] = useState<string | null>(null);
+    const [stepUpOpen, setStepUpOpen] = useState(false);
+    const [stepUpTitle, setStepUpTitle] = useState("Authenticator verification required");
+    const [stepUpDescription, setStepUpDescription] = useState("");
+    const [stepUpActionLabel, setStepUpActionLabel] = useState("Verify");
+    const [stepUpHandler, setStepUpHandler] = useState<((payload: TwoFactorStepUpPayload) => Promise<void>) | null>(null);
     const form = useForm<Record<string, string | number | boolean | null>>({
         defaultValues: {}
     });
@@ -323,6 +329,28 @@ export function ProductCatalogPage() {
         () => (capacityDashboard?.trend.points || []).map((point) => formatTrendLabel(point.snapshot_date)),
         [capacityDashboard?.trend.points]
     );
+
+    const openStepUpDialog = (
+        title: string,
+        description: string,
+        actionLabel: string,
+        handler: (payload: TwoFactorStepUpPayload) => Promise<void>
+    ) => {
+        setStepUpTitle(title);
+        setStepUpDescription(description);
+        setStepUpActionLabel(actionLabel);
+        setStepUpHandler(() => handler);
+        setStepUpOpen(true);
+    };
+
+    const closeStepUpDialog = () => {
+        if (loanProductPolicySaving || branchLiquiditySaving) {
+            return;
+        }
+
+        setStepUpOpen(false);
+        setStepUpHandler(null);
+    };
 
     const loadCatalog = async () => {
         if (!selectedTenantId) {
@@ -455,7 +483,7 @@ export function ProductCatalogPage() {
         void loadCapacityDashboard();
     }, [activeBranchId, selectedLoanPolicyProductId, selectedTenantId]);
 
-    const saveLoanProductPolicy = async (policyUpdate: UpdateLoanProductPolicyRequest) => {
+    const saveLoanProductPolicy = async (policyUpdate: UpdateLoanProductPolicyRequest, stepUpPayload?: TwoFactorStepUpPayload) => {
         if (!selectedLoanPolicyProductId) {
             return;
         }
@@ -464,7 +492,11 @@ export function ProductCatalogPage() {
         try {
             const { data } = await api.patch<LoanProductPolicyResponse>(
                 endpoints.loanCapacity.productPolicy(selectedLoanPolicyProductId),
-                policyUpdate
+                {
+                    ...policyUpdate,
+                    two_factor_code: stepUpPayload?.two_factor_code || null,
+                    recovery_code: stepUpPayload?.recovery_code || null
+                }
             );
             setLoanProductPolicy(data.data);
             setLoanProductPolicyError(null);
@@ -476,6 +508,18 @@ export function ProductCatalogPage() {
             setBorrowingPolicyExpanded(false);
             await loadCapacityDashboard();
         } catch (error) {
+            if (getApiErrorCode(error) === "TWO_FACTOR_STEP_UP_REQUIRED") {
+                openStepUpDialog(
+                    "Verify borrowing policy change",
+                    "Changing lending multiplier, product limits, or collateral requirements requires a fresh authenticator check.",
+                    "Verify and save",
+                    async (payload) => {
+                        await saveLoanProductPolicy(policyUpdate, payload);
+                        setStepUpOpen(false);
+                    }
+                );
+                return;
+            }
             const message = getApiErrorMessage(error, "Unable to save the loan borrowing policy.");
             setLoanProductPolicyError(message);
             pushToast({
@@ -488,7 +532,7 @@ export function ProductCatalogPage() {
         }
     };
 
-    const saveBranchLiquidityPolicy = async (policyUpdate: UpdateBranchLiquidityPolicyRequest) => {
+    const saveBranchLiquidityPolicy = async (policyUpdate: UpdateBranchLiquidityPolicyRequest, stepUpPayload?: TwoFactorStepUpPayload) => {
         if (!activeBranchId) {
             return;
         }
@@ -497,7 +541,11 @@ export function ProductCatalogPage() {
         try {
             const { data: policyResponse } = await api.patch<BranchLiquidityPolicyResponse>(
                 endpoints.loanCapacity.branchLiquidityPolicy(activeBranchId),
-                policyUpdate
+                {
+                    ...policyUpdate,
+                    two_factor_code: stepUpPayload?.two_factor_code || null,
+                    recovery_code: stepUpPayload?.recovery_code || null
+                }
             );
             const { data: fundPoolResponse } = await api.get<BranchFundPoolResponse>(
                 endpoints.loanCapacity.branchFundPool(activeBranchId)
@@ -513,6 +561,18 @@ export function ProductCatalogPage() {
             setLiquidityGuardrailsExpanded(false);
             await loadCapacityDashboard();
         } catch (error) {
+            if (getApiErrorCode(error) === "TWO_FACTOR_STEP_UP_REQUIRED") {
+                openStepUpDialog(
+                    "Verify liquidity guardrail change",
+                    "Updating branch liquidity thresholds requires a fresh authenticator check.",
+                    "Verify and save",
+                    async (payload) => {
+                        await saveBranchLiquidityPolicy(policyUpdate, payload);
+                        setStepUpOpen(false);
+                    }
+                );
+                return;
+            }
             const message = getApiErrorMessage(error, "Unable to save the branch liquidity policy.");
             setBranchLiquidityError(message);
             pushToast({
@@ -2168,6 +2228,21 @@ export function ProductCatalogPage() {
                 </Grid>
             </Grid>
             {renderProductDialog()}
+            <TwoFactorStepUpDialog
+                open={stepUpOpen}
+                title={stepUpTitle}
+                description={stepUpDescription}
+                actionLabel={stepUpActionLabel}
+                busy={loanProductPolicySaving || branchLiquiditySaving}
+                onCancel={closeStepUpDialog}
+                onConfirm={async (payload) => {
+                    if (!stepUpHandler) {
+                        return;
+                    }
+
+                    await stepUpHandler(payload);
+                }}
+            />
         </Stack>
     );
 }

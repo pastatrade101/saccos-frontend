@@ -92,6 +92,12 @@ export interface UserProfile {
     role: Role;
     is_active: boolean;
     must_change_password?: boolean;
+    two_factor_enabled?: boolean;
+    two_factor_verified?: boolean;
+    two_factor_required?: boolean;
+    two_factor_setup_required?: boolean;
+    two_factor_enabled_at?: string | null;
+    two_factor_last_verified_at?: string | null;
     first_login_at?: string | null;
     created_at?: string;
 }

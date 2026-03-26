@@ -23,8 +23,9 @@ import { useForm } from "react-hook-form";
 
 import { useAuth } from "../auth/AuthContext";
 import { DataTable, type Column } from "../components/DataTable";
+import { TwoFactorStepUpDialog, type TwoFactorStepUpPayload } from "../components/TwoFactorStepUpDialog";
 import { useToast } from "../components/Toast";
-import { api, getApiErrorMessage } from "../lib/api";
+import { api, getApiErrorCode, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
     type ApprovalPoliciesResponse,
@@ -118,6 +119,11 @@ export function ApprovalsPage() {
     const [rejectOpen, setRejectOpen] = useState(false);
     const [policyOpen, setPolicyOpen] = useState(false);
     const [selectedPolicy, setSelectedPolicy] = useState<ApprovalPolicy | null>(null);
+    const [stepUpOpen, setStepUpOpen] = useState(false);
+    const [stepUpTitle, setStepUpTitle] = useState("Authenticator verification required");
+    const [stepUpDescription, setStepUpDescription] = useState("");
+    const [stepUpActionLabel, setStepUpActionLabel] = useState("Verify");
+    const [stepUpHandler, setStepUpHandler] = useState<((payload: TwoFactorStepUpPayload) => Promise<void>) | null>(null);
     const rejectForm = useForm<RejectApprovalRequestBody>({
         defaultValues: { reason: "", notes: "" }
     });
@@ -140,6 +146,28 @@ export function ApprovalsPage() {
         () => rows.filter((row) => row.status === "pending" && row.expires_at && new Date(row.expires_at).getTime() < Date.now()).length,
         [rows]
     );
+
+    const openStepUpDialog = (
+        title: string,
+        description: string,
+        actionLabel: string,
+        handler: (payload: TwoFactorStepUpPayload) => Promise<void>
+    ) => {
+        setStepUpTitle(title);
+        setStepUpDescription(description);
+        setStepUpActionLabel(actionLabel);
+        setStepUpHandler(() => handler);
+        setStepUpOpen(true);
+    };
+
+    const closeStepUpDialog = () => {
+        if (processing) {
+            return;
+        }
+
+        setStepUpOpen(false);
+        setStepUpHandler(null);
+    };
 
     const loadPolicies = async () => {
         if (!selectedTenantId) return;
@@ -235,13 +263,15 @@ export function ApprovalsPage() {
         void loadRequests(1);
     }, [selectedTenantId, selectedBranchId, status, operation, mineOnly]);
 
-    const approveRequest = async (request: ApprovalRequest) => {
+    const approveRequest = async (request: ApprovalRequest, stepUpPayload?: TwoFactorStepUpPayload) => {
         if (!selectedTenantId) return;
         setProcessing(true);
         try {
             const payload: ApproveApprovalRequestBody = {
                 tenant_id: selectedTenantId,
-                notes: "Approved from approvals queue."
+                notes: "Approved from approvals queue.",
+                two_factor_code: stepUpPayload?.two_factor_code || null,
+                recovery_code: stepUpPayload?.recovery_code || null
             };
             await api.post<ApprovalRequestResponse>(endpoints.approvals.approve(request.id), payload);
             pushToast({
@@ -254,6 +284,18 @@ export function ApprovalsPage() {
             }
             await loadRequests(page);
         } catch (error) {
+            if (getApiErrorCode(error) === "TWO_FACTOR_STEP_UP_REQUIRED") {
+                openStepUpDialog(
+                    "Verify loan approval decision",
+                    "Enter a current authenticator code or one backup recovery code before approving this request.",
+                    "Verify and approve",
+                    async (payload) => {
+                        await approveRequest(request, payload);
+                        setStepUpOpen(false);
+                    }
+                );
+                return;
+            }
             pushToast({
                 type: "error",
                 title: "Approval failed",
@@ -306,7 +348,7 @@ export function ApprovalsPage() {
         setPolicyOpen(true);
     };
 
-    const submitPolicyUpdate = policyForm.handleSubmit(async (values) => {
+    const savePolicyUpdate = async (values: PolicyFormValues, stepUpPayload?: TwoFactorStepUpPayload) => {
         if (!selectedTenantId || !selectedPolicy) return;
 
         const payload: UpdateApprovalPolicyRequest = {
@@ -316,7 +358,9 @@ export function ApprovalsPage() {
             required_checker_count: Number(values.required_checker_count),
             sla_minutes: Number(values.sla_minutes),
             allowed_maker_roles: parseCsvRoles(values.allowed_maker_roles),
-            allowed_checker_roles: parseCsvRoles(values.allowed_checker_roles)
+            allowed_checker_roles: parseCsvRoles(values.allowed_checker_roles),
+            two_factor_code: stepUpPayload?.two_factor_code || null,
+            recovery_code: stepUpPayload?.recovery_code || null
         };
 
         setProcessing(true);
@@ -331,6 +375,18 @@ export function ApprovalsPage() {
             setSelectedPolicy(null);
             await loadPolicies();
         } catch (error) {
+            if (getApiErrorCode(error) === "TWO_FACTOR_STEP_UP_REQUIRED") {
+                openStepUpDialog(
+                    "Verify approval policy change",
+                    "Changing checker thresholds and approval rules requires a fresh authenticator check.",
+                    "Verify and save",
+                    async (stepUpValues) => {
+                        await savePolicyUpdate(values, stepUpValues);
+                        setStepUpOpen(false);
+                    }
+                );
+                return;
+            }
             pushToast({
                 type: "error",
                 title: "Policy update failed",
@@ -339,6 +395,10 @@ export function ApprovalsPage() {
         } finally {
             setProcessing(false);
         }
+    };
+
+    const submitPolicyUpdate = policyForm.handleSubmit(async (values) => {
+        await savePolicyUpdate(values);
     });
 
     const toggleSmsTrigger = async (trigger: SmsTriggerSetting, enabled: boolean) => {
@@ -837,6 +897,22 @@ export function ApprovalsPage() {
                     </Button>
                 </DialogActions>
             </MotionModal>
+
+            <TwoFactorStepUpDialog
+                open={stepUpOpen}
+                title={stepUpTitle}
+                description={stepUpDescription}
+                actionLabel={stepUpActionLabel}
+                busy={processing}
+                onCancel={closeStepUpDialog}
+                onConfirm={async (payload) => {
+                    if (!stepUpHandler) {
+                        return;
+                    }
+
+                    await stepUpHandler(payload);
+                }}
+            />
         </Stack>
     );
 }

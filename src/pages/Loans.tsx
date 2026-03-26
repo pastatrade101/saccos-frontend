@@ -42,6 +42,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { DataTable, type Column } from "../components/DataTable";
 import { LoanEligibilitySummary } from "../components/loan-capacity/LoanEligibilitySummary";
 import { SearchableSelect } from "../components/SearchableSelect";
+import { TwoFactorStepUpDialog, type TwoFactorStepUpPayload } from "../components/TwoFactorStepUpDialog";
 import { useToast } from "../components/Toast";
 import { api, getApiErrorCode, getApiErrorDetails, getApiErrorMessage } from "../lib/api";
 import {
@@ -484,6 +485,11 @@ export function LoansPage() {
     const [activityLoading, setActivityLoading] = useState(false);
     const [creditRiskLoaded, setCreditRiskLoaded] = useState(false);
     const [creditRiskLoading, setCreditRiskLoading] = useState(false);
+    const [stepUpOpen, setStepUpOpen] = useState(false);
+    const [stepUpTitle, setStepUpTitle] = useState("Authenticator verification required");
+    const [stepUpDescription, setStepUpDescription] = useState("");
+    const [stepUpActionLabel, setStepUpActionLabel] = useState("Verify");
+    const [stepUpHandler, setStepUpHandler] = useState<((payload: TwoFactorStepUpPayload) => Promise<void>) | null>(null);
     const pageSize = 8;
 
     const role = profile?.role || "loan_officer";
@@ -493,6 +499,28 @@ export function LoansPage() {
     const canReject = role === "branch_manager" || role === "loan_officer";
     const canDisburse = role === "teller";
     const canRepay = role === "loan_officer" || role === "teller";
+
+    const openStepUpDialog = (
+        title: string,
+        description: string,
+        actionLabel: string,
+        handler: (payload: TwoFactorStepUpPayload) => Promise<void>
+    ) => {
+        setStepUpTitle(title);
+        setStepUpDescription(description);
+        setStepUpActionLabel(actionLabel);
+        setStepUpHandler(() => handler);
+        setStepUpOpen(true);
+    };
+
+    const closeStepUpDialog = () => {
+        if (processing) {
+            return;
+        }
+
+        setStepUpOpen(false);
+        setStepUpHandler(null);
+    };
 
     const createForm = useForm<CreateApplicationValues>({
         resolver: zodResolver(createApplicationSchema),
@@ -1640,13 +1668,20 @@ export function LoansPage() {
             return;
         }
 
-        setProcessing(true);
-        try {
+        const approveApplication = async (stepUpPayload?: TwoFactorStepUpPayload) => {
             const payload: ApproveLoanApplicationRequest = {
-                notes: values.notes || null
+                notes: values.notes || null,
+                two_factor_code: stepUpPayload?.two_factor_code || null,
+                recovery_code: stepUpPayload?.recovery_code || null
             };
             const { data } = await api.post<LoanApplicationResponse>(endpoints.loanApplications.approve(approvalTarget.id), payload);
             const complete = data.data.approval_count >= data.data.required_approval_count;
+            return { complete };
+        };
+
+        setProcessing(true);
+        try {
+            const { complete } = await approveApplication();
             pushToast({
                 type: "success",
                 title: complete ? "Application approved" : "Approval recorded",
@@ -1664,6 +1699,32 @@ export function LoansPage() {
                 await loadCreditRiskData({ silent: true, force: true });
             }
         } catch (error) {
+            if (getApiErrorCode(error) === "TWO_FACTOR_STEP_UP_REQUIRED") {
+                openStepUpDialog(
+                    "Verify loan approval",
+                    "Approving a loan application requires a fresh authenticator check.",
+                    "Verify and approve",
+                    async (payload) => {
+                        await approveApplication(payload);
+                        pushToast({
+                            type: "success",
+                            title: "Application approved",
+                            message: "The approval was recorded after successful verification."
+                        });
+                        setApprovalTarget(null);
+                        approveForm.reset();
+                        setStepUpOpen(false);
+                        await loadWorkspace();
+                        if (activityLoaded) {
+                            await loadActivityData({ silent: true, force: true });
+                        }
+                        if (creditRiskLoaded) {
+                            await loadCreditRiskData({ silent: true, force: true });
+                        }
+                    }
+                );
+                return;
+            }
             pushToast({
                 type: "error",
                 title: "Unable to approve application",
@@ -1750,14 +1811,20 @@ export function LoansPage() {
         setProcessing(true);
         try {
             if (pendingMoneyAction.type === "disburse") {
-                const payload: DisburseApprovedLoanRequest = {
-                    reference: pendingMoneyAction.values.reference || null,
-                    description: pendingMoneyAction.values.description || null
+                const runDisbursement = async (stepUpPayload?: TwoFactorStepUpPayload) => {
+                    const payload: DisburseApprovedLoanRequest = {
+                        reference: pendingMoneyAction.values.reference || null,
+                        description: pendingMoneyAction.values.description || null,
+                        two_factor_code: stepUpPayload?.two_factor_code || null,
+                        recovery_code: stepUpPayload?.recovery_code || null
+                    };
+                    return api.post<LoanApplicationResponse | ApiEnvelope<PendingApprovalPayload>>(
+                        endpoints.loanApplications.disburse(pendingMoneyAction.application.id),
+                        payload
+                    );
                 };
-                const { data } = await api.post<LoanApplicationResponse | ApiEnvelope<PendingApprovalPayload>>(
-                    endpoints.loanApplications.disburse(pendingMoneyAction.application.id),
-                    payload
-                );
+
+                const { data } = await runDisbursement();
                 const maybePending = data.data as Partial<PendingApprovalPayload>;
                 if (maybePending.approval_required && maybePending.approval_request_id) {
                     pushToast({
@@ -1808,6 +1875,60 @@ export function LoansPage() {
                 await loadCreditRiskData({ silent: true, force: true });
             }
         } catch (error) {
+            if (
+                pendingMoneyAction?.type === "disburse" &&
+                getApiErrorCode(error) === "TWO_FACTOR_STEP_UP_REQUIRED"
+            ) {
+                const action = pendingMoneyAction;
+                openStepUpDialog(
+                    "Verify loan disbursement",
+                    "A fresh authenticator check is required before disbursing this approved loan.",
+                    "Verify and disburse",
+                    async (payload) => {
+                        const response = await api.post<LoanApplicationResponse | ApiEnvelope<PendingApprovalPayload>>(
+                            endpoints.loanApplications.disburse(action.application.id),
+                            {
+                                reference: action.values.reference || null,
+                                description: action.values.description || null,
+                                two_factor_code: payload.two_factor_code || null,
+                                recovery_code: payload.recovery_code || null
+                            }
+                        );
+                        const maybePending = response.data.data as Partial<PendingApprovalPayload>;
+                        if (maybePending.approval_required && maybePending.approval_request_id) {
+                            pushToast({
+                                type: "success",
+                                title: "Sent for approval",
+                                message: `Request ${maybePending.approval_request_id.slice(0, 8)}... is now waiting for checker approval.`
+                            });
+                            setPendingApprovalNotice({
+                                requestId: maybePending.approval_request_id,
+                                applicationId: action.application.id,
+                                reference: action.values.reference || null,
+                                description: action.values.description || null
+                            });
+                        } else {
+                            pushToast({
+                                type: "success",
+                                title: "Loan disbursed",
+                                message: `${action.application.members?.full_name || "The borrower"} has been disbursed successfully.`
+                            });
+                        }
+                        setDisbursementTarget(null);
+                        disburseForm.reset();
+                        setPendingMoneyAction(null);
+                        setStepUpOpen(false);
+                        await loadWorkspace();
+                        if (activityLoaded) {
+                            await loadActivityData({ silent: true, force: true });
+                        }
+                        if (creditRiskLoaded) {
+                            await loadCreditRiskData({ silent: true, force: true });
+                        }
+                    }
+                );
+                return;
+            }
             pushToast({
                 type: "error",
                 title: "Loan action failed",
@@ -1825,16 +1946,22 @@ export function LoansPage() {
 
         setProcessing(true);
         try {
-            const payload: DisburseApprovedLoanRequest = {
-                reference: pendingApprovalNotice.reference || null,
-                description: pendingApprovalNotice.description || null,
-                approval_request_id: pendingApprovalNotice.requestId
+            const runApprovedDisbursement = async (stepUpPayload?: TwoFactorStepUpPayload) => {
+                const payload: DisburseApprovedLoanRequest = {
+                    reference: pendingApprovalNotice.reference || null,
+                    description: pendingApprovalNotice.description || null,
+                    approval_request_id: pendingApprovalNotice.requestId,
+                    two_factor_code: stepUpPayload?.two_factor_code || null,
+                    recovery_code: stepUpPayload?.recovery_code || null
+                };
+
+                return api.post<LoanApplicationResponse>(
+                    endpoints.loanApplications.disburse(pendingApprovalNotice.applicationId),
+                    payload
+                );
             };
 
-            await api.post<LoanApplicationResponse>(
-                endpoints.loanApplications.disburse(pendingApprovalNotice.applicationId),
-                payload
-            );
+            await runApprovedDisbursement();
 
             pushToast({
                 type: "success",
@@ -1850,6 +1977,41 @@ export function LoansPage() {
                 await loadCreditRiskData({ silent: true, force: true });
             }
         } catch (error) {
+            if (getApiErrorCode(error) === "TWO_FACTOR_STEP_UP_REQUIRED") {
+                const notice = pendingApprovalNotice;
+                openStepUpDialog(
+                    "Verify approved disbursement",
+                    "Executing an approved disbursement requires a fresh authenticator check.",
+                    "Verify and execute",
+                    async (payload) => {
+                        await api.post<LoanApplicationResponse>(
+                            endpoints.loanApplications.disburse(notice.applicationId),
+                            {
+                                reference: notice.reference || null,
+                                description: notice.description || null,
+                                approval_request_id: notice.requestId,
+                                two_factor_code: payload.two_factor_code || null,
+                                recovery_code: payload.recovery_code || null
+                            }
+                        );
+                        pushToast({
+                            type: "success",
+                            title: "Loan disbursed",
+                            message: "Approved disbursement request was executed successfully."
+                        });
+                        setPendingApprovalNotice(null);
+                        setStepUpOpen(false);
+                        await loadWorkspace();
+                        if (activityLoaded) {
+                            await loadActivityData({ silent: true, force: true });
+                        }
+                        if (creditRiskLoaded) {
+                            await loadCreditRiskData({ silent: true, force: true });
+                        }
+                    }
+                );
+                return;
+            }
             pushToast({
                 type: "error",
                 title: "Execution not ready",
@@ -4077,6 +4239,22 @@ export function LoansPage() {
                 confirmLabel={pendingMoneyAction?.type === "disburse" ? "Disburse Loan" : "Post Repayment"}
                 onCancel={() => setPendingMoneyAction(null)}
                 onConfirm={() => void confirmMoneyAction()}
+            />
+
+            <TwoFactorStepUpDialog
+                open={stepUpOpen}
+                title={stepUpTitle}
+                description={stepUpDescription}
+                actionLabel={stepUpActionLabel}
+                busy={processing}
+                onCancel={closeStepUpDialog}
+                onConfirm={async (payload) => {
+                    if (!stepUpHandler) {
+                        return;
+                    }
+
+                    await stepUpHandler(payload);
+                }}
             />
         </Stack>
     );

@@ -58,8 +58,12 @@ import type {
 const routeMap = {
     auth: {
         backendSignIn: "/auth/signin",
-        otpSend: "/auth/otp/send",
-        otpVerify: "/auth/otp/verify",
+        twoFactorSetup: "/auth/2fa/setup",
+        twoFactorVerify: "/auth/2fa/verify",
+        twoFactorValidate: "/auth/2fa/validate",
+        twoFactorRecovery: "/auth/2fa/recovery",
+        twoFactorDisable: "/auth/2fa/disable",
+        twoFactorBackupCodesRegenerate: "/auth/2fa/backup-codes/regenerate",
         passwordSetupLinkSend: "/auth/password-setup/link/send"
     },
     tenants: {
@@ -241,8 +245,12 @@ const routeMap = {
 export const endpoints = {
     auth: {
         backendSignIn: () => routeMap.auth.backendSignIn,
-        otpSend: () => routeMap.auth.otpSend,
-        otpVerify: () => routeMap.auth.otpVerify,
+        twoFactorSetup: () => routeMap.auth.twoFactorSetup,
+        twoFactorVerify: () => routeMap.auth.twoFactorVerify,
+        twoFactorValidate: () => routeMap.auth.twoFactorValidate,
+        twoFactorRecovery: () => routeMap.auth.twoFactorRecovery,
+        twoFactorDisable: () => routeMap.auth.twoFactorDisable,
+        twoFactorBackupCodesRegenerate: () => routeMap.auth.twoFactorBackupCodesRegenerate,
         passwordSetupLinkSend: () => routeMap.auth.passwordSetupLinkSend
     },
     tenants: {
@@ -427,12 +435,38 @@ export interface AuthSessionTokens {
     refresh_token: string;
 }
 
-export interface OtpChallengeResponse {
-    challenge_id: string;
-    expires_at: string;
-    destination_hint: string;
-    resend_count: number;
-    resend_remaining: number;
+export interface TwoFactorSetupResponse {
+    qr_code: string;
+    manual_entry_key: string;
+    issuer: string;
+    account_name: string;
+}
+
+export interface TwoFactorVerifyResponse {
+    success: boolean;
+    backup_codes: string[];
+    enabled_at: string;
+}
+
+export interface TwoFactorValidateRequest {
+    totp_code?: string | null;
+    recovery_code?: string | null;
+}
+
+export interface TwoFactorValidateResponse {
+    success: boolean;
+    method: "totp" | "recovery_code";
+    verified_at: string;
+    verified_until: string;
+}
+
+export interface TwoFactorDisableResponse {
+    success: boolean;
+}
+
+export interface TwoFactorBackupCodesResponse {
+    success: boolean;
+    backup_codes: string[];
 }
 
 export interface PasswordSetupLinkSendResponse {
@@ -443,8 +477,8 @@ export interface PasswordSetupLinkSendResponse {
 export interface BackendSignInRequest {
     email: string;
     password: string;
-    challenge_id?: string | null;
-    otp_code?: string | null;
+    totp_code?: string | null;
+    recovery_code?: string | null;
 }
 
 export interface BackendSignInResponse {
@@ -454,19 +488,6 @@ export interface BackendSignInResponse {
         email?: string;
     };
     profile: UserProfile | null;
-}
-
-export interface OtpSendRequest {
-    email: string;
-    password: string;
-    challenge_id?: string | null;
-}
-
-export interface OtpVerifyRequest {
-    email: string;
-    password: string;
-    challenge_id: string;
-    otp_code: string;
 }
 
 export interface CreateTenantRequest {
@@ -768,6 +789,8 @@ export interface UpdateLoanProductPolicyRequest {
     liquidity_buffer_percent?: number;
     requires_guarantor?: boolean;
     requires_collateral?: boolean;
+    two_factor_code?: string | null;
+    recovery_code?: string | null;
 }
 
 export interface UpdateBranchLiquidityPolicyRequest {
@@ -775,6 +798,8 @@ export interface UpdateBranchLiquidityPolicyRequest {
     max_lending_ratio?: number;
     minimum_liquidity_reserve?: number;
     auto_loan_freeze_threshold?: number;
+    two_factor_code?: string | null;
+    recovery_code?: string | null;
 }
 
 export interface CreateLoanApplicationRequest {
@@ -807,6 +832,8 @@ export interface AppraiseLoanApplicationRequest {
 
 export interface ApproveLoanApplicationRequest {
     notes?: string | null;
+    two_factor_code?: string | null;
+    recovery_code?: string | null;
 }
 
 export interface RejectLoanApplicationRequest {
@@ -819,6 +846,8 @@ export interface DisburseApprovedLoanRequest {
     description?: string | null;
     approval_request_id?: string;
     receipt_ids?: string[];
+    two_factor_code?: string | null;
+    recovery_code?: string | null;
 }
 
 export interface GuarantorConsentRequest {
@@ -1223,11 +1252,15 @@ export interface UpdateApprovalPolicyRequest {
     allowed_maker_roles?: string[];
     allowed_checker_roles?: string[];
     sla_minutes?: number;
+    two_factor_code?: string | null;
+    recovery_code?: string | null;
 }
 
 export interface ApproveApprovalRequestBody {
     tenant_id?: string;
     notes?: string | null;
+    two_factor_code?: string | null;
+    recovery_code?: string | null;
 }
 
 export interface RejectApprovalRequestBody {

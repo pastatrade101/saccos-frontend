@@ -6587,6 +6587,12 @@ export function MemberPortalPage() {
                                 </ListItemIcon>
                                 <ListItemText primary="Download Statement" />
                             </ListItemButton>
+                            <ListItemButton sx={{ borderRadius: 0.5, minHeight: 42 }} onClick={() => handleProfileMenuAction(() => navigate("/security"))}>
+                                <ListItemIcon sx={{ minWidth: 34 }}>
+                                    <ShieldRoundedIcon fontSize="small" />
+                                </ListItemIcon>
+                                <ListItemText primary="Two-Factor Authentication" />
+                            </ListItemButton>
                             <ListItemButton sx={{ borderRadius: 0.5, minHeight: 42 }} onClick={() => handleProfileMenuAction(() => navigate("/change-password"))}>
                                 <ListItemIcon sx={{ minWidth: 34 }}>
                                     <ShieldRoundedIcon fontSize="small" />

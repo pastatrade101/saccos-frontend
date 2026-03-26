@@ -68,8 +68,12 @@ api.interceptors.response.use(
         const requestUrl = error.config?.url || "";
         const isAuthBootstrapRequest =
             requestUrl.includes("/auth/signin") ||
-            requestUrl.includes("/auth/otp/send") ||
-            requestUrl.includes("/auth/otp/verify") ||
+            requestUrl.includes("/auth/2fa/setup") ||
+            requestUrl.includes("/auth/2fa/verify") ||
+            requestUrl.includes("/auth/2fa/validate") ||
+            requestUrl.includes("/auth/2fa/recovery") ||
+            requestUrl.includes("/auth/2fa/disable") ||
+            requestUrl.includes("/auth/2fa/backup-codes/regenerate") ||
             requestUrl.includes("/auth/password-setup/link/send");
 
         if (status === 401 && !isAuthBootstrapRequest) {

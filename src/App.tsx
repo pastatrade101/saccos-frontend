@@ -35,12 +35,13 @@ import { ReportsPage } from "./pages/Reports";
 import { MemberPortalPage } from "./pages/MemberPortal";
 import { MemberImportPage } from "./pages/MemberImport";
 import { ChangePasswordPage } from "./pages/ChangePassword";
+import { SecuritySettingsPage } from "./pages/SecuritySettings";
 import { ResetPasswordPage } from "./pages/ResetPassword";
 import { ServiceUnavailablePage } from "./pages/ServiceUnavailable";
 import { PrivacyPolicyPage, TermsAgreementPage } from "./pages/LegalPages";
 
 function WorkspaceRedirect() {
-    const { profile, backendUnavailable, isInternalOps } = useAuth();
+    const { profile, backendUnavailable, isInternalOps, twoFactorSetupRequired } = useAuth();
 
     if (backendUnavailable) {
         return <Navigate to="/service-unavailable" replace />;
@@ -48,6 +49,10 @@ function WorkspaceRedirect() {
 
     if (profile?.must_change_password) {
         return <Navigate to="/change-password" replace />;
+    }
+
+    if (twoFactorSetupRequired) {
+        return <Navigate to="/security" replace />;
     }
 
     if (profile?.role === "member") {
@@ -164,6 +169,7 @@ export default function App() {
                 }
             >
                 <Route path="/change-password" element={<ChangePasswordPage />} />
+                <Route path="/security" element={<SecuritySettingsPage />} />
             </Route>
             <Route element={<ProtectedRoute allowedRoles={["member"]} />}>
                 <Route path="/portal" element={<MemberPortalPage />} />

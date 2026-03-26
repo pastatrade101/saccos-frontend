@@ -19,8 +19,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "../auth/AuthContext";
 import { DataTable } from "../components/DataTable";
+import { TwoFactorStepUpDialog, type TwoFactorStepUpPayload } from "../components/TwoFactorStepUpDialog";
 import { useToast } from "../components/Toast";
-import { api, getApiErrorMessage } from "../lib/api";
+import { api, getApiErrorCode, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
     type BranchesListResponse,
@@ -49,6 +50,8 @@ export function CashControlPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [showPolicyEditor, setShowPolicyEditor] = useState(false);
+    const [stepUpOpen, setStepUpOpen] = useState(false);
+    const [stepUpHandler, setStepUpHandler] = useState<((payload: TwoFactorStepUpPayload) => Promise<void>) | null>(null);
     const [branchId, setBranchId] = useState<string>(selectedBranchId || "");
     const [policyForm, setPolicyForm] = useState<UpdateReceiptPolicyRequest>({
         branch_id: selectedBranchId || null,
@@ -61,6 +64,15 @@ export function CashControlPage() {
     });
 
     const editable = profile?.role === "branch_manager" || profile?.role === "super_admin";
+
+    const closeStepUpDialog = () => {
+        if (saving) {
+            return;
+        }
+
+        setStepUpOpen(false);
+        setStepUpHandler(null);
+    };
 
     const loadData = async () => {
         if (!selectedTenantId) {
@@ -124,12 +136,14 @@ export function CashControlPage() {
         );
     }, [summary]);
 
-    const savePolicy = async () => {
+    const savePolicy = async (stepUpPayload?: TwoFactorStepUpPayload) => {
         setSaving(true);
         try {
             await api.put(endpoints.cashControl.receiptPolicy(), {
                 ...policyForm,
-                branch_id: branchId || null
+                branch_id: branchId || null,
+                two_factor_code: stepUpPayload?.two_factor_code || null,
+                recovery_code: stepUpPayload?.recovery_code || null
             });
             pushToast({
                 type: "success",
@@ -139,6 +153,14 @@ export function CashControlPage() {
             setShowPolicyEditor(false);
             await loadData();
         } catch (error) {
+            if (getApiErrorCode(error) === "TWO_FACTOR_STEP_UP_REQUIRED") {
+                setStepUpHandler(() => async (payload: TwoFactorStepUpPayload) => {
+                    await savePolicy(payload);
+                    setStepUpOpen(false);
+                });
+                setStepUpOpen(true);
+                return;
+            }
             pushToast({
                 type: "error",
                 title: "Unable to save policy",
@@ -369,6 +391,22 @@ export function CashControlPage() {
                     </Stack>
                 </CardContent>
             </MotionCard>
+
+            <TwoFactorStepUpDialog
+                open={stepUpOpen}
+                title="Verify receipt policy change"
+                description="Updating teller receipt controls requires a fresh authenticator check."
+                actionLabel="Verify and save"
+                busy={saving}
+                onCancel={closeStepUpDialog}
+                onConfirm={async (payload) => {
+                    if (!stepUpHandler) {
+                        return;
+                    }
+
+                    await stepUpHandler(payload);
+                }}
+            />
         </Stack>
     );
 }

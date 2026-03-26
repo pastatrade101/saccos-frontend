@@ -14,8 +14,7 @@ import {
     endpoints,
     type BackendSignInResponse,
     type MeResponse,
-    type MeSubscriptionResponse,
-    type OtpChallengeResponse
+    type MeSubscriptionResponse
 } from "../lib/endpoints";
 import { clearStaleSupabaseSession, supabase } from "../lib/supabase";
 import type { ApiErrorPayload, AuthMe } from "../types/api";
@@ -266,7 +265,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const signIn = useCallback(async (
         email: string,
         password: string,
-        options?: { challengeId?: string | null; otpCode?: string | null }
+        options?: { totpCode?: string | null; recoveryCode?: string | null }
     ) => {
         setLoading(true);
         clearStaleSupabaseSession();
@@ -281,8 +280,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
             const { data } = await api.post<BackendSignInResponse>(endpoints.auth.backendSignIn(), {
                 email,
                 password,
-                challenge_id: options?.challengeId || undefined,
-                otp_code: options?.otpCode || undefined
+                totp_code: options?.totpCode || undefined,
+                recovery_code: options?.recoveryCode || undefined
             });
 
             const accessToken = data.session?.access_token;
@@ -324,41 +323,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
     }, [clearAuthState]);
 
-    const requestOtp = useCallback(async (
-        email: string,
-        password: string,
-        challengeId?: string | null,
-        phone?: string | null
-    ) => {
-        try {
-            const { data } = await api.post<OtpChallengeResponse>(endpoints.auth.otpSend(), {
-                email,
-                password,
-                challenge_id: challengeId || undefined,
-                phone: phone || undefined
-            });
-
-            return data;
-        } catch (error) {
-            if (axios.isAxiosError<ApiErrorPayload>(error)) {
-                const code = error.response?.data?.error?.code;
-                const details = error.response?.data?.error?.details;
-
-                throw createAuthFlowError(
-                    getApiErrorMessage(error, "Unable to send OTP."),
-                    code,
-                    details
-                );
-            }
-
-            if (error instanceof Error) {
-                throw createAuthFlowError(error.message);
-            }
-
-            throw createAuthFlowError("Unable to send OTP.");
-        }
-    }, [clearAuthState]);
-
     const signOut = useCallback(async () => {
         await supabase.auth.signOut();
         clearStaleSupabaseSession();
@@ -393,6 +357,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
     }, []);
 
+    const isInternalOps = Boolean(
+        user?.app_metadata?.platform_role === "internal_ops" ||
+        user?.app_metadata?.platform_role === "platform_admin" ||
+        user?.app_metadata?.platform_role === "platform_owner" ||
+        profile?.role === "platform_admin" ||
+        profile?.role === "platform_owner"
+    );
+
+    const twoFactorSetupRequired = Boolean(
+        !isInternalOps &&
+        profile?.two_factor_required &&
+        profile?.two_factor_setup_required
+    );
+
     const value = useMemo<AuthContextValue>(() => ({
         session,
         user,
@@ -413,19 +391,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
         subscriptionInactive,
         lastApiError,
         backendUnavailable,
+        twoFactorSetupRequired,
         signIn,
-        requestOtp,
         signOut,
         refreshProfile,
         markPasswordChanged,
         setSelectedBranchId,
         clearSubscriptionWarning: () => setSubscriptionInactive(false),
-        isInternalOps:
-            user?.app_metadata?.platform_role === "internal_ops" ||
-            user?.app_metadata?.platform_role === "platform_admin" ||
-            user?.app_metadata?.platform_role === "platform_owner" ||
-            profile?.role === "platform_admin" ||
-            profile?.role === "platform_owner"
+        isInternalOps
     }), [
         branchIds,
         lastApiError,
@@ -438,14 +411,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
         selectedTenantName,
         selectedBranchName,
         session,
-        requestOtp,
         signIn,
         signOut,
         subscription,
         subscriptionInactive,
+        twoFactorSetupRequired,
         user,
         backendUnavailable,
         setSelectedBranchId,
+        isInternalOps
     ]);
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
