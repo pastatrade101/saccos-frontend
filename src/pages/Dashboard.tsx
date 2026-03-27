@@ -1321,12 +1321,8 @@ export function DashboardPage() {
     const role = profile?.role;
     const showPlatformDashboard = isInternalOps;
     const platformMetrics = useMemo(() => {
-        const latestSubscriptions = platformState.tenants.map((tenant) => tenant.subscription || null);
-
         return {
             totalTenants: platformState.tenants.length,
-            activeSubscriptions: latestSubscriptions.filter((subscription) => subscription?.status === "active").length,
-            pastDueSubscriptions: latestSubscriptions.filter((subscription) => subscription?.status === "past_due").length,
             totalBranches: platformState.branches.length,
             requestsPerSec: Number(platformState.systemMetrics?.requests_per_sec || 0),
             p95LatencyMs: Number(platformState.systemMetrics?.p95_latency_ms || 0),
@@ -1341,10 +1337,11 @@ export function DashboardPage() {
             memoryPct: Number(platformState.infrastructure?.memory_pct || 0),
             diskPct: Number(platformState.infrastructure?.disk_pct || 0),
             networkMbps: Number(platformState.infrastructure?.network_mbps || 0),
-            planBreakdown: ["starter", "growth", "enterprise"].map((plan) => ({
-                plan,
-                count: latestSubscriptions.filter((subscription) => (subscription?.plan || "starter") === plan).length
-            })),
+            statusBreakdown: [...platformState.tenants.reduce((accumulator, tenant) => {
+                const status = (tenant.status || "active").toLowerCase();
+                accumulator.set(status, (accumulator.get(status) || 0) + 1);
+                return accumulator;
+            }, new Map<string, number>()).entries()].sort(([left], [right]) => left.localeCompare(right)),
             growthTrend: [...platformState.tenants.reduce((accumulator, tenant) => {
                 const key = tenant.created_at.slice(0, 7);
                 accumulator.set(key, (accumulator.get(key) || 0) + 1);
@@ -1358,7 +1355,7 @@ export function DashboardPage() {
     const platformColumns: Column<Tenant>[] = [
         {
             key: "tenant",
-            header: "Tenant",
+            header: "Workspace",
             render: (row) => (
                 <Box>
                     <Typography variant="body2" fontWeight={700}>{row.name}</Typography>
@@ -1367,17 +1364,9 @@ export function DashboardPage() {
             )
         },
         {
-            key: "plan",
-            header: "Plan",
-            render: (row) => {
-                const subscription = row.subscription;
-                return (subscription?.plan || "starter").toUpperCase();
-            }
-        },
-        {
             key: "status",
-            header: "Subscription",
-            render: (row) => row.subscription?.status || "missing"
+            header: "Status",
+            render: (row) => (row.status || "active").replace(/_/g, " ")
         },
         {
             key: "branches",
@@ -1389,7 +1378,7 @@ export function DashboardPage() {
     const platformTrafficColumns: Column<PlatformTenantTrafficRow>[] = [
         {
             key: "tenant_name",
-            header: "Tenant",
+            header: "Workspace",
             render: (row) => (
                 <Stack spacing={0.25}>
                     <Typography variant="body2" fontWeight={700}>{row.tenant_name}</Typography>
@@ -1429,7 +1418,7 @@ export function DashboardPage() {
         },
         {
             key: "tenant_id",
-            header: "Tenant",
+            header: "Workspace",
             render: (row) => row.tenant_name || row.tenant_id || "System"
         },
         { key: "message", header: "Error", render: (row) => row.message }
@@ -1484,7 +1473,7 @@ export function DashboardPage() {
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
                                 {showPlatformDashboard
-                                    ? "Cross-tenant SaaS oversight with deliberate tenant workspace switching."
+                                    ? "Platform oversight for workspace operations, service health, and rollout visibility."
                                     : `${selectedTenantName || selectedTenantId} operations summary with branch scope ${branchIds.length || "all"}.`}
                             </Typography>
                         </div>
@@ -1501,16 +1490,16 @@ export function DashboardPage() {
                     <MotionSection inView>
                     <Grid container spacing={2}>
                         <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
-                            <MetricCard label="Total Tenants" value={String(platformMetrics.totalTenants)} helper="All SACCOS tenants on the platform." />
+                            <MetricCard label="Total Workspaces" value={String(platformMetrics.totalTenants)} helper="All managed SACCO workspaces in this deployment." />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
-                            <MetricCard label="Active Subscriptions" value={String(platformMetrics.activeSubscriptions)} helper="Tenants currently in a usable billing window." />
+                            <MetricCard label="Active Workspaces" value={String(platformMetrics.activeTenants)} helper="Workspaces currently active in the live metrics window." />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
-                            <MetricCard label="Past Due" value={String(platformMetrics.pastDueSubscriptions)} helper="Tenants requiring revenue follow-up." />
+                            <MetricCard label="Network Branches" value={String(platformMetrics.totalBranches)} helper="Operational branches across managed SACCO workspaces." />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
-                            <MetricCard label="Network Branches" value={String(platformMetrics.totalBranches)} helper="Operational branches across the full platform." />
+                            <MetricCard label="Active Users" value={String(platformMetrics.activeUsers)} helper="Signed-in users across current workspace activity." />
                         </Grid>
                     </Grid>
                     </MotionSection>
@@ -1540,7 +1529,7 @@ export function DashboardPage() {
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
                             <MetricCard
-                                label="Active Users / Tenants"
+                                label="Active Users / Workspaces"
                                 value={`${platformMetrics.activeUsers} / ${platformMetrics.activeTenants}`}
                                 helper="Real active load in the current metrics window."
                             />
@@ -1549,7 +1538,7 @@ export function DashboardPage() {
                             <MetricCard
                                 label="SMS Sent / Total"
                                 value={`${platformMetrics.smsSentCount.toLocaleString()} / ${platformMetrics.smsTotalCount.toLocaleString()}`}
-                                helper="Tenant SMS dispatch volume in the same metrics window."
+                                helper="Workspace SMS dispatch volume in the same metrics window."
                             />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6, xl: 3 }}>
@@ -1594,13 +1583,13 @@ export function DashboardPage() {
                     <Grid container spacing={2}>
                         <Grid size={{ xs: 12, lg: 7 }}>
                             <ChartPanel
-                                title="Tenant Growth"
-                                subtitle="Recent onboarding volume across the platform."
+                                title="Workspace Growth"
+                                subtitle="Recent onboarding volume across managed SACCO workspaces."
                                 type="bar"
                                 data={{
                                     labels: platformMetrics.growthTrend.map(([label]) => label),
                                     datasets: [{
-                                        label: "Tenants",
+                                        label: "Workspaces",
                                         data: platformMetrics.growthTrend.map(([, value]) => value),
                                         backgroundColor: alpha(theme.palette.primary.main, 0.72)
                                     }]
@@ -1610,17 +1599,20 @@ export function DashboardPage() {
                         </Grid>
                         <Grid size={{ xs: 12, lg: 5 }}>
                             <ChartPanel
-                                title="Plan Breakdown"
-                                subtitle="Billing mix across all onboarded SACCOS."
+                                title="Workspace Status Mix"
+                                subtitle="Operational status distribution across managed SACCO workspaces."
                                 type="doughnut"
                                 data={{
-                                    labels: platformMetrics.planBreakdown.map((entry) => entry.plan.toUpperCase()),
+                                    labels: platformMetrics.statusBreakdown.map(([status]) => status.replace(/_/g, " ").toUpperCase()),
                                     datasets: [{
-                                        data: platformMetrics.planBreakdown.map((entry) => entry.count),
+                                        data: platformMetrics.statusBreakdown.map(([, count]) => count),
                                         backgroundColor: [
                                             alpha(theme.palette.grey[500], 0.85),
                                             theme.palette.primary.main,
-                                            theme.palette.secondary.main
+                                            theme.palette.secondary.main,
+                                            alpha(theme.palette.success.main, 0.85),
+                                            alpha(theme.palette.warning.main, 0.85),
+                                            alpha(theme.palette.error.main, 0.85)
                                         ]
                                     }]
                                 }}
@@ -1633,7 +1625,7 @@ export function DashboardPage() {
                     <MotionCard variant="outlined" inView>
                         <CardContent>
                             <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.5} sx={{ mb: 1 }}>
-                                <Typography variant="h6">Tenant Inventory</Typography>
+                                <Typography variant="h6">Workspace Inventory</Typography>
                                 <Button
                                     size="small"
                                     variant="outlined"
@@ -1645,7 +1637,7 @@ export function DashboardPage() {
                             <DataTable
                                 rows={platformState.tenants.slice(0, 8)}
                                 columns={platformColumns}
-                                emptyMessage="No tenants available on the platform."
+                                emptyMessage="No SACCO workspaces available in this deployment."
                             />
                         </CardContent>
                     </MotionCard>
@@ -1654,11 +1646,11 @@ export function DashboardPage() {
                         <Grid size={{ xs: 12, xl: 6 }}>
                             <MotionCard variant="outlined" inView>
                                 <CardContent>
-                                    <Typography variant="h6" gutterBottom>Top Tenant Traffic</Typography>
+                                    <Typography variant="h6" gutterBottom>Top Workspace Traffic</Typography>
                                     <DataTable
                                         rows={platformMetrics.topTrafficTenants}
                                         columns={platformTrafficColumns}
-                                        emptyMessage="No tenant traffic metrics available yet."
+                                        emptyMessage="No workspace traffic metrics available yet."
                                     />
                                 </CardContent>
                             </MotionCard>

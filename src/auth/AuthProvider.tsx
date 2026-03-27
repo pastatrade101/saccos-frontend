@@ -13,8 +13,7 @@ import { api, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
     type BackendSignInResponse,
-    type MeResponse,
-    type MeSubscriptionResponse
+    type MeResponse
 } from "../lib/endpoints";
 import { clearStaleSupabaseSession, supabase } from "../lib/supabase";
 import type { ApiErrorPayload, AuthMe } from "../types/api";
@@ -50,7 +49,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const [user, setUser] = useState<User | null>(null);
     const [profile, setProfile] = useState<AuthMe["profile"]>(null);
     const [branchIds, setBranchIds] = useState<string[]>([]);
-    const [subscription, setSubscription] = useState<AuthMe["subscription"]>(null);
     const [loading, setLoading] = useState(true);
     const [selectedBranchId, setSelectedBranchIdState] = useState<string | null>(
         localStorage.getItem(SELECTED_BRANCH_KEY)
@@ -60,7 +58,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     );
     const [selectedTenantId, setSelectedTenantIdState] = useState<string | null>(null);
     const [selectedTenantName, setSelectedTenantNameState] = useState<string | null>(null);
-    const [subscriptionInactive, setSubscriptionInactive] = useState(false);
     const [lastApiError, setLastApiError] = useState<LastApiError | null>(null);
     const [backendUnavailable, setBackendUnavailable] = useState(false);
     const selectedBranchIdRef = useRef(selectedBranchId);
@@ -85,8 +82,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
         refreshProfileRequestIdRef.current += 1;
         setProfile(null);
         setBranchIds([]);
-        setSubscription(null);
-        setSubscriptionInactive(false);
         setSelectedTenantIdState(null);
         setSelectedTenantNameState(null);
     }, []);
@@ -121,20 +116,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
             const { data } = await api.get<MeResponse>(endpoints.users.me());
             const tenantId = data.data.tenant?.id || data.data.profile?.tenant_id || null;
             const tenantName = data.data.tenant?.name || null;
-            const subscriptionResponse = tenantId
-                ? await api.get<MeSubscriptionResponse>(endpoints.me.subscription(), {
-                    params: { tenant_id: tenantId }
-                })
-                : null;
-
             if (requestId !== refreshProfileRequestIdRef.current) {
                 return;
             }
 
             setProfile(data.data.profile);
             setBranchIds(data.data.branch_ids || []);
-            setSubscription(subscriptionResponse?.data.data || data.data.subscription || null);
-            setSubscriptionInactive(Boolean(subscriptionResponse?.data.data && subscriptionResponse.data.data.isUsable === false));
             setSelectedTenantIdState(tenantId);
             setSelectedTenantNameState(tenantName);
 
@@ -253,17 +240,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }, [clearAuthState, refreshProfile]);
 
     useEffect(() => {
-        const handleSubscriptionInactive = () => setSubscriptionInactive(true);
         const handleApiError = (event: Event) => {
             const customEvent = event as CustomEvent<LastApiError>;
             setLastApiError(customEvent.detail);
         };
 
-        window.addEventListener("saccos:subscription-inactive", handleSubscriptionInactive);
         window.addEventListener("saccos:api-error", handleApiError);
 
         return () => {
-            window.removeEventListener("saccos:subscription-inactive", handleSubscriptionInactive);
             window.removeEventListener("saccos:api-error", handleApiError);
         };
     }, []);
@@ -388,13 +372,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
                     ? profile.role
                     : null,
         branchIds,
-        subscription,
         loading,
         selectedTenantId,
         selectedBranchId,
         selectedTenantName,
         selectedBranchName,
-        subscriptionInactive,
         lastApiError,
         backendUnavailable,
         twoFactorSetupRequired,
@@ -403,7 +385,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
         refreshProfile,
         markPasswordChanged,
         setSelectedBranchId,
-        clearSubscriptionWarning: () => setSubscriptionInactive(false),
         isInternalOps
     }), [
         branchIds,
@@ -419,8 +400,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
         session,
         signIn,
         signOut,
-        subscription,
-        subscriptionInactive,
         twoFactorSetupRequired,
         user,
         backendUnavailable,

@@ -111,10 +111,9 @@ function getYearStartIso() {
 export function ReportsPage() {
     const theme = useTheme();
     const { pushToast } = useToast();
-    const { selectedTenantId, subscription } = useAuth();
+    const { selectedTenantId } = useAuth();
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
     const [downloading, setDownloading] = useState<string | null>(null);
-    const advancedReportsEnabled = Boolean(subscription?.features?.advanced_reports);
     const todayIso = useMemo(() => getTodayIso(), []);
     const yearStartIso = useMemo(() => getYearStartIso(), []);
     const reportsAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
@@ -471,7 +470,7 @@ export function ReportsPage() {
                                 </Typography>
                             </Box>
                             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="flex-start">
-                                <Chip label={advancedReportsEnabled ? "Advanced Reports Enabled" : "Standard Reports Only"} color={advancedReportsEnabled ? "success" : "warning"} variant="outlined" />
+                                <Chip label="Operational Reports Ready" color="success" variant="outlined" />
                                 <Chip label={`${accounts.length} member account(s)`} variant="outlined" />
                             </Stack>
                         </Stack>
@@ -525,12 +524,6 @@ export function ReportsPage() {
                     </Stack>
                 </CardContent>
             </MotionCard>
-
-            {!advancedReportsEnabled ? (
-                <Alert severity="warning" variant="outlined">
-                    Advanced reports are not enabled for the current tenant plan.
-                </Alert>
-            ) : null}
 
             <MotionCard variant="outlined">
                 <CardContent>
@@ -591,7 +584,7 @@ export function ReportsPage() {
                                                 <Button
                                                     variant="contained"
                                                     onClick={() => void runReadyMadePack(pack.key, pack.jobs)}
-                                                    disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                                    disabled={Boolean(downloading)}
                                                     startIcon={<FileDownloadRoundedIcon />}
                                                     fullWidth
                                                     sx={theme.palette.mode === "dark" ? darkContainedButtonSx : undefined}
@@ -611,7 +604,7 @@ export function ReportsPage() {
                                     key={`${pack.key}-quick`}
                                     variant="outlined"
                                     onClick={() => void runReadyMadePack(pack.key, pack.jobs)}
-                                    disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                    disabled={Boolean(downloading)}
                                     startIcon={<HistoryEduRoundedIcon />}
                                     sx={theme.palette.mode === "dark" ? darkOutlinedButtonSx : undefined}
                                 >
@@ -644,7 +637,7 @@ export function ReportsPage() {
                                                 format: "pdf"
                                             })
                                         }
-                                        disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                        disabled={Boolean(downloading)}
                                         startIcon={<AssessmentRoundedIcon />}
                                         sx={theme.palette.mode === "dark" ? darkOutlinedButtonSx : undefined}
                                     >
@@ -658,7 +651,7 @@ export function ReportsPage() {
                                                 format: "pdf"
                                             })
                                         }
-                                        disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                        disabled={Boolean(downloading)}
                                         startIcon={<AutoGraphRoundedIcon />}
                                         sx={theme.palette.mode === "dark" ? darkOutlinedButtonSx : undefined}
                                     >
@@ -672,7 +665,7 @@ export function ReportsPage() {
                                                 format: "pdf"
                                             })
                                         }
-                                        disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                        disabled={Boolean(downloading)}
                                         startIcon={<InsightsRoundedIcon />}
                                         sx={theme.palette.mode === "dark" ? darkOutlinedButtonSx : undefined}
                                     >
@@ -702,7 +695,7 @@ export function ReportsPage() {
                                         <Button
                                             variant="contained"
                                             type="submit"
-                                            disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                            disabled={Boolean(downloading)}
                                             startIcon={<BalanceRoundedIcon />}
                                             sx={theme.palette.mode === "dark" ? darkContainedButtonSx : undefined}
                                         >
@@ -739,7 +732,7 @@ export function ReportsPage() {
                                         <Button
                                             variant="contained"
                                             type="submit"
-                                            disabled={Boolean(downloading) || !advancedReportsEnabled}
+                                            disabled={Boolean(downloading)}
                                             startIcon={<BalanceRoundedIcon />}
                                             sx={theme.palette.mode === "dark" ? darkContainedButtonSx : undefined}
                                         >

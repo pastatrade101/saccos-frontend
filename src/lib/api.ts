@@ -61,10 +61,6 @@ api.interceptors.response.use(
             message: apiError?.message || error.message
         });
 
-        if (apiError?.code === "SUBSCRIPTION_INACTIVE") {
-            emitWindowEvent("saccos:subscription-inactive", apiError);
-        }
-
         const requestUrl = error.config?.url || "";
         const isAuthBootstrapRequest =
             requestUrl.includes("/auth/signin") ||

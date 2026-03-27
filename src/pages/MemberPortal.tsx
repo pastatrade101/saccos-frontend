@@ -826,8 +826,8 @@ export function MemberPortalPage() {
     const navigate = useNavigate();
     const isDesktop = useMediaQuery(theme.breakpoints.up("lg"));
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-    const { profile, selectedTenantName, selectedBranchName, signOut, subscription, user } = useAuth();
-    const canUsePortalDeposits = Boolean(subscription?.features?.contributions_enabled);
+    const { profile, selectedTenantName, selectedBranchName, signOut, user } = useAuth();
+    const canUsePortalDeposits = true;
     const { pushToast } = useToast();
     const { theme: themeMode, toggleTheme } = useUI();
     const prefersReducedMotion = useReducedMotionSafe();
@@ -1066,10 +1066,6 @@ export function MemberPortalPage() {
     const loanSubmissionLocks = useMemo(() => {
         const locks: string[] = [];
 
-        if (!(subscription?.features?.loans_enabled ?? true)) {
-            locks.push("Loan applications are not enabled for your current plan.");
-        }
-
         if (!selectedLoanProduct) {
             locks.push("Select a loan product to continue.");
         }
@@ -1091,8 +1087,7 @@ export function MemberPortalPage() {
         memberHasProblemLoan,
         memberRecord?.status,
         selectedLoanConflict,
-        selectedLoanProduct,
-        subscription?.features?.loans_enabled
+        selectedLoanProduct
     ]);
     const loanCapacityWarnings = useMemo(() => {
         const warnings: string[] = [];
@@ -1523,7 +1518,7 @@ export function MemberPortalPage() {
         if (!canUsePortalPayments) {
             pushToast({
                 title: "Deposits unavailable",
-                message: "Your current plan does not include mobile-money deposit integration.",
+                message: "Mobile-money deposit integration is not currently available for this workspace.",
                 type: "error"
             });
             return;
@@ -2045,7 +2040,7 @@ export function MemberPortalPage() {
         };
 
         void loadPortal();
-    }, [canUsePortalDeposits, profile, user?.id]);
+    }, [canUsePortalDeposits, profile?.tenant_id, user?.id]);
 
     useEffect(() => {
         if (!isDesktop) {
@@ -3136,7 +3131,7 @@ export function MemberPortalPage() {
         secondary: `${product.annual_interest_rate}% · ${formatCurrency(product.min_amount)} min · ${product.max_term_count || "Open"} term`
     }));
 
-    const canApplyForLoan = Boolean(subscription?.features?.loans_enabled ?? true);
+    const canApplyForLoan = true;
 
     const reloadLoanApplications = async (tenantId: string) => {
         const { data: applicationsResponse } = await api.get<LoanApplicationsResponse>(endpoints.loanApplications.list(), {
@@ -4651,7 +4646,7 @@ export function MemberPortalPage() {
                                     <Typography variant="body2" sx={{ color: alpha("#FFFFFF", 0.72) }}>
                                         {canApplyForLoan
                                             ? "Your request will move through appraisal, approval, and controlled disbursement."
-                                            : "Loan applications are disabled on the current subscription plan."}
+                                            : "Loan applications are currently unavailable."}
                                     </Typography>
                                 </Stack>
                                 {canApplyForLoan ? (
@@ -4782,7 +4777,7 @@ export function MemberPortalPage() {
                 </MotionCard>
             ) : (
                 <Alert severity="info" variant="outlined">
-                    Loan applications are disabled on your current subscription plan.
+                    Loan applications are currently unavailable.
                 </Alert>
             )}
 
@@ -6564,8 +6559,8 @@ export function MemberPortalPage() {
                                         <StarRoundedIcon fontSize="small" />
                                     </ListItemIcon>
                                     <ListItemText
-                                        primary={<Typography variant="body2">Plan</Typography>}
-                                        secondary={<Typography variant="caption">{(subscription?.plan || "N/A").toUpperCase()}</Typography>}
+                                        primary={<Typography variant="body2">Deployment</Typography>}
+                                        secondary={<Typography variant="caption">SINGLE-TENANT WORKSPACE</Typography>}
                                     />
                                 </ListItem>
                                 <ListItem sx={{ py: 0.35, px: 1.25 }}>

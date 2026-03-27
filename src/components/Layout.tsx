@@ -243,8 +243,6 @@ export function AppLayout() {
         selectedBranchId,
         selectedTenantName,
         selectedBranchName,
-        subscription,
-        subscriptionInactive,
         platformRole,
         user,
         lastApiError,
@@ -272,22 +270,6 @@ export function AppLayout() {
         }
 
         if (!profile || !item.roles) {
-            return false;
-        }
-
-        if (item.to === "/loans" && !subscription?.features?.loans_enabled) {
-            return false;
-        }
-
-        if (item.to === "/dividends" && !subscription?.features?.dividends_enabled) {
-            return false;
-        }
-
-        if (item.to === "/contributions" && !subscription?.features?.contributions_enabled) {
-            return false;
-        }
-
-        if (item.to === "/payments" && !subscription?.features?.contributions_enabled) {
             return false;
         }
 
@@ -722,16 +704,6 @@ export function AppLayout() {
                     />
 
                     <Chip
-                        label={subscription?.status || "unknown"}
-                        color={subscription?.status === "active" ? "success" : "default"}
-                        variant="filled"
-                        sx={{
-                            bgcolor: subscription?.status === "active" ? alpha(brandColors.success, 0.18) : alpha("#ffffff", 0.12),
-                            color: "#ffffff",
-                            border: `1px solid ${alpha("#ffffff", 0.14)}`
-                        }}
-                    />
-                    <Chip
                         label={tenantLabel}
                         variant="filled"
                         sx={{
@@ -789,22 +761,6 @@ export function AppLayout() {
                     minWidth: 0
                 }}
             >
-                {subscriptionInactive ? (
-                    <Paper
-                        variant="outlined"
-                        sx={{
-                            p: 1.5,
-                            mb: 2,
-                            borderColor: alpha(theme.palette.error.main, 0.28),
-                            bgcolor: alpha(theme.palette.error.main, 0.06)
-                        }}
-                    >
-                        <Typography variant="body2" color="error.main">
-                            Subscription inactive. Transactional actions are blocked until the tenant subscription is restored.
-                        </Typography>
-                    </Paper>
-                ) : null}
-
                 <Outlet />
             </Box>
 
@@ -867,8 +823,8 @@ export function AppLayout() {
                 </MenuItem>
                 <MenuItem disabled sx={{ opacity: "1 !important" }}>
                     <ListItemText
-                        primary="Plan"
-                        secondary={subscription?.plan ? subscription.plan.toUpperCase() : "N/A"}
+                        primary="Deployment"
+                        secondary="Single-tenant workspace"
                         primaryTypographyProps={{ variant: "caption", color: "text.secondary" }}
                         secondaryTypographyProps={{ variant: "body2", color: "text.primary" }}
                     />

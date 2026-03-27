@@ -8,8 +8,6 @@ export type Role =
     | "auditor"
     | "member";
 
-export type SubscriptionStatus = "active" | "past_due" | "cancelled" | "missing";
-export type SubscriptionPlan = "starter" | "growth" | "enterprise";
 export type MemberStatus = "active" | "suspended" | "exited" | "approved_pending_payment";
 export type LoanStatus = "draft" | "active" | "closed" | "in_arrears" | "written_off";
 export type KycStatus = "pending" | "verified" | "rejected" | "waived";
@@ -43,43 +41,6 @@ export interface Tenant {
     status: string;
     created_at: string;
     branch_count?: number;
-    subscription?: Subscription | null;
-}
-
-export interface Subscription {
-    id?: string;
-    plan_id?: string;
-    tenant_id?: string;
-    plan: SubscriptionPlan | null;
-    plan_name?: string | null;
-    status: SubscriptionStatus | "suspended";
-    start_at?: string | null;
-    expires_at?: string | null;
-    grace_period_until?: string | null;
-    isUsable?: boolean;
-    limits?: Record<string, number>;
-    features?: Record<string, boolean | number | string | null>;
-}
-
-export interface PlanFeature {
-    id?: string;
-    plan_id?: string;
-    feature_key: string;
-    feature_type: "bool" | "int" | "string";
-    bool_value?: boolean | null;
-    int_value?: number | null;
-    string_value?: string | null;
-    created_at?: string;
-}
-
-export interface Plan {
-    id: string;
-    code: SubscriptionPlan;
-    name: string;
-    description?: string | null;
-    is_active: boolean;
-    created_at: string;
-    plan_features?: PlanFeature[];
 }
 
 export interface UserProfile {
@@ -170,7 +131,6 @@ export interface AuthMe {
         name: string;
         code?: string;
     }>;
-    subscription: Subscription | null;
 }
 
 export interface Branch {

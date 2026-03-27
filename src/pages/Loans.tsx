@@ -441,7 +441,7 @@ export function LoansPage() {
     const theme = useTheme();
     const navigate = useNavigate();
     const { pushToast } = useToast();
-    const { profile, selectedTenantId, selectedBranchId, subscriptionInactive } = useAuth();
+    const { profile, selectedTenantId, selectedBranchId } = useAuth();
     const [members, setMembers] = useState<Member[]>([]);
     const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
     const [applications, setApplications] = useState<LoanApplication[]>([]);
@@ -2455,7 +2455,6 @@ export function LoansPage() {
                                         variant="contained"
                                         startIcon={<AssignmentTurnedInRoundedIcon />}
                                         onClick={openCreateApplicationModal}
-                                        disabled={subscriptionInactive}
                                         sx={darkAccentContainedSx}
                                     >
                                         New Loan Application
@@ -2466,7 +2465,6 @@ export function LoansPage() {
                                         variant="outlined"
                                         startIcon={<PaymentsRoundedIcon />}
                                         onClick={openRepaymentModal}
-                                        disabled={subscriptionInactive}
                                         sx={darkAccentOutlinedSx}
                                     >
                                         Post Repayment
@@ -2516,7 +2514,6 @@ export function LoansPage() {
                                         variant="contained"
                                         startIcon={<AssignmentTurnedInRoundedIcon />}
                                         onClick={openCreateApplicationModal}
-                                        disabled={subscriptionInactive}
                                         sx={{
                                             flex: { xs: 1, sm: "0 0 auto" },
                                             minWidth: { sm: 220 },
@@ -2534,7 +2531,6 @@ export function LoansPage() {
                                         color="inherit"
                                         startIcon={<PaymentsRoundedIcon />}
                                         onClick={openRepaymentModal}
-                                        disabled={subscriptionInactive}
                                         sx={{
                                             flex: { xs: 1, sm: "0 0 auto" },
                                             minWidth: { sm: 220 },
@@ -2550,12 +2546,6 @@ export function LoansPage() {
                     </CardContent>
                 </MotionCard>
             )}
-
-            {subscriptionInactive ? (
-                <Alert severity="warning" variant="outlined">
-                    Loan actions are blocked while the tenant subscription is inactive.
-                </Alert>
-            ) : null}
 
             {pendingApprovalNotice ? (
                 <Alert
@@ -2991,7 +2981,7 @@ export function LoansPage() {
                                         variant="contained"
                                         startIcon={<PendingActionsRoundedIcon />}
                                         onClick={() => void runDefaultDetection()}
-                                        disabled={runningDefaultDetection || subscriptionInactive}
+                                        disabled={runningDefaultDetection}
                                         sx={darkAccentContainedSx}
                                     >
                                         {runningDefaultDetection ? "Detecting defaults..." : "Run Default Detection"}
@@ -3357,7 +3347,7 @@ export function LoansPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setShowCreateModal(false)}>Cancel</Button>
-                    <Button variant="contained" type="submit" form="loan-application-form" disabled={processing || subscriptionInactive || createLoanCapacityLoading || Boolean(createLoanCapacityError)} sx={darkAccentContainedSx}>
+                    <Button variant="contained" type="submit" form="loan-application-form" disabled={processing || createLoanCapacityLoading || Boolean(createLoanCapacityError)} sx={darkAccentContainedSx}>
                         {processing ? "Submitting..." : "Create & Submit"}
                     </Button>
                 </DialogActions>
@@ -4025,7 +4015,7 @@ export function LoansPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setDisbursementTarget(null)}>Cancel</Button>
-                    <Button variant="contained" color="success" type="submit" form="loan-disburse-application-form" disabled={processing || subscriptionInactive}>
+                    <Button variant="contained" color="success" type="submit" form="loan-disburse-application-form" disabled={processing}>
                         Review Disbursement
                     </Button>
                 </DialogActions>
@@ -4206,7 +4196,7 @@ export function LoansPage() {
                         variant="contained"
                         type="submit"
                         form="loan-repay-form"
-                        disabled={processing || subscriptionInactive || selectedRepaymentInsights.excessOverOutstanding > 0}
+                        disabled={processing || selectedRepaymentInsights.excessOverOutstanding > 0}
                         sx={darkAccentContainedSx}
                     >
                         Review Repayment

@@ -9,11 +9,9 @@ export interface AuthContextValue {
     profile: AuthMe["profile"];
     platformRole: string | null;
     branchIds: string[];
-    subscription: AuthMe["subscription"];
     loading: boolean;
     selectedBranchId: string | null;
     selectedBranchName: string | null;
-    subscriptionInactive: boolean;
     lastApiError: {
         status?: number;
         code: string;
@@ -30,7 +28,6 @@ export interface AuthContextValue {
     refreshProfile: () => Promise<void>;
     markPasswordChanged: () => void;
     setSelectedBranchId: (value: string | null) => void;
-    clearSubscriptionWarning: () => void;
     isInternalOps: boolean;
     selectedTenantId: string | null;
     selectedTenantName: string | null;

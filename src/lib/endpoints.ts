@@ -2,7 +2,6 @@ import type {
     ApiEnvelope,
     AuthMe,
     Branch,
-    Plan,
     FinanceResult,
     Loan,
     LoanSchedule,
@@ -107,14 +106,8 @@ const routeMap = {
         penalties: "/products/penalties",
         postingRules: "/products/posting-rules"
     },
-    me: {
-        subscription: "/me/subscription"
-    },
     platform: {
-        plans: "/platform/plans",
-        planFeatures: (planId: string) => `/platform/plans/${planId}/features`,
         tenants: "/platform/tenants",
-        assignSubscription: (tenantId: string) => `/platform/tenants/${tenantId}/subscription`,
         deleteTenant: (tenantId: string) => `/platform/tenants/${tenantId}`,
         metricsSystem: "/platform/metrics/system",
         metricsTenants: "/platform/metrics/tenants",
@@ -294,14 +287,8 @@ export const endpoints = {
         penalties: () => routeMap.products.penalties,
         postingRules: () => routeMap.products.postingRules
     },
-    me: {
-        subscription: () => routeMap.me.subscription
-    },
     platform: {
-        plans: () => routeMap.platform.plans,
-        planFeatures: (planId: string) => routeMap.platform.planFeatures(planId),
         tenants: () => routeMap.platform.tenants,
-        assignSubscription: (tenantId: string) => routeMap.platform.assignSubscription(tenantId),
         deleteTenant: (tenantId: string) => routeMap.platform.deleteTenant(tenantId),
         metricsSystem: () => routeMap.platform.metricsSystem,
         metricsTenants: () => routeMap.platform.metricsTenants,
@@ -494,8 +481,6 @@ export interface CreateTenantRequest {
     name: string;
     registration_number: string;
     status?: "active" | "inactive" | "suspended";
-    plan?: "starter" | "growth" | "enterprise";
-    subscription_status?: "active" | "past_due" | "suspended" | "cancelled";
 }
 
 export type CreateTenantResponse = ApiEnvelope<Tenant>;
@@ -586,26 +571,7 @@ export interface MeQuery {
 }
 
 export type MeResponse = ApiEnvelope<AuthMe>;
-export type MeSubscriptionResponse = ApiEnvelope<import("../types/api").Subscription>;
-export type PlansResponse = ApiEnvelope<Plan[]>;
 export type PlatformTenantsResponse = ApiEnvelope<Tenant[]>;
-
-export interface UpdatePlanFeaturesRequest {
-    features: Array<{
-        feature_key: string;
-        feature_type: "bool" | "int" | "string";
-        bool_value?: boolean | null;
-        int_value?: number | null;
-        string_value?: string | null;
-    }>;
-}
-
-export interface AssignTenantSubscriptionRequest {
-    plan_code: "starter" | "growth" | "enterprise";
-    status: "active" | "past_due" | "suspended" | "cancelled";
-    start_at?: string;
-    expires_at?: string;
-}
 
 export interface DeleteTenantRequest {
     confirm_name: string;

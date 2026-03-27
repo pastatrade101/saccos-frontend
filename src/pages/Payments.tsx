@@ -111,8 +111,7 @@ function MetricCard({ label, value, helper, icon: Icon, tone }: MetricCardProps)
 export function PaymentsPage() {
     const theme = useTheme();
     const { pushToast } = useToast();
-    const { selectedTenantId, selectedBranchId, selectedBranchName, subscription } = useAuth();
-    const hasPaymentsAccess = Boolean(subscription?.features?.contributions_enabled);
+    const { selectedTenantId, selectedBranchId, selectedBranchName } = useAuth();
     const [orders, setOrders] = useState<PaymentOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -126,7 +125,7 @@ export function PaymentsPage() {
 
     useEffect(() => {
         const loadOrders = async () => {
-            if (!selectedTenantId || !hasPaymentsAccess) {
+            if (!selectedTenantId) {
                 setOrders([]);
                 setLoading(false);
                 return;
@@ -154,7 +153,7 @@ export function PaymentsPage() {
         };
 
         void loadOrders();
-    }, [hasPaymentsAccess, selectedBranchId, selectedTenantId]);
+    }, [selectedBranchId, selectedTenantId]);
 
     const mergeOrder = (nextOrder: PaymentOrder) => {
         const normalized = normalizePaymentOrder(nextOrder);
@@ -327,10 +326,6 @@ export function PaymentsPage() {
             )
         }
     ];
-
-    if (!hasPaymentsAccess) {
-        return <Navigate to="/dashboard" replace />;
-    }
 
     if (loading) {
         return <AppLoader message="Loading payment operations..." />;

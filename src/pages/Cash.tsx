@@ -152,7 +152,7 @@ export function CashPage() {
     const theme = useTheme();
     const navigate = useNavigate();
     const { pushToast } = useToast();
-    const { selectedTenantId, selectedTenantName, selectedBranchId, selectedBranchName, subscriptionInactive } = useAuth();
+    const { selectedTenantId, selectedTenantName, selectedBranchId, selectedBranchName } = useAuth();
     const [members, setMembers] = useState<Member[]>([]);
     const [accounts, setAccounts] = useState<MemberAccount[]>([]);
     const [transactions, setTransactions] = useState<StatementRow[]>([]);
@@ -693,7 +693,7 @@ export function CashPage() {
                                     setReceiptFile(null);
                                     setActionDialog("deposit");
                                 }}
-                                disabled={subscriptionInactive || tellerSessionRequired}
+                                disabled={tellerSessionRequired}
                                 sx={theme.palette.mode === "dark" ? { bgcolor: cashDeskAccent, color: "#1a1a1a", "&:hover": { bgcolor: cashDeskAccentStrong } } : undefined}
                             >
                                 Start Deposit
@@ -706,7 +706,7 @@ export function CashPage() {
                                     setReceiptFile(null);
                                     setActionDialog("withdraw");
                                 }}
-                                disabled={subscriptionInactive || tellerSessionRequired}
+                                disabled={tellerSessionRequired}
                                 sx={theme.palette.mode === "dark" ? { borderColor: alpha("#FF8A80", 0.44), color: "#FFAB91", "&:hover": { borderColor: alpha("#FF8A80", 0.7), bgcolor: alpha("#FF8A80", 0.08) } } : undefined}
                             >
                                 Start Withdrawal
@@ -718,7 +718,7 @@ export function CashPage() {
                                     setReceiptFile(null);
                                     setActionDialog("share_contribution");
                                 }}
-                                disabled={subscriptionInactive || tellerSessionRequired}
+                                disabled={tellerSessionRequired}
                                 sx={theme.palette.mode === "dark" ? { borderColor: alpha(cashDeskAccent, 0.44), color: cashDeskAccent, "&:hover": { borderColor: alpha(cashDeskAccent, 0.78), bgcolor: alpha(cashDeskAccent, 0.1) } } : undefined}
                             >
                                 Start Contribution
@@ -727,7 +727,6 @@ export function CashPage() {
                                 <Button
                                     variant="outlined"
                                     onClick={() => setOpenSessionDialog(true)}
-                                    disabled={subscriptionInactive}
                                     sx={theme.palette.mode === "dark" ? { borderColor: alpha(cashDeskAccent, 0.44), color: cashDeskAccent, "&:hover": { borderColor: alpha(cashDeskAccent, 0.78), bgcolor: alpha(cashDeskAccent, 0.1) } } : undefined}
                                 >
                                     Open Session
@@ -927,12 +926,6 @@ export function CashPage() {
                 </Grid>
             </Grid>
 
-            {subscriptionInactive ? (
-                <Alert severity="warning" variant="outlined">
-                    Subscription inactive. Cash operations are visible for review only until the tenant subscription is renewed.
-                </Alert>
-            ) : null}
-
             <Grid container spacing={2}>
                 <Grid size={{ xs: 12, xl: 7 }}>
                     <MotionCard
@@ -970,7 +963,7 @@ export function CashPage() {
                                                             setReceiptFile(null);
                                                             setActionDialog("deposit");
                                                         }}
-                                                        disabled={subscriptionInactive || tellerSessionRequired}
+                                                        disabled={tellerSessionRequired}
                                                         fullWidth
                                                         sx={theme.palette.mode === "dark" ? { bgcolor: cashDeskAccent, color: "#1a1a1a", "&:hover": { bgcolor: cashDeskAccentStrong } } : undefined}
                                                     >
@@ -998,7 +991,7 @@ export function CashPage() {
                                                             setReceiptFile(null);
                                                             setActionDialog("withdraw");
                                                         }}
-                                                        disabled={subscriptionInactive || tellerSessionRequired}
+                                                        disabled={tellerSessionRequired}
                                                         fullWidth
                                                     >
                                                         Start Withdrawal
@@ -1024,7 +1017,7 @@ export function CashPage() {
                                                             setReceiptFile(null);
                                                             setActionDialog("share_contribution");
                                                         }}
-                                                        disabled={subscriptionInactive || tellerSessionRequired}
+                                                        disabled={tellerSessionRequired}
                                                         fullWidth
                                                         sx={theme.palette.mode === "dark" ? { borderColor: alpha(cashDeskAccent, 0.44), color: cashDeskAccent, "&:hover": { borderColor: alpha(cashDeskAccent, 0.78), bgcolor: alpha(cashDeskAccent, 0.1) } } : undefined}
                                                     >
@@ -1321,7 +1314,7 @@ export function CashPage() {
                     }} disabled={processing} color="inherit">
                         Cancel
                     </Button>
-                    <Button form="cash-action-form" type="submit" variant="contained" disabled={processing || subscriptionInactive}>
+                    <Button form="cash-action-form" type="submit" variant="contained" disabled={processing}>
                         Review
                     </Button>
                 </DialogActions>

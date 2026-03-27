@@ -41,7 +41,11 @@ import { ServiceUnavailablePage } from "./pages/ServiceUnavailable";
 import { PrivacyPolicyPage, TermsAgreementPage } from "./pages/LegalPages";
 
 function WorkspaceRedirect() {
-    const { profile, backendUnavailable, isInternalOps, twoFactorSetupRequired } = useAuth();
+    const { session, profile, backendUnavailable, isInternalOps, twoFactorSetupRequired, loading } = useAuth();
+
+    if (loading || (session && !profile && !isInternalOps && !backendUnavailable && !twoFactorSetupRequired)) {
+        return <AppLoader message="Loading workspace..." />;
+    }
 
     if (backendUnavailable) {
         return <Navigate to="/service-unavailable" replace />;
@@ -137,7 +141,11 @@ function SignupRoute() {
 }
 
 function SetupRouteGuard({ children }: { children: ReactNode }) {
-    const { profile, backendUnavailable } = useAuth();
+    const { session, profile, backendUnavailable, isInternalOps, loading } = useAuth();
+
+    if (loading || (session && !profile && !isInternalOps && !backendUnavailable)) {
+        return <AppLoader message="Loading workspace..." />;
+    }
 
     if (backendUnavailable) {
         return <Navigate to="/service-unavailable" replace />;

@@ -74,9 +74,9 @@ export function SetupSuperAdminPage() {
     if (createdAdminEmail) {
         return (
             <div className="card">
-                <h3 className={pageStyles.sectionTitle}>3. Tenant Super Admin Created</h3>
+                <h3 className={pageStyles.sectionTitle}>3. Workspace Administrator Created</h3>
                 <p className={pageStyles.sectionCopy}>
-                    A dedicated tenant super admin account has been provisioned for this tenant.
+                    A dedicated workspace administrator account has been provisioned for this SACCO workspace.
                 </p>
                 <div className={pageStyles.form}>
                     <FormField label="Admin Email">
@@ -126,12 +126,12 @@ export function SetupSuperAdminPage() {
             setTemporaryPassword(data.data.temporary_password || (!values.send_invite && values.password ? values.password : null));
             pushToast({
                 type: "success",
-                title: "Tenant super admin created",
+                title: "Workspace administrator created",
                 message: values.send_invite
-                    ? "Invite sent to the new tenant super admin."
+                    ? "Invite sent to the new workspace administrator."
                     : values.password
-                        ? "Tenant super admin created with the supplied password."
-                        : "Tenant super admin created with a generated temporary password."
+                        ? "Workspace administrator created with the supplied password."
+                        : "Workspace administrator created with a generated temporary password."
             });
         } catch (error) {
             pushToast({
@@ -149,20 +149,20 @@ export function SetupSuperAdminPage() {
             <div className="card">
                 <div className={pageStyles.sectionHeader}>
                     <div>
-                        <h3 className={pageStyles.sectionTitle}>3. Create Tenant Super Admin</h3>
+                        <h3 className={pageStyles.sectionTitle}>3. Create Workspace Administrator</h3>
                         <p className={pageStyles.sectionCopy}>
-                            Create the first real tenant administrator account. The system will create the auth user, assign `super_admin`, and attach the tenant's default branch automatically.
+                            Create the first real workspace administrator account. The system will create the auth user, assign `super_admin`, and attach the workspace's default branch automatically.
                         </p>
                         {isInternalOps ? (
                             <p className={pageStyles.sectionCopy}>
-                                This does not change the current SaaS owner session. It provisions a separate tenant admin login.
+                                This does not change the current platform operator session. It provisions a separate workspace admin login.
                             </p>
                         ) : null}
                     </div>
                 </div>
 
                 <form className={pageStyles.form} onSubmit={onSubmit}>
-                    <FormField label="Tenant ID">
+                    <FormField label="Workspace ID">
                         <input value={selectedTenantId || ""} disabled />
                     </FormField>
                     <div className="grid-2">
@@ -170,7 +170,7 @@ export function SetupSuperAdminPage() {
                             <input {...form.register("email")} placeholder="admin@tenant.co.tz" />
                         </FormField>
                         <FormField label="Full name" error={form.formState.errors.full_name?.message}>
-                            <input {...form.register("full_name")} placeholder="Tenant Super Admin" />
+                            <input {...form.register("full_name")} placeholder="Workspace Administrator" />
                         </FormField>
                     </div>
                     <div className="grid-2">
@@ -203,7 +203,7 @@ export function SetupSuperAdminPage() {
                         disabled={submitting || !selectedTenantId}
                         type="submit"
                     >
-                        {submitting ? "Creating admin..." : "Create Tenant Super Admin"}
+                        {submitting ? "Creating admin..." : "Create Workspace Administrator"}
                     </button>
                 </form>
             </div>
