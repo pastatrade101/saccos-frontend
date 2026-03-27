@@ -20,6 +20,8 @@ export type MemberApplicationStatus =
     | "active"
     | "rejected"
     | "cancelled";
+export type NotificationSeverity = "info" | "success" | "warning" | "critical";
+export type NotificationStatus = "unread" | "read" | "archived";
 
 export interface ApiEnvelope<T> {
     data: T;
@@ -131,6 +133,46 @@ export interface AuthMe {
         name: string;
         code?: string;
     }>;
+}
+
+export interface NotificationItem {
+    id: string;
+    tenant_id: string;
+    branch_id?: string | null;
+    recipient_user_id: string;
+    recipient_role?: Role | null;
+    event_type: string;
+    event_key: string;
+    title: string;
+    message: string;
+    severity: NotificationSeverity;
+    status: NotificationStatus;
+    action_label?: string | null;
+    action_route?: string | null;
+    entity_type?: string | null;
+    entity_id?: string | null;
+    metadata: Record<string, unknown>;
+    read_at?: string | null;
+    archived_at?: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface NotificationListPayload {
+    items: NotificationItem[];
+    page: number;
+    limit: number;
+    total: number;
+    unread_count: number;
+}
+
+export interface NotificationPreferenceItem {
+    event_type: string;
+    label: string;
+    description: string;
+    in_app_enabled: boolean;
+    sms_enabled: boolean;
+    toast_enabled: boolean;
 }
 
 export interface Branch {
@@ -972,6 +1014,15 @@ export interface AuditorSummary {
 
 export interface AuditorException {
     tenant_id: string;
+    case_id?: string | null;
+    case_key: string;
+    case_status: "open" | "under_review" | "resolved" | "waived";
+    case_notes?: string | null;
+    case_assignee_user_id?: string | null;
+    case_assignee_name?: string | null;
+    case_resolved_at?: string | null;
+    case_updated_at?: string | null;
+    severity: "info" | "warning" | "critical";
     journal_id: string | null;
     reference: string | null;
     user_id: string | null;
@@ -986,6 +1037,224 @@ export interface AuditorException {
         | "MAKER_CHECKER_VIOLATION"
         | "CASH_VARIANCE"
         | "MANUAL_JOURNAL";
+}
+
+export interface AuditorCaseAssignee {
+    user_id: string;
+    full_name: string;
+}
+
+export interface AuditorCaseComment {
+    id: string;
+    body: string;
+    author_user_id: string;
+    author_name?: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AuditorCaseEvidence {
+    id: string;
+    file_name: string;
+    mime_type: string;
+    file_size_bytes: number;
+    checksum_sha256?: string | null;
+    status: "pending_upload" | "uploaded";
+    uploaded_by: string;
+    uploaded_by_name?: string | null;
+    created_at: string;
+    confirmed_at?: string | null;
+}
+
+export interface AuditorCaseRelatedBranch {
+    id: string;
+    name: string;
+}
+
+export interface AuditorCaseRelatedUser {
+    user_id: string;
+    full_name: string;
+    role?: Role | null;
+}
+
+export interface AuditorCaseRelatedMember {
+    id: string;
+    full_name: string;
+    member_no?: string | null;
+    account_number?: string | null;
+    account_name?: string | null;
+    product_type?: string | null;
+}
+
+export interface AuditorCaseRelatedLoan {
+    id: string;
+    loan_number: string;
+    status: string;
+    member_id?: string | null;
+    member_name?: string | null;
+    member_no?: string | null;
+}
+
+export interface AuditorCaseRelatedTellerSession {
+    id: string;
+    status: string;
+    opened_at: string;
+    closed_at?: string | null;
+    teller_user_id: string;
+    expected_cash: number;
+    closing_cash?: number | null;
+    variance?: number | null;
+}
+
+export interface AuditorCaseTimelineItem {
+    type: "opened" | "updated" | "resolved" | "waived" | "comment" | "evidence";
+    label: string;
+    at: string;
+    actor_user_id?: string | null;
+    actor_name?: string | null;
+    status?: string | null;
+    body?: string | null;
+    file_name?: string | null;
+}
+
+export interface AuditorCaseDetail {
+    case: Pick<
+        AuditorException,
+        | "case_id"
+        | "case_key"
+        | "case_status"
+        | "case_notes"
+        | "case_assignee_user_id"
+        | "case_assignee_name"
+        | "case_resolved_at"
+        | "case_updated_at"
+        | "severity"
+        | "reason_code"
+        | "reference"
+        | "branch_id"
+        | "journal_id"
+        | "user_id"
+    >;
+    related_entities: {
+        branch?: AuditorCaseRelatedBranch | null;
+        subject_user?: AuditorCaseRelatedUser | null;
+        member?: AuditorCaseRelatedMember | null;
+        loan?: AuditorCaseRelatedLoan | null;
+        teller_session?: AuditorCaseRelatedTellerSession | null;
+    };
+    timeline: AuditorCaseTimelineItem[];
+    comments: AuditorCaseComment[];
+    evidence: AuditorCaseEvidence[];
+}
+
+export interface AuditorEvidenceUploadInit {
+    evidence: Pick<AuditorCaseEvidence, "id" | "file_name" | "mime_type" | "file_size_bytes" | "status" | "created_at"> & {
+        storage_bucket: string;
+    };
+    upload: {
+        path: string;
+        token: string;
+    };
+}
+
+export interface AuditorEvidenceDownload {
+    evidence_id: string;
+    file_name: string;
+    mime_type: string;
+    download_url: string;
+}
+
+export interface AuditorRiskBranchSummary {
+    branch_id?: string | null;
+    branch_name: string;
+    total_exceptions: number;
+    critical_exceptions: number;
+    warning_exceptions: number;
+    last_exception_at?: string | null;
+    open_cases: number;
+}
+
+export interface AuditorRiskReasonSummary {
+    reason_code: AuditorException["reason_code"];
+    count: number;
+    severity: AuditorException["severity"];
+}
+
+export interface AuditorRiskSummary {
+    totals: {
+        exceptions: number;
+        critical_exceptions: number;
+        warning_exceptions: number;
+        open_cases: number;
+        resolved_cases: number;
+    };
+    branches: AuditorRiskBranchSummary[];
+    reasons: AuditorRiskReasonSummary[];
+}
+
+export interface AuditorExceptionTrendPoint {
+    day: string;
+    total: number;
+    critical: number;
+    warning: number;
+    info: number;
+}
+
+export interface AuditorExceptionTrends {
+    days: number;
+    points: AuditorExceptionTrendPoint[];
+}
+
+export interface AuditorWorkstationCaseBoard {
+    open: number;
+    under_review: number;
+    resolved: number;
+    waived: number;
+}
+
+export interface AuditorOldestOpenCase {
+    case_id: string;
+    case_key: string;
+    status: "open" | "under_review";
+    severity: AuditorException["severity"];
+    reason_code: AuditorException["reason_code"];
+    reference?: string | null;
+    branch_id?: string | null;
+    branch_name: string;
+    assignee_user_id?: string | null;
+    assignee_name?: string | null;
+    opened_at: string;
+    age_days: number;
+}
+
+export interface AuditorRepeatBranchPattern {
+    branch_id?: string | null;
+    branch_name: string;
+    exception_count: number;
+    critical_count: number;
+}
+
+export interface AuditorRepeatUserPattern {
+    user_id: string;
+    user_name: string;
+    exception_count: number;
+    critical_count: number;
+}
+
+export interface AuditorRepeatReasonPattern {
+    reason_code: AuditorException["reason_code"];
+    exception_count: number;
+    severity: AuditorException["severity"];
+}
+
+export interface AuditorWorkstationOverview {
+    case_board: AuditorWorkstationCaseBoard;
+    oldest_open_cases: AuditorOldestOpenCase[];
+    repeat_patterns: {
+        branches: AuditorRepeatBranchPattern[];
+        users: AuditorRepeatUserPattern[];
+        reasons: AuditorRepeatReasonPattern[];
+    };
 }
 
 export interface AuditorJournal {
@@ -1021,15 +1290,102 @@ export interface AuditorJournalLine {
     } | null;
 }
 
+export interface AuditorJournalRelatedJournal {
+    journal_id: string;
+    reference: string;
+    entry_date: string;
+    source_type: string;
+}
+
+export interface AuditorJournalMemberTransaction {
+    id: string;
+    member_account_id: string;
+    transaction_type: string;
+    direction: "in" | "out";
+    amount: number;
+    reference?: string | null;
+    created_at: string;
+    account_number?: string | null;
+    account_name?: string | null;
+    product_type?: string | null;
+    member_id?: string | null;
+    member_name?: string | null;
+    member_no?: string | null;
+}
+
+export interface AuditorJournalLoanTransaction {
+    id: string;
+    loan_id: string;
+    member_id: string;
+    transaction_type: string;
+    direction: "in" | "out";
+    amount: number;
+    reference?: string | null;
+    created_at: string;
+    loan_number?: string | null;
+    loan_status?: string | null;
+    member_name?: string | null;
+    member_no?: string | null;
+}
+
+export interface AuditorJournalTellerTransaction {
+    id: string;
+    session_id: string;
+    transaction_type: string;
+    direction: "in" | "out";
+    amount: number;
+    created_at: string;
+}
+
+export interface AuditorJournalReceipt {
+    id: string;
+    transaction_type: string;
+    status: string;
+    member_id?: string | null;
+    created_at: string;
+}
+
+export interface AuditorJournalPaymentOrder {
+    id: string;
+    purpose: string;
+    status: string;
+    provider: string;
+    amount: number;
+    external_id: string;
+    member_id?: string | null;
+    created_at: string;
+}
+
+export interface AuditorJournalDividendLink {
+    id: string;
+    period_label: string;
+    status: string;
+    journal_role: "declaration" | "payment";
+}
+
+export interface AuditorJournalRelatedContext {
+    created_by_name?: string | null;
+    reversal_of?: AuditorJournalRelatedJournal | null;
+    reversed_by: AuditorJournalRelatedJournal[];
+    member_transactions: AuditorJournalMemberTransaction[];
+    loan_transactions: AuditorJournalLoanTransaction[];
+    teller_transactions: AuditorJournalTellerTransaction[];
+    receipts: AuditorJournalReceipt[];
+    payment_orders: AuditorJournalPaymentOrder[];
+    dividend_cycles: AuditorJournalDividendLink[];
+}
+
 export interface AuditorJournalDetail {
     journal: AuditorJournal;
     lines: AuditorJournalLine[];
+    related_context?: AuditorJournalRelatedContext;
 }
 
 export interface AuditLogEntry {
     id: string;
     tenant_id: string;
     actor_user_id?: string | null;
+    actor_name?: string | null;
     user_id?: string | null;
     action: string;
     entity_type: string;
@@ -1038,6 +1394,8 @@ export interface AuditLogEntry {
     after_data?: Record<string, unknown> | null;
     ip?: string | null;
     user_agent?: string | null;
+    event_at?: string | null;
+    timestamp?: string | null;
     created_at: string;
 }
 

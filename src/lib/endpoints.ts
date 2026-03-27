@@ -24,6 +24,15 @@ import type {
     AuditorJournal,
     AuditorJournalDetail,
     AuditLogEntry,
+    AuditorCaseAssignee,
+    AuditorCaseComment,
+    AuditorCaseDetail,
+    AuditorCaseEvidence,
+    AuditorEvidenceDownload,
+    AuditorEvidenceUploadInit,
+    AuditorRiskSummary,
+    AuditorExceptionTrends,
+    AuditorWorkstationOverview,
     MemberApplication,
     ProductBootstrapPayload,
     LoanProduct,
@@ -51,7 +60,10 @@ import type {
     SmsTriggerEventType,
     SmsTriggerSetting,
     PaymentOrder,
-    MobileMoneyProvider
+    MobileMoneyProvider,
+    NotificationItem,
+    NotificationListPayload,
+    NotificationPreferenceItem
 } from "../types/api";
 
 const routeMap = {
@@ -201,7 +213,17 @@ const routeMap = {
     },
     auditor: {
         summary: "/auditor/summary",
+        riskSummary: "/auditor/risk-summary",
+        exceptionTrends: "/auditor/exception-trends",
+        workstationOverview: "/auditor/workstation-overview",
         exceptions: "/auditor/exceptions",
+        caseAssignees: "/auditor/cases/assignees",
+        caseDetail: (caseKey: string) => `/auditor/cases/${caseKey}`,
+        updateCase: (caseKey: string) => `/auditor/cases/${caseKey}`,
+        addCaseComment: (caseKey: string) => `/auditor/cases/${caseKey}/comments`,
+        initCaseEvidenceUpload: (caseKey: string) => `/auditor/cases/${caseKey}/evidence/init`,
+        confirmCaseEvidenceUpload: (evidenceId: string) => `/auditor/cases/evidence/${evidenceId}/confirm`,
+        downloadCaseEvidence: (evidenceId: string) => `/auditor/cases/evidence/${evidenceId}/download`,
         journals: "/auditor/journals",
         journalDetail: (journalId: string) => `/auditor/journals/${journalId}`,
         auditLogs: "/auditor/audit-logs",
@@ -218,6 +240,8 @@ const routeMap = {
         memberStatements: "/reports/member-statements/export",
         par: "/reports/par/export",
         loanAging: "/reports/loan-aging/export",
+        auditEvidencePack: "/reports/audit-evidence-pack/export",
+        exportJobs: "/reports/export-jobs",
         exportJob: (jobId: string) => `/reports/export-jobs/${jobId}`,
         exportJobDownload: (jobId: string) => `/reports/export-jobs/${jobId}/download`
     },
@@ -232,6 +256,15 @@ const routeMap = {
     notificationSettings: {
         smsTriggers: "/notification-settings/sms-triggers",
         smsTrigger: (eventType: SmsTriggerEventType) => `/notification-settings/sms-triggers/${eventType}`
+    },
+    notifications: {
+        list: "/notifications",
+        preferences: "/notifications/preferences",
+        preference: (eventType: string) => `/notifications/preferences/${eventType}`,
+        markRead: (notificationId: string) => `/notifications/${notificationId}/read`,
+        markAllRead: "/notifications/read-all",
+        archive: (notificationId: string) => `/notifications/${notificationId}/archive`,
+        archiveRead: "/notifications/archive-read"
     }
 } as const;
 
@@ -383,7 +416,17 @@ export const endpoints = {
     },
     auditor: {
         summary: () => routeMap.auditor.summary,
+        riskSummary: () => routeMap.auditor.riskSummary,
+        exceptionTrends: () => routeMap.auditor.exceptionTrends,
+        workstationOverview: () => routeMap.auditor.workstationOverview,
         exceptions: () => routeMap.auditor.exceptions,
+        caseAssignees: () => routeMap.auditor.caseAssignees,
+        caseDetail: (caseKey: string) => routeMap.auditor.caseDetail(caseKey),
+        updateCase: (caseKey: string) => routeMap.auditor.updateCase(caseKey),
+        addCaseComment: (caseKey: string) => routeMap.auditor.addCaseComment(caseKey),
+        initCaseEvidenceUpload: (caseKey: string) => routeMap.auditor.initCaseEvidenceUpload(caseKey),
+        confirmCaseEvidenceUpload: (evidenceId: string) => routeMap.auditor.confirmCaseEvidenceUpload(evidenceId),
+        downloadCaseEvidence: (evidenceId: string) => routeMap.auditor.downloadCaseEvidence(evidenceId),
         journals: () => routeMap.auditor.journals,
         journalDetail: (journalId: string) => routeMap.auditor.journalDetail(journalId),
         auditLogs: () => routeMap.auditor.auditLogs,
@@ -400,6 +443,8 @@ export const endpoints = {
         memberStatements: () => routeMap.reports.memberStatements,
         par: () => routeMap.reports.par,
         loanAging: () => routeMap.reports.loanAging,
+        auditEvidencePack: () => routeMap.reports.auditEvidencePack,
+        exportJobs: () => routeMap.reports.exportJobs,
         exportJob: (jobId: string) => routeMap.reports.exportJob(jobId),
         exportJobDownload: (jobId: string) => routeMap.reports.exportJobDownload(jobId)
     },
@@ -414,6 +459,15 @@ export const endpoints = {
     notificationSettings: {
         smsTriggers: () => routeMap.notificationSettings.smsTriggers,
         smsTrigger: (eventType: SmsTriggerEventType) => routeMap.notificationSettings.smsTrigger(eventType)
+    },
+    notifications: {
+        list: () => routeMap.notifications.list,
+        preferences: () => routeMap.notifications.preferences,
+        preference: (eventType: string) => routeMap.notifications.preference(eventType),
+        markRead: (notificationId: string) => routeMap.notifications.markRead(notificationId),
+        markAllRead: () => routeMap.notifications.markAllRead,
+        archive: (notificationId: string) => routeMap.notifications.archive(notificationId),
+        archiveRead: () => routeMap.notifications.archiveRead
     }
 };
 
@@ -960,6 +1014,13 @@ export interface ChargeRevenueSummaryQuery {
 export type ChargeRevenueSummaryResponse = ApiEnvelope<import("../types/api").ChargeRevenueSummary>;
 export type PaymentOrderStatusResponse = ApiEnvelope<{ order: PaymentOrder }>;
 export type ReconcilePaymentOrderResponse = ApiEnvelope<{ reconciled: boolean; order: PaymentOrder }>;
+export type NotificationsResponse = ApiEnvelope<NotificationListPayload>;
+export type NotificationResponse = ApiEnvelope<NotificationItem>;
+export type NotificationsMarkAllReadResponse = ApiEnvelope<{ updated: number }>;
+export type NotificationsArchiveResponse = ApiEnvelope<NotificationItem>;
+export type NotificationsArchiveReadResponse = ApiEnvelope<{ updated: number }>;
+export type NotificationPreferencesResponse = ApiEnvelope<NotificationPreferenceItem[]>;
+export type NotificationPreferenceResponse = ApiEnvelope<NotificationPreferenceItem>;
 
 export interface DividendComponentInput {
     type: "share_dividend" | "savings_interest_bonus" | "patronage_refund";
@@ -1058,10 +1119,23 @@ export interface StatementQuery {
 
 export type StatementsResponse = ApiEnvelope<StatementRow[]>;
 export type AuditorSummaryResponse = ApiEnvelope<AuditorSummary>;
+export type AuditorRiskSummaryResponse = ApiEnvelope<AuditorRiskSummary>;
+export type AuditorExceptionTrendsResponse = ApiEnvelope<AuditorExceptionTrends>;
+export type AuditorWorkstationOverviewResponse = ApiEnvelope<AuditorWorkstationOverview>;
 export type AuditorExceptionsResponse = ApiEnvelope<PaginatedResult<AuditorException>>;
 export type AuditorJournalsResponse = ApiEnvelope<PaginatedResult<AuditorJournal>>;
 export type AuditorJournalDetailResponse = ApiEnvelope<AuditorJournalDetail>;
 export type AuditorAuditLogsResponse = ApiEnvelope<PaginatedResult<AuditLogEntry>>;
+export type AuditorCaseAssigneesResponse = ApiEnvelope<AuditorCaseAssignee[]>;
+export type AuditorCaseDetailResponse = ApiEnvelope<AuditorCaseDetail>;
+export type AuditorCaseResponse = ApiEnvelope<Pick<
+    AuditorException,
+    "case_id" | "case_key" | "case_status" | "case_notes" | "case_assignee_user_id" | "case_assignee_name" | "case_resolved_at" | "case_updated_at"
+>>;
+export type AuditorCaseCommentResponse = ApiEnvelope<AuditorCaseComment>;
+export type AuditorEvidenceInitResponse = ApiEnvelope<AuditorEvidenceUploadInit>;
+export type AuditorCaseEvidenceResponse = ApiEnvelope<AuditorCaseEvidence>;
+export type AuditorEvidenceDownloadResponse = ApiEnvelope<AuditorEvidenceDownload>;
 
 export interface ReportExportJob {
     id: string;
@@ -1099,6 +1173,7 @@ export interface ReportExportJobDownloadData {
 }
 
 export type ReportExportJobCreateResponse = ApiEnvelope<ReportExportJobCreated>;
+export type ReportExportJobsResponse = ApiEnvelope<ReportExportJob[]>;
 export type ReportExportJobResponse = ApiEnvelope<ReportExportJob>;
 export type ReportExportJobDownloadResponse = ApiEnvelope<ReportExportJobDownloadData>;
 

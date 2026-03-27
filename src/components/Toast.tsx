@@ -1,7 +1,7 @@
 import { Alert, Snackbar } from "@mui/material";
 import { createContext, useContext, useMemo, useState, type PropsWithChildren } from "react";
 
-type ToastType = "success" | "error";
+type ToastType = "success" | "error" | "warning" | "info";
 
 interface ToastItem {
     id: number;

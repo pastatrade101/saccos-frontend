@@ -81,6 +81,7 @@ import { ChartPanel } from "../components/ChartPanel";
 import { DataTable, type Column } from "../components/DataTable";
 import { MemberOverview, type MemberAlertItem } from "../components/member-overview";
 import { LoanEligibilitySummary } from "../components/loan-capacity/LoanEligibilitySummary";
+import { NotificationBell } from "../components/notifications/NotificationBell";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { useToast } from "../components/Toast";
 import { AppLoader } from "../components/AppLoader";
@@ -6427,6 +6428,16 @@ export function MemberPortalPage() {
                                 <SearchRoundedIcon fontSize="small" sx={{ color: "text.secondary" }} />
                                 <InputBase placeholder="Search member workspace..." sx={{ flex: 1, fontSize: 14 }} />
                             </Paper>
+                            <NotificationBell
+                                tenantId={profile?.tenant_id || null}
+                                buttonSx={{
+                                    borderRadius: 1.5,
+                                    border: `1px solid ${alpha(theme.palette.divider, 0.9)}`
+                                }}
+                                menuPaperSx={{
+                                    borderRadius: 2
+                                }}
+                            />
                             <IconButton
                                 onClick={handleProfileMenuOpen}
                                 sx={{

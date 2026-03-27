@@ -11,6 +11,7 @@ import { SignupPage } from "./pages/Signup";
 import { SetupSuperAdminPage } from "./pages/SetupSuperAdmin";
 import { DashboardPage } from "./pages/Dashboard";
 import { AuditorDashboardPage } from "./pages/AuditorDashboard";
+import { AuditorWorkbenchPage } from "./pages/AuditorWorkbench";
 import { AuditorExceptionsPage } from "./pages/AuditorExceptions";
 import { AuditorJournalsPage } from "./pages/AuditorJournals";
 import { AuditorAuditLogsPage } from "./pages/AuditorAuditLogs";
@@ -36,6 +37,7 @@ import { MemberPortalPage } from "./pages/MemberPortal";
 import { MemberImportPage } from "./pages/MemberImport";
 import { ChangePasswordPage } from "./pages/ChangePassword";
 import { SecuritySettingsPage } from "./pages/SecuritySettings";
+import { NotificationsPage } from "./pages/Notifications";
 import { ResetPasswordPage } from "./pages/ResetPassword";
 import { ServiceUnavailablePage } from "./pages/ServiceUnavailable";
 import { PrivacyPolicyPage, TermsAgreementPage } from "./pages/LegalPages";
@@ -178,6 +180,7 @@ export default function App() {
             >
                 <Route path="/change-password" element={<ChangePasswordPage />} />
                 <Route path="/security" element={<SecuritySettingsPage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
             </Route>
             <Route element={<ProtectedRoute allowedRoles={["member"]} />}>
                 <Route path="/portal" element={<MemberPortalPage />} />
@@ -201,6 +204,7 @@ export default function App() {
                         }
                     >
                         <Route path="/auditor/exceptions" element={<AuditorExceptionsPage />} />
+                        <Route path="/auditor/workbench" element={<AuditorWorkbenchPage />} />
                         <Route path="/auditor/journals" element={<AuditorJournalsPage />} />
                         <Route path="/auditor/journals/:id" element={<AuditorJournalsPage />} />
                         <Route path="/auditor/audit-logs" element={<AuditorAuditLogsPage />} />

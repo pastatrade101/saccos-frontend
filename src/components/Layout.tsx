@@ -52,6 +52,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { NotificationBell } from "./notifications/NotificationBell";
 import { useUI } from "../ui/UIProvider";
 import { brandColors, darkThemeColors } from "../theme/colors";
 import { formatPlatformRole, formatRole } from "../utils/format";
@@ -89,6 +90,7 @@ const navItems: NavItem[] = [
     { to: "/member-applications", label: "Applications", roles: ["super_admin", "branch_manager", "auditor"], section: "workspace", icon: DescriptionRoundedIcon },
     { to: "/members", label: "Members", roles: ["super_admin", "branch_manager", "teller"], section: "workspace", icon: GroupRoundedIcon },
     { to: "/members/import", label: "Member Import", roles: ["branch_manager"], section: "workspace", icon: StoreRoundedIcon },
+    { to: "/auditor/workbench", label: "Workbench", roles: ["auditor"], section: "workspace", icon: HubRoundedIcon },
     { to: "/auditor/exceptions", label: "Exceptions", roles: ["auditor"], section: "workspace", icon: WarningAmberRoundedIcon },
     { to: "/auditor/journals", label: "Journals", roles: ["auditor"], section: "workspace", icon: RuleFolderRoundedIcon },
     { to: "/auditor/audit-logs", label: "Audit Logs", roles: ["auditor"], section: "workspace", icon: PolicyRoundedIcon },
@@ -110,7 +112,7 @@ const navGroups: NavGroup[] = [
     { key: "products", label: "Products", itemTos: ["/products"] },
     { key: "finance", label: "Finance", itemTos: ["/contributions", "/savings", "/loans", "/payments", "/revenue", "/dividends", "/cash-control", "/cash"] },
     { key: "operations", label: "Operations", itemTos: ["/approvals"] },
-    { key: "analytics", label: "Analytics", itemTos: ["/reports", "/auditor/reports", "/auditor/exceptions", "/auditor/journals", "/auditor/audit-logs"] },
+    { key: "analytics", label: "Analytics", itemTos: ["/reports", "/auditor/reports", "/auditor/workbench", "/auditor/exceptions", "/auditor/journals", "/auditor/audit-logs"] },
     { key: "setup", label: "Setup", itemTos: ["/setup/super-admin"] }
 ];
 
@@ -123,6 +125,7 @@ const searchKeywords: Partial<Record<NavItem["to"], string[]>> = {
     "/members/import": ["csv import", "bulk members", "credentials", "portal onboarding"],
     "/cash-control": ["receipt policy", "teller balancing", "daily cashbook", "cash summary"],
     "/auditor/exceptions": ["audit", "exceptions", "flags", "compliance"],
+    "/auditor/workbench": ["audit workbench", "branch risk", "patterns", "heatmap"],
     "/auditor/journals": ["audit", "journals", "ledger", "entries"],
     "/auditor/audit-logs": ["audit logs", "trail", "changes"],
     "/auditor/reports": ["audit reports", "exports", "compliance"],
@@ -169,6 +172,10 @@ function getPageSubtitle(pathname: string) {
 
     if (pathname.startsWith("/auditor/exceptions")) {
         return "Review flagged transactions, timing anomalies, and control exceptions.";
+    }
+
+    if (pathname.startsWith("/auditor/workbench")) {
+        return "Monitor branch heat, repeated offenders, and case backlog patterns.";
     }
 
     if (pathname.startsWith("/auditor/journals")) {
@@ -713,6 +720,14 @@ export function AppLayout() {
                             border: `1px solid ${alpha("#ffffff", 0.14)}`
                         }}
                     />
+                    {profile?.tenant_id ? (
+                        <NotificationBell
+                            tenantId={profile.tenant_id}
+                            iconColor="#ffffff"
+                            buttonSx={{ color: "#ffffff" }}
+                            menuPaperSx={{ borderRadius: 2 }}
+                        />
+                    ) : null}
                     <IconButton onClick={toggleTheme} sx={{ color: "#ffffff" }}>
                         {themeMode === "light" ? <DarkModeIconShim /> : <LightModeIconShim />}
                     </IconButton>
