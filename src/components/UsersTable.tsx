@@ -22,7 +22,7 @@ import type { Branch, StaffAccessUser } from "../types/api";
 import { MotionButton, MotionCard } from "../ui/motion";
 import { formatDate, formatRole } from "../utils/format";
 
-type StaffRole = "super_admin" | "branch_manager" | "loan_officer" | "teller" | "auditor";
+type StaffRole = "super_admin" | "branch_manager" | "treasury_officer" | "loan_officer" | "teller" | "auditor";
 
 interface UsersTableProps {
     users: StaffAccessUser[];
@@ -135,6 +135,7 @@ export function UsersTable({ users, branches, editable, loading = false, onSave,
                         <MenuItem value="all">All roles</MenuItem>
                         <MenuItem value="super_admin">Super Admin</MenuItem>
                         <MenuItem value="branch_manager">Branch Manager</MenuItem>
+                        <MenuItem value="treasury_officer">Treasury Officer</MenuItem>
                         <MenuItem value="loan_officer">Loan Officer</MenuItem>
                         <MenuItem value="teller">Teller</MenuItem>
                         <MenuItem value="auditor">Auditor</MenuItem>
@@ -186,6 +187,7 @@ export function UsersTable({ users, branches, editable, loading = false, onSave,
                                                 >
                                                     <MenuItem value="super_admin">Super Admin</MenuItem>
                                                     <MenuItem value="branch_manager">Branch Manager</MenuItem>
+                                                    <MenuItem value="treasury_officer">Treasury Officer</MenuItem>
                                                     <MenuItem value="loan_officer">Loan Officer</MenuItem>
                                                     <MenuItem value="teller">Teller</MenuItem>
                                                     <MenuItem value="auditor">Auditor</MenuItem>

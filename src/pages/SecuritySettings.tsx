@@ -65,7 +65,11 @@ export function SecuritySettingsPage() {
     }
 
     const twoFactorEnabled = Boolean(profile.two_factor_enabled && profile.two_factor_verified);
-    const backTarget = profile.role === "member" ? "/portal" : "/dashboard";
+    const backTarget = profile.role === "member"
+        ? "/portal"
+        : profile.role === "treasury_officer"
+            ? "/treasury"
+            : "/dashboard";
     const backLabel = profile.role === "member" ? "Back to portal" : "Back to workspace";
     const setupIntent = new URLSearchParams(location.search).get("intent");
 

@@ -14,6 +14,7 @@ import type { NotificationItem, NotificationStatus } from "../types/api";
 interface UseNotificationsOptions {
     tenantId?: string | null;
     recipientUserId?: string | null;
+    enabled?: boolean;
     recentOnly?: boolean;
     status?: "all" | NotificationStatus;
     limit?: number;
@@ -25,6 +26,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     const {
         tenantId,
         recipientUserId,
+        enabled = true,
         recentOnly = false,
         status = "all",
         limit = recentOnly ? 5 : 20,
@@ -45,10 +47,11 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     }, [onNewNotification]);
 
     const refresh = useCallback(async () => {
-        if (!tenantId) {
+        if (!enabled || !tenantId) {
             setItems([]);
             setUnreadCount(0);
             setTotal(0);
+            setError(null);
             return;
         }
 
@@ -72,7 +75,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         } finally {
             setLoading(false);
         }
-    }, [tenantId, recentOnly, status, limit]);
+    }, [enabled, tenantId, recentOnly, status, limit]);
 
     async function markRead(notificationId: string) {
         if (!notificationId) return null;
@@ -145,7 +148,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     useEffect(() => {
         void refresh();
 
-        if (!tenantId || !pollMs) {
+        if (!enabled || !tenantId || !pollMs) {
             return undefined;
         }
 
@@ -154,10 +157,10 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         }, pollMs);
 
         return () => window.clearInterval(timer);
-    }, [tenantId, pollMs, refresh]);
+    }, [enabled, tenantId, pollMs, refresh]);
 
     useEffect(() => {
-        if (!tenantId || !recipientUserId) {
+        if (!enabled || !tenantId || !recipientUserId) {
             return undefined;
         }
 
@@ -189,7 +192,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         return () => {
             void supabase.removeChannel(channel);
         };
-    }, [tenantId, recipientUserId, recentOnly, status, refresh]);
+    }, [enabled, tenantId, recipientUserId, recentOnly, status, refresh]);
 
     return {
         items,

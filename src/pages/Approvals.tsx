@@ -51,10 +51,11 @@ const STATUS_OPTIONS: Array<{ value: "all" | ApprovalRequestStatus; label: strin
     { value: "cancelled", label: "Cancelled" }
 ];
 
-const OPERATION_OPTIONS: Array<{ value: "all" | "finance.withdraw" | "finance.loan_disburse"; label: string }> = [
+const OPERATION_OPTIONS: Array<{ value: "all" | "finance.withdraw" | "finance.loan_disburse" | "treasury.order_execute"; label: string }> = [
     { value: "all", label: "All operations" },
     { value: "finance.withdraw", label: "Withdrawals" },
-    { value: "finance.loan_disburse", label: "Loan disbursements" }
+    { value: "finance.loan_disburse", label: "Loan disbursements" },
+    { value: "treasury.order_execute", label: "Treasury execution" }
 ];
 
 function statusChipColor(status: ApprovalRequestStatus): "default" | "success" | "warning" | "error" | "info" {
@@ -67,6 +68,7 @@ function statusChipColor(status: ApprovalRequestStatus): "default" | "success" |
 
 function operationLabel(operation: ApprovalRequest["operation_key"]) {
     if (operation === "finance.loan_disburse") return "Loan disbursement";
+    if (operation === "treasury.order_execute") return "Treasury execution";
     return "Withdrawal";
 }
 
@@ -112,7 +114,7 @@ export function ApprovalsPage() {
     const [limit] = useState(20);
     const [total, setTotal] = useState(0);
     const [status, setStatus] = useState<"all" | ApprovalRequestStatus>("pending");
-    const [operation, setOperation] = useState<"all" | "finance.withdraw" | "finance.loan_disburse">("all");
+    const [operation, setOperation] = useState<"all" | "finance.withdraw" | "finance.loan_disburse" | "treasury.order_execute">("all");
     const [mineOnly, setMineOnly] = useState(false);
     const [selected, setSelected] = useState<ApprovalRequest | null>(null);
     const [detailOpen, setDetailOpen] = useState(false);

@@ -265,6 +265,20 @@ const routeMap = {
         markAllRead: "/notifications/read-all",
         archive: (notificationId: string) => `/notifications/${notificationId}/archive`,
         archiveRead: "/notifications/archive-read"
+    },
+    treasury: {
+        overview: "/treasury/overview",
+        liquidity: "/treasury/liquidity",
+        policy: "/treasury/policy",
+        auditLog: "/treasury/audit-log",
+        assets: "/treasury/assets",
+        portfolio: "/treasury/portfolio",
+        valuation: (assetId: string) => `/treasury/portfolio/${assetId}/valuation`,
+        orders: "/treasury/orders",
+        reviewOrder: (orderId: string) => `/treasury/orders/${orderId}/review`,
+        executeOrder: (orderId: string) => `/treasury/orders/${orderId}/execute`,
+        transactions: "/treasury/transactions",
+        income: "/treasury/income"
     }
 } as const;
 
@@ -468,6 +482,20 @@ export const endpoints = {
         markAllRead: () => routeMap.notifications.markAllRead,
         archive: (notificationId: string) => routeMap.notifications.archive(notificationId),
         archiveRead: () => routeMap.notifications.archiveRead
+    },
+    treasury: {
+        overview: () => routeMap.treasury.overview,
+        liquidity: () => routeMap.treasury.liquidity,
+        policy: () => routeMap.treasury.policy,
+        auditLog: () => routeMap.treasury.auditLog,
+        assets: () => routeMap.treasury.assets,
+        portfolio: () => routeMap.treasury.portfolio,
+        valuation: (assetId: string) => routeMap.treasury.valuation(assetId),
+        orders: () => routeMap.treasury.orders,
+        reviewOrder: (orderId: string) => routeMap.treasury.reviewOrder(orderId),
+        executeOrder: (orderId: string) => routeMap.treasury.executeOrder(orderId),
+        transactions: () => routeMap.treasury.transactions,
+        income: () => routeMap.treasury.income
     }
 };
 
@@ -603,7 +631,7 @@ export interface CreateUserRequest {
     email: string;
     full_name: string;
     phone?: string | null;
-    role: "super_admin" | "branch_manager" | "loan_officer" | "teller" | "auditor";
+    role: "super_admin" | "branch_manager" | "treasury_officer" | "loan_officer" | "teller" | "auditor";
     branch_ids: string[];
     send_invite?: boolean;
     password?: string;
@@ -615,7 +643,7 @@ export type UsersListResponse = ApiEnvelope<import("../types/api").StaffAccessPa
 export interface UpdateUserRequest {
     full_name?: string;
     phone?: string | null;
-    role?: "super_admin" | "branch_manager" | "loan_officer" | "teller" | "auditor";
+    role?: "super_admin" | "branch_manager" | "treasury_officer" | "loan_officer" | "teller" | "auditor";
     is_active?: boolean;
     branch_ids?: string[];
 }

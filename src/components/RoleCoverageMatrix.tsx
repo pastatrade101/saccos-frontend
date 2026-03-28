@@ -19,7 +19,7 @@ export function RoleCoverageMatrix({
 }: RoleCoverageMatrixProps) {
     const rows = (Object.keys(roleCounts) as Array<keyof StaffRoleCounts>).map((role) => {
         const count = roleCounts[role];
-        const recommended = recommendedRoleMinimums[role];
+        const recommended = recommendedRoleMinimums[role] ?? 0;
         const status = getCoverageStatus(role, count);
 
         return {
@@ -55,7 +55,7 @@ export function RoleCoverageMatrix({
                             <TableRow key={row.role} hover>
                                 <TableCell>{roleCoverageLabels[row.role]}</TableCell>
                                 <TableCell>{row.count}</TableCell>
-                                <TableCell>{row.recommended}</TableCell>
+                                <TableCell>{row.recommended > 0 ? row.recommended : "Optional"}</TableCell>
                                 <TableCell>
                                     <Chip
                                         size="small"

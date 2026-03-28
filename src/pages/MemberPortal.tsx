@@ -547,9 +547,13 @@ function buildRepaymentInsights(loan: Loan | null, schedules: LoanSchedule[], am
 const contributionProviderOptions: Array<{ value: ContributionPaymentValues["provider"]; label: string; helper: string }> = [
     { value: "vodacom", label: "Vodacom M-Pesa", helper: "Best for members paying with M-Pesa." },
     { value: "airtel", label: "Airtel Money", helper: "Use Airtel Money on the registered phone number." },
-    { value: "tigo", label: "Tigo Pesa", helper: "Send a contribution request through Tigo Pesa." },
+    { value: "tigo", label: "Mixx by Yas (Tigo)", helper: "Use Mixx by Yas on numbers previously registered with Tigo." },
     { value: "halopesa", label: "HaloPesa", helper: "Use HaloPesa when your phone is registered there." }
 ];
+
+const PAYMENT_APPROVAL_EXPECTATION_MS = 90 * 1000;
+const PAYMENT_PENDING_POLL_MS = 2000;
+const PAYMENT_HANDSET_RESPONSE_POLL_MS = 1200;
 
 const portalSections = [
     {
@@ -585,7 +589,7 @@ const portalSections = [
     {
         id: "member-payments",
         label: "Payments",
-        subtitle: "Track Azam Pay requests, failures, and posted mobile money receipts.",
+        subtitle: "Track Mobile Money requests, failures, and posted mobile money receipts.",
         icon: WorkspacesRoundedIcon
     }
 ] as const;
@@ -827,7 +831,7 @@ export function MemberPortalPage() {
     const navigate = useNavigate();
     const isDesktop = useMediaQuery(theme.breakpoints.up("lg"));
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-    const { profile, selectedTenantName, selectedBranchName, signOut, user } = useAuth();
+    const { profile, selectedTenantName, selectedBranchName, signOut, user, twoFactorSetupRequired } = useAuth();
     const canUsePortalDeposits = true;
     const { pushToast } = useToast();
     const { theme: themeMode, toggleTheme } = useUI();
@@ -860,6 +864,8 @@ export function MemberPortalPage() {
     const [submittingApplication, setSubmittingApplication] = useState(false);
     const [submittingContribution, setSubmittingContribution] = useState(false);
     const [reconcilingPayment, setReconcilingPayment] = useState(false);
+    const [checkingPaymentStatus, setCheckingPaymentStatus] = useState(false);
+    const [phoneCancellationRequested, setPhoneCancellationRequested] = useState(false);
     const [paymentFlowPurpose, setPaymentFlowPurpose] = useState<MemberPaymentPurpose>("share_contribution");
     const [paymentOrder, setPaymentOrder] = useState<PaymentOrder | null>(null);
     const [paymentOrders, setPaymentOrders] = useState<PaymentOrder[]>([]);
@@ -1391,7 +1397,21 @@ export function MemberPortalPage() {
                 emptyAccountMessage: "A share account will be prepared automatically when this contribution starts."
             };
     const contributionFlowState = submittingContribution ? "initiating" : trackedContributionOrder?.status || null;
-    const gatewayStillConfirming = contributionFlowState === "pending" && trackedContributionOrder?.error_code === "AZAMPAY_TIMEOUT";
+    const pendingOrderCreatedMs = trackedContributionOrder?.created_at ? Date.parse(trackedContributionOrder.created_at) : Number.NaN;
+    const pendingOrderExpiryMs = trackedContributionOrder?.expires_at ? Date.parse(trackedContributionOrder.expires_at) : Number.NaN;
+    const pendingOrderElapsedMs = Number.isFinite(pendingOrderCreatedMs)
+        ? Math.max(Date.now() - pendingOrderCreatedMs, 0)
+        : 0;
+    const pendingOrderMinutesRemaining = Number.isFinite(pendingOrderExpiryMs)
+        ? Math.max(Math.ceil((pendingOrderExpiryMs - Date.now()) / 60000), 0)
+        : null;
+    const pendingOrderExpiryLabel = trackedContributionOrder?.expires_at ? formatDate(trackedContributionOrder.expires_at) : null;
+    const gatewayStillConfirming = contributionFlowState === "pending"
+        && ["AZAMPAY_TIMEOUT", "SNIPPE_TIMEOUT"].includes(String(trackedContributionOrder?.error_code || ""));
+    const paymentApprovalTakingLongerThanExpected = contributionFlowState === "pending"
+        && !phoneCancellationRequested
+        && !gatewayStillConfirming
+        && pendingOrderElapsedMs >= PAYMENT_APPROVAL_EXPECTATION_MS;
     const contributionFlowProgress = contributionFlowState === "initiating"
         ? 18
         : contributionFlowState === "pending"
@@ -1411,11 +1431,15 @@ export function MemberPortalPage() {
                 ? "warning"
                 : "info";
     const contributionFlowTitle = contributionFlowState === "initiating"
-        ? "Contacting Azam Pay"
+        ? "Contacting Mobile Money"
         : contributionFlowState === "pending"
-            ? gatewayStillConfirming
-                ? "Gateway still confirming"
-                : "Waiting for phone approval"
+            ? phoneCancellationRequested
+                ? "Listening for cancellation callback"
+                : gatewayStillConfirming
+                    ? "Gateway still confirming"
+                    : paymentApprovalTakingLongerThanExpected
+                        ? "Approval is taking longer than usual"
+                        : "Waiting for phone approval"
             : contributionFlowState === "paid"
                 ? "Payment received"
                 : contributionFlowState === "posted"
@@ -1430,19 +1454,23 @@ export function MemberPortalPage() {
                             ? "Payment expired"
                             : `Make ${activePaymentCopy.title}`;
     const contributionFlowMessage = contributionFlowState === "initiating"
-        ? "The portal is creating the Azam Pay request and waiting for the gateway to acknowledge it."
+        ? "The portal is creating the Mobile Money request and waiting for the gateway to acknowledge it."
         : contributionFlowState === "pending"
-            ? gatewayStillConfirming
-                ? "Azam Pay did not answer before the timeout, but the order is still open and being tracked. If you already approved on your phone, keep this dialog open while callback confirmation arrives."
-                : "Approve the mobile money prompt on your phone. The request has been sent to Azam Pay."
+            ? phoneCancellationRequested
+                ? `You indicated that you cancelled on the phone. The source of truth is the provider callback, and the portal is polling for it now. If the provider confirms cancellation, this screen will update automatically. The provider window${pendingOrderMinutesRemaining !== null ? ` still remains open for about ${pendingOrderMinutesRemaining} more minute(s)` : " remains open"} only as a fallback expiry if no callback arrives.`
+                : gatewayStillConfirming
+                    ? "Mobile Money did not answer before the timeout, but the order is still open and being tracked. If you already approved on your phone, keep this dialog open while callback confirmation arrives."
+                    : paymentApprovalTakingLongerThanExpected
+                        ? `Most phone approvals arrive within about 1 minute. The portal is still listening for the provider callback${pendingOrderMinutesRemaining !== null ? ` while the provider window stays open for about ${pendingOrderMinutesRemaining} more minute(s)` : ""}, but you do not need to stay on this screen. Use Check Status if you already responded on your phone, or close and track it later from Payments.`
+                        : "Approve the mobile money prompt on your phone. If you cancel on the handset, use Check status after a few seconds so the portal can pick up the terminal result."
             : contributionFlowState === "paid"
                 ? activePaymentPurpose === "savings_deposit"
-                    ? "Azam Pay confirmed the payment. The backend is now posting the savings deposit into your account."
+                    ? "Mobile Money confirmed the payment. The backend is now posting the savings deposit into your account."
                     : activePaymentPurpose === "membership_fee"
-                        ? "Azam Pay confirmed the payment. The backend is now posting the membership fee and activating your membership."
+                        ? "Mobile Money confirmed the payment. The backend is now posting the membership fee and activating your membership."
                         : activePaymentPurpose === "loan_repayment"
-                            ? "Azam Pay confirmed the payment. The backend is now allocating the repayment into interest and principal."
-                    : "Azam Pay confirmed the payment. The backend is now posting the contribution into your share account."
+                            ? "Mobile Money confirmed the payment. The backend is now allocating the repayment into interest and principal."
+                    : "Mobile Money confirmed the payment. The backend is now posting the contribution into your share account."
                 : contributionFlowState === "posted"
                     ? activePaymentPurpose === "savings_deposit"
                         ? "The savings deposit is now reflected in your account and statement history."
@@ -1452,7 +1480,7 @@ export function MemberPortalPage() {
                                 ? "The repayment is now posted against your loan schedule and statement history."
                         : "The contribution is now reflected in your account and statement history."
                     : contributionFlowState === "failed"
-                        ? trackedContributionOrder?.error_message || "Azam Pay reported a payment failure."
+                        ? trackedContributionOrder?.error_message || "Mobile Money reported a payment failure."
                         : contributionFlowState === "expired"
                             ? trackedContributionOrder?.error_message || "The mobile money request expired before approval."
                             : `Start a ${activePaymentCopy.noun} request and follow the progress here.`;
@@ -1473,9 +1501,11 @@ export function MemberPortalPage() {
             : "idle";
     const showBackgroundActivity = contributionFlowState === "initiating" || contributionFlowState === "pending" || contributionFlowState === "paid";
     const backgroundActivityMessage = contributionFlowState === "initiating"
-        ? "Creating the Azam Pay request..."
+        ? "Creating the Mobile Money request..."
         : contributionFlowState === "pending"
-            ? "Waiting for the mobile money approval and Azam callback..."
+            ? phoneCancellationRequested
+                ? "Listening for the provider callback after handset cancellation..."
+                : "Waiting for the mobile money approval and gateway webhook confirmation..."
             : activePaymentPurpose === "membership_fee"
                 ? "Payment is confirmed. Posting the membership fee in the background..."
                 : activePaymentPurpose === "loan_repayment"
@@ -1535,6 +1565,7 @@ export function MemberPortalPage() {
         }
 
         setPaymentFlowPurpose(purpose);
+        setPhoneCancellationRequested(false);
         const latestOrder = purpose === "savings_deposit"
             ? latestSavingsPaymentOrder
             : purpose === "membership_fee"
@@ -1581,6 +1612,7 @@ export function MemberPortalPage() {
 
     const prepareAnotherContribution = () => {
         setActiveContributionOrderId(null);
+        setPhoneCancellationRequested(false);
         if (paymentFlowPurpose === "loan_repayment") {
             setLoanRepaymentDefaults(contributionPaymentForm.getValues("loan_id"));
             return;
@@ -1593,6 +1625,20 @@ export function MemberPortalPage() {
             provider: contributionPaymentForm.getValues("provider") || "vodacom",
             msisdn: contributionPaymentForm.getValues("msisdn") || profile?.phone || "",
             description: ""
+        });
+    };
+
+    const handleStopTrackingPayment = () => {
+        const openOrder = trackedContributionOrder;
+        setActiveContributionOrderId(null);
+        setPhoneCancellationRequested(false);
+        setShowContributionDialog(false);
+        pushToast({
+            title: "Tracking closed",
+            message: openOrder?.status === "pending"
+                ? "This payment request is still open in the background. You can reopen it from Payments or start again later if it expires."
+                : "The payment progress dialog has been closed.",
+            type: "info"
         });
     };
 
@@ -1700,15 +1746,123 @@ export function MemberPortalPage() {
         }
     };
 
+    const handleMarkCancelledOnPhone = () => {
+        setPhoneCancellationRequested(true);
+        void refreshTrackedPaymentOrder(false);
+        pushToast({
+            title: "Phone cancellation noted",
+            message: "The portal is now listening for the provider callback. If handset cancellation is confirmed, this screen will update automatically.",
+            type: "info"
+        });
+    };
+
+    const refreshTrackedPaymentOrder = async (manual = false) => {
+        const trackedOrderId = trackedContributionOrder?.id || activeContributionOrderId;
+        if (!trackedOrderId) {
+            return null;
+        }
+
+        if (manual) {
+            setCheckingPaymentStatus(true);
+        }
+
+        try {
+            const { data } = await api.get<PaymentOrderStatusResponse>(
+                endpoints.memberPayments.orderStatus(trackedOrderId)
+            );
+            const nextOrder = mergePaymentOrder(data.data.order, false);
+
+            if (nextOrder.status === "paid" && lastPaymentToastStatus !== "paid") {
+                setLastPaymentToastStatus("paid");
+                pushToast({
+                    title: "Payment confirmed",
+                    message: nextOrder.purpose === "savings_deposit"
+                        ? "Mobile Money marked the order as paid. The system is now posting it into your savings account."
+                        : nextOrder.purpose === "membership_fee"
+                            ? "Mobile Money marked the order as paid. The system is now posting the membership fee and activating your profile."
+                            : nextOrder.purpose === "loan_repayment"
+                                ? "Mobile Money marked the order as paid. The system is now allocating the repayment into your loan."
+                                : "Mobile Money marked the order as paid. The system is now posting it into your share account.",
+                    type: "success"
+                });
+            }
+
+            if (nextOrder.status === "posted" && lastPaymentToastStatus !== "posted") {
+                setLastPaymentToastStatus("posted");
+                await refreshMemberContributionData(nextOrder.member_id);
+                pushToast({
+                    title: nextOrder.purpose === "savings_deposit"
+                        ? "Savings posted"
+                        : nextOrder.purpose === "membership_fee"
+                            ? "Membership activated"
+                            : nextOrder.purpose === "loan_repayment"
+                                ? "Repayment posted"
+                                : "Contribution posted",
+                    message: nextOrder.purpose === "savings_deposit"
+                        ? "Your mobile money savings deposit is now reflected in the system."
+                        : nextOrder.purpose === "membership_fee"
+                            ? "Your membership fee is posted and your member profile is now active."
+                            : nextOrder.purpose === "loan_repayment"
+                                ? "Your loan repayment is now reflected in the system."
+                                : "Your mobile money contribution is now reflected in the system.",
+                    type: "success"
+                });
+            }
+
+            if (nextOrder.status === "failed" && lastPaymentToastStatus !== "failed") {
+                setLastPaymentToastStatus("failed");
+                pushToast({
+                    title: "Payment failed",
+                    message: nextOrder.error_message || "Mobile Money reported a payment failure.",
+                    type: "error"
+                });
+            }
+
+            if (nextOrder.status === "expired" && lastPaymentToastStatus !== "expired") {
+                setLastPaymentToastStatus("expired");
+                pushToast({
+                    title: "Payment expired",
+                    message: nextOrder.error_message || "The payment session expired before completion.",
+                    type: "error"
+                });
+            }
+
+            if (manual && nextOrder.status === "pending") {
+                pushToast({
+                    title: "Still waiting for confirmation",
+                    message: "If you cancelled on the phone, wait a few seconds and check again. Pending requests will also expire automatically if the provider does not confirm them.",
+                    type: "info"
+                });
+            }
+
+            return nextOrder;
+        } catch (error) {
+            if (manual) {
+                pushToast({
+                    title: "Status check failed",
+                    message: getApiErrorMessage(error, "Unable to refresh the payment status right now."),
+                    type: "error"
+                });
+            } else {
+                console.warn("[member-portal] payment status poll failed", error);
+            }
+            return null;
+        } finally {
+            if (manual) {
+                setCheckingPaymentStatus(false);
+            }
+        }
+    };
+
     const handleReconcilePaymentOrder = async () => {
-        if (!paymentOrder) {
+        if (!trackedContributionOrder) {
             return;
         }
 
         setReconcilingPayment(true);
         try {
             const { data } = await api.post<ReconcilePaymentOrderResponse>(
-                endpoints.memberPayments.reconcile(paymentOrder.id)
+                endpoints.memberPayments.reconcile(trackedContributionOrder.id)
             );
             const nextOrder = mergePaymentOrder(data.data.order);
 
@@ -1724,12 +1878,12 @@ export function MemberPortalPage() {
                                     ? "Repayment posted"
                                 : "Contribution posted",
                         message: nextOrder.purpose === "savings_deposit"
-                            ? "The paid Azam Pay order has been posted into your savings account."
+                            ? "The paid Mobile Money order has been posted into your savings account."
                             : nextOrder.purpose === "membership_fee"
-                                ? "The paid Azam Pay order has posted the membership fee and activated your member profile."
+                                ? "The paid Mobile Money order has posted the membership fee and activated your member profile."
                                 : nextOrder.purpose === "loan_repayment"
-                                    ? "The paid Azam Pay order has been posted into your loan and statements."
-                                : "The paid Azam Pay order has been posted into your share account.",
+                                    ? "The paid Mobile Money order has been posted into your loan and statements."
+                                : "The paid Mobile Money order has been posted into your share account.",
                         type: "success"
                     });
                     return;
@@ -1790,6 +1944,7 @@ export function MemberPortalPage() {
             const nextOrder = mergePaymentOrder(data.data.order);
             const pendingConfirmation = data.data.processing_state === "pending_confirmation";
             setActiveContributionOrderId(nextOrder.id);
+            setPhoneCancellationRequested(false);
             setLastPaymentToastStatus(nextOrder.status);
             if (paymentFlowPurpose === "loan_repayment") {
                 setLoanRepaymentDefaults(values.loan_id);
@@ -1805,7 +1960,7 @@ export function MemberPortalPage() {
             }
             pushToast({
                 title: pendingConfirmation
-                    ? "Azam Pay still processing"
+                    ? "Mobile Money still processing"
                     : paymentFlowPurpose === "savings_deposit"
                         ? "Savings payment initiated"
                         : paymentFlowPurpose === "membership_fee"
@@ -1814,14 +1969,14 @@ export function MemberPortalPage() {
                                 ? "Loan repayment initiated"
                             : "Payment initiated",
                 message: pendingConfirmation
-                    ? "Azam Pay did not respond in time, but the order is still being tracked. Keep the dialog open while callback confirmation arrives."
+                    ? "Mobile Money did not respond in time, but the order is still being tracked. Keep the dialog open while callback confirmation arrives."
                     : paymentFlowPurpose === "savings_deposit"
-                        ? "Approve the Azam Pay prompt on your phone. The savings deposit will post automatically after confirmation."
+                        ? "Approve the Mobile Money prompt on your phone. The savings deposit will post automatically after confirmation."
                         : paymentFlowPurpose === "membership_fee"
-                            ? "Approve the Azam Pay prompt on your phone. The membership fee will post automatically after confirmation."
+                            ? "Approve the Mobile Money prompt on your phone. The membership fee will post automatically after confirmation."
                             : paymentFlowPurpose === "loan_repayment"
-                                ? "Approve the Azam Pay prompt on your phone. The repayment will post automatically into your loan after confirmation."
-                        : "Approve the Azam Pay prompt on your phone. The contribution will post automatically after confirmation.",
+                                ? "Approve the Mobile Money prompt on your phone. The repayment will post automatically into your loan after confirmation."
+                        : "Approve the Mobile Money prompt on your phone. The contribution will post automatically after confirmation.",
                 type: "success"
             });
         } catch (error) {
@@ -1836,12 +1991,12 @@ export function MemberPortalPage() {
                 message: getApiErrorMessage(
                     error,
                     paymentFlowPurpose === "savings_deposit"
-                        ? "Unable to start the Azam Pay savings deposit."
+                        ? "Unable to start the Mobile Money savings deposit."
                         : paymentFlowPurpose === "membership_fee"
-                            ? "Unable to start the Azam Pay membership fee payment."
+                            ? "Unable to start the Mobile Money membership fee payment."
                             : paymentFlowPurpose === "loan_repayment"
-                                ? "Unable to start the Azam Pay loan repayment."
-                        : "Unable to start the Azam Pay contribution."
+                                ? "Unable to start the Mobile Money loan repayment."
+                        : "Unable to start the Mobile Money contribution."
                 ),
                 type: "error"
             });
@@ -2675,78 +2830,42 @@ export function MemberPortalPage() {
     }, [contributionPaymentForm, paymentFlowPurpose, paymentTargetAccounts]);
 
     useEffect(() => {
-        if (!paymentOrder?.id || !["pending", "paid"].includes(paymentOrder.status)) {
+        if (!trackedContributionOrder?.id || !["pending", "paid"].includes(trackedContributionOrder.status)) {
             return undefined;
         }
 
-        const timeoutId = window.setTimeout(async () => {
-            try {
-                const { data } = await api.get<PaymentOrderStatusResponse>(
-                    endpoints.memberPayments.orderStatus(paymentOrder.id)
-                );
-                const nextOrder = mergePaymentOrder(data.data.order, false);
+        const nextPollDelay = trackedContributionOrder.status === "pending"
+            ? (phoneCancellationRequested ? PAYMENT_HANDSET_RESPONSE_POLL_MS : PAYMENT_PENDING_POLL_MS)
+            : 2500;
 
-                if (nextOrder.status === "paid" && lastPaymentToastStatus !== "paid") {
-                    setLastPaymentToastStatus("paid");
-                    pushToast({
-                        title: "Payment confirmed",
-                        message: nextOrder.purpose === "savings_deposit"
-                            ? "Azam Pay marked the order as paid. The system is now posting it into your savings account."
-                            : nextOrder.purpose === "membership_fee"
-                                ? "Azam Pay marked the order as paid. The system is now posting the membership fee and activating your profile."
-                                : nextOrder.purpose === "loan_repayment"
-                                    ? "Azam Pay marked the order as paid. The system is now allocating the repayment into your loan."
-                            : "Azam Pay marked the order as paid. The system is now posting it into your share account.",
-                        type: "success"
-                    });
-                }
+        let cancelled = false;
+        let timeoutId: number | undefined;
 
-                if (nextOrder.status === "posted" && lastPaymentToastStatus !== "posted") {
-                    setLastPaymentToastStatus("posted");
-                    await refreshMemberContributionData(nextOrder.member_id);
-                    pushToast({
-                        title: nextOrder.purpose === "savings_deposit"
-                            ? "Savings posted"
-                            : nextOrder.purpose === "membership_fee"
-                                ? "Membership activated"
-                                : nextOrder.purpose === "loan_repayment"
-                                    ? "Repayment posted"
-                                : "Contribution posted",
-                        message: nextOrder.purpose === "savings_deposit"
-                            ? "Your mobile money savings deposit is now reflected in the system."
-                            : nextOrder.purpose === "membership_fee"
-                                ? "Your membership fee is posted and your member profile is now active."
-                                : nextOrder.purpose === "loan_repayment"
-                                    ? "Your loan repayment is now reflected in the system."
-                                : "Your mobile money contribution is now reflected in the system.",
-                        type: "success"
-                    });
-                }
+        const poll = async () => {
+            await refreshTrackedPaymentOrder(false);
 
-                if (nextOrder.status === "failed" && lastPaymentToastStatus !== "failed") {
-                    setLastPaymentToastStatus("failed");
-                    pushToast({
-                        title: "Payment failed",
-                        message: nextOrder.error_message || "Azam Pay reported a payment failure.",
-                        type: "error"
-                    });
-                }
-
-                if (nextOrder.status === "expired" && lastPaymentToastStatus !== "expired") {
-                    setLastPaymentToastStatus("expired");
-                    pushToast({
-                        title: "Payment expired",
-                        message: nextOrder.error_message || "The payment session expired before completion.",
-                        type: "error"
-                    });
-                }
-            } catch (error) {
-                console.warn("[member-portal] payment status poll failed", error);
+            if (cancelled) {
+                return;
             }
-        }, paymentOrder.status === "pending" ? 4500 : 2500);
 
-        return () => window.clearTimeout(timeoutId);
-    }, [lastPaymentToastStatus, paymentOrder?.id, paymentOrder?.status]);
+            timeoutId = window.setTimeout(poll, nextPollDelay);
+        };
+
+        timeoutId = window.setTimeout(poll, nextPollDelay);
+
+        return () => {
+            cancelled = true;
+            if (timeoutId) {
+                window.clearTimeout(timeoutId);
+            }
+        };
+    }, [trackedContributionOrder?.id, trackedContributionOrder?.status, phoneCancellationRequested, lastPaymentToastStatus]);
+
+    useEffect(() => {
+        if (trackedContributionOrder?.status !== "pending") {
+            setPhoneCancellationRequested(false);
+        }
+    }, [trackedContributionOrder?.id, trackedContributionOrder?.status]);
 
     useEffect(() => {
         setTransactionsPage(0);
@@ -4268,13 +4387,13 @@ export function MemberPortalPage() {
                             <Grid size={{ xs: 12, md: 7 }}>
                                 <Stack spacing={1.15}>
                                     <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: 1.4 }}>
-                                        Azam Pay Deposit
+                                        Mobile Money Deposit
                                     </Typography>
                                     <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
                                         Deposit into savings or contributions from one portal flow.
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary">
-                                        Start one Azam Pay deposit request, choose whether it goes to savings or share contributions, approve it on your phone, and the backend will post it automatically after confirmation.
+                                        Start one Mobile Money deposit request, choose whether it goes to savings or share contributions, approve it on your phone, and the backend will post it automatically after confirmation.
                                     </Typography>
                                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                                         <Chip label={`${savingsAccounts.length} savings account(s)`} variant="outlined" />
@@ -4876,7 +4995,7 @@ export function MemberPortalPage() {
                                             : undefined
                                     }
                                 >
-                                    Repay with Azam Pay
+                                    Repay with Mobile Money
                                 </Button>
                             ) : null}
                             <Button
@@ -5412,13 +5531,13 @@ export function MemberPortalPage() {
                             <Grid size={{ xs: 12, md: 7 }}>
                                 <Stack spacing={1.15}>
                                     <Typography variant="overline" sx={{ color: memberAccent, letterSpacing: 1.4 }}>
-                                        Azam Pay Deposits
+                                        Mobile Money Deposits
                                     </Typography>
                                     <Typography variant="h5" sx={{ fontWeight: 800, letterSpacing: "-0.02em" }}>
                                         Use one deposit flow for contributions and savings.
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary">
-                                        Choose whether the money should land in your share contribution account or your savings account, approve on your phone, and let the backend post it automatically after Azam Pay confirms success.
+                                        Choose whether the money should land in your share contribution account or your savings account, approve on your phone, and let the backend post it automatically after Mobile Money confirms success.
                                     </Typography>
                                     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                                         <Chip label={`${shareAccounts.length} share account(s)`} variant="outlined" />
@@ -5835,7 +5954,7 @@ export function MemberPortalPage() {
                             Member payment history
                         </Typography>
                         <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.08, maxWidth: 760 }}>
-                            Review every Azam Pay request like a receipt ledger, including failed and expired attempts.
+                            Review every Mobile Money request like a receipt ledger, including failed and expired attempts.
                         </Typography>
                         <Typography variant="body2" sx={{ color: alpha("#FFFFFF", 0.84), maxWidth: 780 }}>
                             Track initiated amounts, approval outcomes, posted journals, timeout cases, and payment references in one member-facing timeline.
@@ -6428,16 +6547,18 @@ export function MemberPortalPage() {
                                 <SearchRoundedIcon fontSize="small" sx={{ color: "text.secondary" }} />
                                 <InputBase placeholder="Search member workspace..." sx={{ flex: 1, fontSize: 14 }} />
                             </Paper>
-                            <NotificationBell
-                                tenantId={profile?.tenant_id || null}
-                                buttonSx={{
-                                    borderRadius: 1.5,
-                                    border: `1px solid ${alpha(theme.palette.divider, 0.9)}`
-                                }}
-                                menuPaperSx={{
-                                    borderRadius: 2
-                                }}
-                            />
+                            {!twoFactorSetupRequired ? (
+                                <NotificationBell
+                                    tenantId={profile?.tenant_id || null}
+                                    buttonSx={{
+                                        borderRadius: 1.5,
+                                        border: `1px solid ${alpha(theme.palette.divider, 0.9)}`
+                                    }}
+                                    menuPaperSx={{
+                                        borderRadius: 2
+                                    }}
+                                />
+                            ) : null}
                             <IconButton
                                 onClick={handleProfileMenuOpen}
                                 sx={{
@@ -6828,7 +6949,7 @@ export function MemberPortalPage() {
                                     <Stack spacing={1.2}>
                                         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                                             <Chip
-                                                label={submittingContribution ? "1. Contacting Azam" : "1. Request created"}
+                                                label={submittingContribution ? "1. Contacting gateway" : "1. Request created"}
                                                 color={contributionRequestStepState === "complete" ? "success" : contributionRequestStepState === "active" ? "primary" : "default"}
                                                 variant={contributionRequestStepState === "idle" ? "outlined" : "filled"}
                                             />
@@ -6862,6 +6983,11 @@ export function MemberPortalPage() {
                                                 </Typography>
                                             </Stack>
                                         ) : null}
+                                        {paymentApprovalTakingLongerThanExpected ? (
+                                            <Alert severity="warning" variant="outlined">
+                                                This approval is taking longer than expected. The provider can keep the request open for several more minutes, but you can safely close this dialog and check it later from Payments.
+                                            </Alert>
+                                        ) : null}
                                         {trackedContributionOrder ? (
                                             <Stack spacing={0.6}>
                                                 <Typography variant="body2" color="text.secondary">
@@ -6870,6 +6996,12 @@ export function MemberPortalPage() {
                                                 <Typography variant="body2" color="text.secondary">
                                                     Reference: {trackedContributionOrder.provider_ref || trackedContributionOrder.external_id}
                                                 </Typography>
+                                                {trackedContributionOrder.status === "pending" && trackedContributionOrder.expires_at ? (
+                                                    <Typography variant="body2" color={phoneCancellationRequested ? "warning.main" : "text.secondary"}>
+                                                        {phoneCancellationRequested ? "Fallback expiry if no callback arrives" : "Provider window closes"}: {formatDate(trackedContributionOrder.expires_at)}
+                                                        {pendingOrderMinutesRemaining !== null ? ` · about ${pendingOrderMinutesRemaining} minute(s) remaining` : ""}
+                                                    </Typography>
+                                                ) : null}
                                                 {trackedContributionOrder.purpose === "loan_repayment" ? (
                                                     <Typography variant="body2" color="text.secondary">
                                                         Loan: {trackedContributionOrder.loan_number || trackedContributionOrder.loan_id || "Unknown loan"}
@@ -7309,6 +7441,29 @@ export function MemberPortalPage() {
                 <DialogActions>
                     {contributionFlowState ? (
                         <>
+                            {trackedContributionOrder?.status === "pending" && !phoneCancellationRequested ? (
+                                <Button onClick={handleMarkCancelledOnPhone} disabled={checkingPaymentStatus}>
+                                    I Cancelled on Phone
+                                </Button>
+                            ) : null}
+                            {trackedContributionOrder?.status === "pending" ? (
+                                <Button
+                                    variant={paymentApprovalTakingLongerThanExpected ? "contained" : "text"}
+                                    onClick={() => void refreshTrackedPaymentOrder(true)}
+                                    disabled={checkingPaymentStatus}
+                                >
+                                    {checkingPaymentStatus ? "Checking..." : "Check Status"}
+                                </Button>
+                            ) : null}
+                            {trackedContributionOrder?.status === "pending" ? (
+                                <Button
+                                    variant={paymentApprovalTakingLongerThanExpected ? "outlined" : "text"}
+                                    onClick={handleStopTrackingPayment}
+                                    disabled={checkingPaymentStatus || submittingContribution}
+                                >
+                                    {paymentApprovalTakingLongerThanExpected ? "Close and Track Later" : "Stop Tracking"}
+                                </Button>
+                            ) : null}
                             {trackedContributionOrder?.status === "paid" && !trackedContributionOrder.posted_at ? (
                                 <Button onClick={() => void handleReconcilePaymentOrder()} disabled={reconcilingPayment}>
                                     {reconcilingPayment ? "Reconciling..." : "Reconcile Payment"}

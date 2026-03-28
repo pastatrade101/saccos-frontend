@@ -10,6 +10,7 @@ import type { NotificationPreferenceItem } from "../types/api";
 
 interface UseNotificationPreferencesOptions {
     tenantId?: string | null;
+    enabled?: boolean;
 }
 
 interface UpdateNotificationPreferenceInput {
@@ -19,7 +20,7 @@ interface UpdateNotificationPreferenceInput {
 }
 
 export function useNotificationPreferences(options: UseNotificationPreferencesOptions = {}) {
-    const { tenantId } = options;
+    const { tenantId, enabled = true } = options;
 
     const [items, setItems] = useState<NotificationPreferenceItem[]>([]);
     const [loading, setLoading] = useState(false);
@@ -27,8 +28,9 @@ export function useNotificationPreferences(options: UseNotificationPreferencesOp
     const [error, setError] = useState<string | null>(null);
 
     const refresh = useCallback(async () => {
-        if (!tenantId) {
+        if (!enabled || !tenantId) {
             setItems([]);
+            setError(null);
             return;
         }
 
@@ -45,10 +47,10 @@ export function useNotificationPreferences(options: UseNotificationPreferencesOp
         } finally {
             setLoading(false);
         }
-    }, [tenantId]);
+    }, [enabled, tenantId]);
 
     async function updatePreference(eventType: string, payload: UpdateNotificationPreferenceInput) {
-        if (!tenantId || !eventType) return null;
+        if (!enabled || !tenantId || !eventType) return null;
 
         setSavingEventType(eventType);
         try {

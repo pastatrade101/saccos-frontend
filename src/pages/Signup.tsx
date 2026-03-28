@@ -158,7 +158,7 @@ type SignupValues = z.infer<typeof schema>;
 const featurePoints = [
     "Your request arrives directly to the selected branch manager.",
     "Track the application status until approval and activation.",
-    "Pay the membership fee through Azam Pay once approved."
+    "Pay the membership fee through Mobile Money once approved."
 ] as const;
 
 export function SignupPage() {

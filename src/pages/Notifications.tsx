@@ -42,13 +42,17 @@ const FILTERS: Array<{ label: string; value: "all" | NotificationStatus }> = [
 
 export function NotificationsPage() {
     const navigate = useNavigate();
-    const { profile } = useAuth();
+    const { profile, twoFactorSetupRequired } = useAuth();
     const { pushToast } = useToast();
     const [status, setStatus] = useState<"all" | NotificationStatus>("all");
     const [preferencesOpen, setPreferencesOpen] = useState(false);
     const tenantId = profile?.tenant_id || null;
     const isMember = profile?.role === "member";
-    const backTarget = isMember ? "/portal" : "/dashboard";
+    const backTarget = isMember
+        ? "/portal"
+        : profile?.role === "treasury_officer"
+            ? "/treasury"
+            : "/dashboard";
     const backLabel = isMember ? "Back to portal" : "Back to workspace";
     const {
         items,
@@ -62,6 +66,7 @@ export function NotificationsPage() {
         archiveRead
     } = useNotifications({
         tenantId,
+        enabled: !twoFactorSetupRequired,
         recipientUserId: profile?.user_id || null,
         status,
         limit: 50,
@@ -74,7 +79,8 @@ export function NotificationsPage() {
         error: preferencesError,
         updatePreference
     } = useNotificationPreferences({
-        tenantId
+        tenantId,
+        enabled: !twoFactorSetupRequired
     });
 
     const title = useMemo(() => isMember ? "Notification Center" : "Workspace Notifications", [isMember]);

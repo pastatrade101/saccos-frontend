@@ -3,6 +3,7 @@ export type Role =
     | "platform_owner"
     | "super_admin"
     | "branch_manager"
+    | "treasury_officer"
     | "loan_officer"
     | "teller"
     | "auditor"
@@ -96,6 +97,7 @@ export interface StaffAccessTotals {
 export interface StaffRoleCounts {
     super_admin: number;
     branch_manager: number;
+    treasury_officer: number;
     loan_officer: number;
     teller: number;
     auditor: number;
@@ -173,6 +175,221 @@ export interface NotificationPreferenceItem {
     in_app_enabled: boolean;
     sms_enabled: boolean;
     toast_enabled: boolean;
+}
+
+export interface TreasuryLedgerAccount {
+    id: string;
+    account_code: string;
+    account_name: string;
+    account_type: "asset" | "liability" | "equity" | "income" | "expense";
+    system_tag?: string | null;
+}
+
+export interface TreasuryPolicy {
+    tenant_id: string;
+    liquidity_reserve_ratio: number;
+    minimum_liquidity_reserve: number;
+    minimum_cash_buffer: number;
+    loan_liquidity_protection_ratio: number;
+    max_single_order_amount?: number | null;
+    max_asset_allocation_percent?: number | null;
+    max_single_asset_percent?: number | null;
+    approval_threshold?: number | null;
+    approval_threshold_amount?: number | null;
+    valuation_update_frequency_days: number;
+    policy_version: number;
+    updated_by?: string | null;
+    settlement_account_id: string;
+    investment_control_account_id: string;
+    investment_income_account_id: string;
+    created_at: string;
+    updated_at: string;
+    accounts?: {
+        settlement?: TreasuryLedgerAccount | null;
+        investments?: TreasuryLedgerAccount | null;
+        income?: TreasuryLedgerAccount | null;
+    };
+}
+
+export interface TreasuryPolicyViolation {
+    violation: true;
+    policy_violation?: true;
+    rule: string;
+    severity: "warning" | "block";
+    message: string;
+    current_value?: number | string | null;
+    required_value?: number | string | null;
+    [key: string]: unknown;
+}
+
+export interface TreasuryAsset {
+    id: string;
+    tenant_id: string;
+    asset_name: string;
+    asset_type: string;
+    symbol?: string | null;
+    market?: string | null;
+    currency: string;
+    status: "active" | "inactive";
+    asset_account_id?: string | null;
+    income_account_id?: string | null;
+    created_by?: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface TreasuryPortfolioPosition {
+    id: string;
+    tenant_id: string;
+    asset_id: string;
+    units_owned: number;
+    average_price: number;
+    total_cost: number;
+    current_price: number;
+    current_market_value: number;
+    unrealized_gain: number;
+    portfolio_return_percent: number;
+    allocation_percent?: number;
+    last_valuation_at?: string | null;
+    updated_at: string;
+    treasury_assets?: TreasuryAsset;
+}
+
+export interface TreasuryLiquidityOverview {
+    total_cash: number;
+    outstanding_loan_obligations: number;
+    outstanding_loan_principal: number;
+    outstanding_loans?: number;
+    liquidity_reserve_ratio: number;
+    minimum_liquidity_reserve: number;
+    minimum_cash_buffer: number;
+    loan_liquidity_protection_ratio: number;
+    loan_liquidity_protection_amount?: number;
+    minimum_reserve_required: number;
+    required_liquidity_reserve: number;
+    protected_liquidity: number;
+    available_investable_cash: number;
+    investable_cash?: number;
+    reserve_ratio: number;
+    total_invested_cost: number;
+    total_portfolio_value: number;
+    total_unrealized_gain: number;
+    expected_loan_disbursements: number;
+    expected_repayments: number;
+    open_treasury_orders_amount: number;
+    safeguard_status: "healthy" | "blocked";
+    policy: TreasuryPolicy;
+}
+
+export interface TreasuryOverview {
+    total_investments: number;
+    total_portfolio_value: number;
+    investment_income_ytd: number;
+    unrealized_gains: number;
+    available_investable_cash: number;
+    liquidity_reserve_required: number;
+    loan_exposure: number;
+    investment_return_percent: number;
+    active_positions_count: number;
+    pending_orders: number;
+    pending_review_orders: number;
+    pending_approval_orders: number;
+    approved_orders: number;
+    executed_orders: number;
+    expected_loan_disbursements: number;
+    expected_repayments: number;
+    open_treasury_orders_amount: number;
+    policy: TreasuryPolicy;
+    safeguard_status: "healthy" | "blocked";
+}
+
+export interface TreasuryOrder {
+    id: string;
+    tenant_id: string;
+    branch_id?: string | null;
+    asset_id: string;
+    order_type: "buy" | "sell";
+    units: number;
+    unit_price: number;
+    total_amount: number;
+    order_date: string;
+    reference: string;
+    status: "draft" | "pending_review" | "pending_approval" | "approved" | "rejected" | "executed" | "cancelled";
+    approval_request_id?: string | null;
+    liquidity_snapshot: Record<string, unknown>;
+    created_by: string;
+    reviewed_by?: string | null;
+    reviewed_at?: string | null;
+    executed_by?: string | null;
+    executed_at?: string | null;
+    rejected_by?: string | null;
+    rejected_at?: string | null;
+    rejection_reason?: string | null;
+    notes?: string | null;
+    created_at: string;
+    updated_at: string;
+    treasury_assets?: TreasuryAsset;
+    approval_required?: boolean;
+    policy_check?: {
+        violations: TreasuryPolicyViolation[];
+        blocking_violations: TreasuryPolicyViolation[];
+        warning_violations: TreasuryPolicyViolation[];
+    } | null;
+}
+
+export interface TreasuryAuditLogEntry {
+    id: string;
+    tenant_id: string;
+    user_id?: string | null;
+    actor_user_id?: string | null;
+    actor_name?: string | null;
+    actor_role?: Role | null;
+    table: string;
+    action: string;
+    entity_type: string;
+    entity_id?: string | null;
+    before_data?: Record<string, unknown> | null;
+    after_data?: Record<string, unknown> | null;
+    ledger_journal_id?: string | null;
+    ip?: string | null;
+    user_agent?: string | null;
+    event_at?: string | null;
+    created_at: string;
+}
+
+export interface TreasuryTransaction {
+    id: string;
+    tenant_id: string;
+    asset_id: string;
+    order_id?: string | null;
+    transaction_type: "buy" | "sell" | "dividend" | "interest";
+    units: number;
+    price: number;
+    total_amount: number;
+    transaction_date: string;
+    reference: string;
+    ledger_journal_id?: string | null;
+    created_by: string;
+    status: "posted" | "cancelled";
+    metadata: Record<string, unknown>;
+    created_at: string;
+    treasury_assets?: TreasuryAsset;
+}
+
+export interface TreasuryIncome {
+    id: string;
+    tenant_id: string;
+    asset_id: string;
+    transaction_id?: string | null;
+    income_type: "dividend" | "interest" | "capital_gain";
+    amount: number;
+    received_date: string;
+    description?: string | null;
+    posted_to_ledger: boolean;
+    ledger_journal_id?: string | null;
+    recorded_by: string;
+    created_at: string;
+    treasury_assets?: TreasuryAsset;
 }
 
 export interface Branch {
@@ -362,7 +579,7 @@ export interface LoanApproval {
     created_at: string;
 }
 
-export type ApprovalOperationKey = "finance.withdraw" | "finance.loan_disburse";
+export type ApprovalOperationKey = "finance.withdraw" | "finance.loan_disburse" | "treasury.order_execute";
 export type ApprovalRequestStatus = "pending" | "approved" | "rejected" | "executed" | "expired" | "cancelled";
 export type SmsTriggerEventType =
     | "loan_application_submitted"

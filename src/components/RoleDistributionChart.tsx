@@ -31,7 +31,8 @@ export function RoleDistributionChart({ roleCounts }: RoleDistributionChartProps
                     brandColors.accent[500],
                     brandColors.primary[500],
                     brandColors.success,
-                    brandColors.warning
+                    brandColors.warning,
+                    brandColors.danger
                 ],
                 borderRadius: 8,
                 borderSkipped: false,

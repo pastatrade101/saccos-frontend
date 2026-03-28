@@ -34,10 +34,11 @@ export function NotificationBell({
     menuPaperSx
 }: NotificationBellProps) {
     const navigate = useNavigate();
-    const { profile } = useAuth();
+    const { profile, twoFactorSetupRequired } = useAuth();
     const { pushToast } = useToast();
     const { items, unreadCount, loading, error, markRead, markAllRead, archiveRead } = useNotifications({
         tenantId,
+        enabled: !twoFactorSetupRequired,
         recipientUserId: profile?.user_id || null,
         recentOnly: true,
         limit: 5,
@@ -55,11 +56,16 @@ export function NotificationBell({
         }
     });
     const { items: preferenceItems } = useNotificationPreferences({
-        tenantId
+        tenantId,
+        enabled: !twoFactorSetupRequired
     });
     const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
     const open = Boolean(anchorEl);
     const isMember = profile?.role === "member";
+
+    if (twoFactorSetupRequired) {
+        return null;
+    }
 
     async function handleOpenItem(notificationId: string) {
         try {

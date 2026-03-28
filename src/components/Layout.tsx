@@ -1,4 +1,5 @@
 import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
+import AccountBalanceRoundedIcon from "@mui/icons-material/AccountBalanceRounded";
 import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
 import EventRepeatRoundedIcon from "@mui/icons-material/EventRepeatRounded";
 import ExpandLessRoundedIcon from "@mui/icons-material/ExpandLessRounded";
@@ -74,7 +75,7 @@ interface SearchOption {
 }
 
 interface NavGroup {
-    key: "workspace" | "products" | "finance" | "operations" | "analytics" | "setup";
+    key: "workspace" | "products" | "finance" | "operations" | "analytics" | "setup" | "treasury";
     label: string;
     itemTos: string[];
 }
@@ -83,7 +84,7 @@ const drawerWidth = 280;
 
 const navItems: NavItem[] = [
     { to: "/setup/super-admin", label: "Super Admin", allowSetup: true, section: "setup", icon: SettingsRoundedIcon },
-    { to: "/dashboard", label: "Dashboard", roles: ["super_admin", "branch_manager", "loan_officer", "teller"], section: "workspace", icon: DashboardRoundedIcon },
+    { to: "/dashboard", label: "Dashboard", roles: ["super_admin", "branch_manager", "treasury_officer", "loan_officer", "teller"], section: "workspace", icon: DashboardRoundedIcon },
     { to: "/dashboard", label: "Auditor Dashboard", roles: ["auditor"], section: "workspace", icon: GppGoodRoundedIcon },
     { to: "/staff-users", label: "Team Access", roles: ["super_admin", "branch_manager"], section: "workspace", icon: PeopleAltRoundedIcon },
     { to: "/products", label: "Products", roles: ["branch_manager"], section: "workspace", icon: TuneRoundedIcon },
@@ -99,18 +100,20 @@ const navItems: NavItem[] = [
     { to: "/payments", label: "Payments", roles: ["branch_manager"], section: "finance", icon: PaidRoundedIcon },
     { to: "/revenue", label: "Gross Revenue", roles: ["branch_manager"], section: "finance", icon: PaidRoundedIcon },
     { to: "/dividends", label: "Dividends", roles: ["super_admin", "branch_manager"], section: "finance", icon: EventRepeatRoundedIcon },
-    { to: "/approvals", label: "Approvals", roles: ["super_admin", "branch_manager", "loan_officer", "teller"], section: "finance", icon: PendingActionsRoundedIcon },
+    { to: "/approvals", label: "Approvals", roles: ["super_admin", "branch_manager", "treasury_officer", "loan_officer", "teller"], section: "finance", icon: PendingActionsRoundedIcon },
     { to: "/cash", label: "Cash Desk", roles: ["teller"], section: "finance", icon: PaidRoundedIcon },
     { to: "/cash-control", label: "Cash Control", roles: ["branch_manager"], section: "finance", icon: PaidRoundedIcon },
     { to: "/loans", label: "Loans", roles: ["branch_manager", "loan_officer", "teller"], section: "finance", icon: SummarizeRoundedIcon },
-    { to: "/reports", label: "Reports", roles: ["super_admin", "branch_manager", "loan_officer"], section: "finance", icon: DescriptionRoundedIcon },
+    { to: "/treasury", label: "Treasury", roles: ["super_admin", "treasury_officer", "auditor"], section: "finance", icon: AccountBalanceRoundedIcon },
+    { to: "/treasury/policy-settings", label: "Treasury Setup", roles: ["branch_manager"], section: "finance", icon: PolicyRoundedIcon },
+    { to: "/reports", label: "Reports", roles: ["super_admin", "branch_manager", "treasury_officer", "loan_officer"], section: "finance", icon: DescriptionRoundedIcon },
     { to: "/auditor/reports", label: "Reports", roles: ["auditor"], section: "finance", icon: DescriptionRoundedIcon }
 ];
 
 const navGroups: NavGroup[] = [
     { key: "workspace", label: "Workspace", itemTos: ["/member-applications", "/members", "/members/import", "/staff-users"] },
     { key: "products", label: "Products", itemTos: ["/products"] },
-    { key: "finance", label: "Finance", itemTos: ["/contributions", "/savings", "/loans", "/payments", "/revenue", "/dividends", "/cash-control", "/cash"] },
+    { key: "finance", label: "Finance", itemTos: ["/contributions", "/savings", "/loans", "/payments", "/revenue", "/dividends", "/cash-control", "/cash", "/treasury", "/treasury/policy-settings"] },
     { key: "operations", label: "Operations", itemTos: ["/approvals"] },
     { key: "analytics", label: "Analytics", itemTos: ["/reports", "/auditor/reports", "/auditor/workbench", "/auditor/exceptions", "/auditor/journals", "/auditor/audit-logs"] },
     { key: "setup", label: "Setup", itemTos: ["/setup/super-admin"] }
@@ -131,13 +134,15 @@ const searchKeywords: Partial<Record<NavItem["to"], string[]>> = {
     "/auditor/reports": ["audit reports", "exports", "compliance"],
     "/contributions": ["shares", "share capital", "dividends", "capital"],
     "/savings": ["savings", "deposits", "withdrawals", "balances"],
-    "/payments": ["member payments", "azam pay", "mobile money", "failed payments", "receipts", "reconcile"],
+    "/payments": ["member payments", "mobile money", "payment gateway", "failed payments", "receipts", "reconcile"],
     "/revenue": ["fees", "penalties", "loan interest", "loan fees", "branch revenue", "income accounts"],
     "/charge-revenue": ["fees", "penalties", "loan interest", "loan fees", "branch revenue", "income accounts"],
     "/dividends": ["dividend cycle", "allocations", "approvals"],
     "/approvals": ["maker checker", "approval queue", "high risk controls", "checker decisions"],
     "/cash": ["deposit", "withdraw", "teller", "cash desk"],
     "/loans": ["disbursement", "repayment", "portfolio"],
+    "/treasury": ["investments", "portfolio", "income", "liquidity", "institutional funds", "orders"],
+    "/treasury/policy-settings": ["treasury setup", "treasury policy", "guardrails", "liquidity protection", "investment limits"],
     "/reports": ["exports", "trial balance", "par", "aging"],
     "/setup/super-admin": ["bootstrap", "admin profile"]
 };
@@ -226,6 +231,14 @@ function getPageSubtitle(pathname: string) {
         return "Disburse, collect, and monitor loans with accounting controls.";
     }
 
+    if (pathname.startsWith("/treasury/policy-settings")) {
+        return "Configure treasury guardrails, liquidity protection, and execution thresholds.";
+    }
+
+    if (pathname.startsWith("/treasury")) {
+        return "Invest institutional SACCO funds with liquidity guardrails, approvals, and ledger-safe portfolio tracking.";
+    }
+
     if (pathname.startsWith("/reports")) {
         return "Export operational and finance reports for review and audit.";
     }
@@ -254,6 +267,7 @@ export function AppLayout() {
         user,
         lastApiError,
         isInternalOps,
+        twoFactorSetupRequired,
         setSelectedBranchId,
         refreshProfile
     } = useAuth();
@@ -283,19 +297,32 @@ export function AppLayout() {
         return item.roles.includes(profile.role);
     });
 
+    const isTreasuryWorkspaceRole = profile?.role === "treasury_officer";
+    const effectiveNavGroups = useMemo<NavGroup[]>(() => {
+        if (!isTreasuryWorkspaceRole) {
+            return navGroups;
+        }
+
+        return [
+            { key: "treasury", label: "Treasury", itemTos: ["/treasury"] },
+            { key: "operations", label: "Operations", itemTos: ["/approvals"] },
+            { key: "analytics", label: "Analytics", itemTos: ["/reports"] }
+        ];
+    }, [isTreasuryWorkspaceRole]);
+
     const topLevelItems = useMemo(
         () => visibleItems.filter((item) => item.to === "/dashboard"),
         [visibleItems]
     );
 
     const groupedNavItems = useMemo(
-        () => navGroups
+        () => effectiveNavGroups
             .map((group) => ({
                 ...group,
                 items: visibleItems.filter((item) => group.itemTos.includes(item.to))
             }))
             .filter((group) => group.items.length),
-        [visibleItems]
+        [effectiveNavGroups, visibleItems]
     );
 
     const shouldRedirectToMemberPortal = profile?.role === "member";
@@ -720,7 +747,7 @@ export function AppLayout() {
                             border: `1px solid ${alpha("#ffffff", 0.14)}`
                         }}
                     />
-                    {profile?.tenant_id ? (
+                    {profile?.tenant_id && !twoFactorSetupRequired ? (
                         <NotificationBell
                             tenantId={profile.tenant_id}
                             iconColor="#ffffff"

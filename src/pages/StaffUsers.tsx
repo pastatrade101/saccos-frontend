@@ -49,7 +49,7 @@ import {
 } from "../lib/endpoints";
 import type { Branch, StaffAccessPayload, StaffRoleCounts, StaffAccessUser } from "../types/api";
 import { brandColors } from "../theme/colors";
-import { detectRoleConflicts, roleCoverageLabels } from "../utils/roleRules";
+import { detectRoleConflicts, getCoverageStatus, roleCoverageLabels } from "../utils/roleRules";
 
 const schema = z.object({
     email: z.string().email("Valid email is required."),
@@ -59,7 +59,7 @@ const schema = z.object({
         .trim()
         .min(1, "Phone is required.")
         .regex(/^(?:\+?255|0)?[67]\d{8}$/, "Use a valid Tanzania phone (06/07 local or +2556/+2557)."),
-    role: z.enum(["super_admin", "branch_manager", "loan_officer", "teller", "auditor"]),
+    role: z.enum(["super_admin", "branch_manager", "treasury_officer", "loan_officer", "teller", "auditor"]),
     send_invite: z.boolean().default(true),
     password: z.string().optional()
 }).superRefine((value, ctx) => {
@@ -152,6 +152,7 @@ function createEmptyPayload(): StaffAccessPayload {
         roleCounts: {
             super_admin: 0,
             branch_manager: 0,
+            treasury_officer: 0,
             loan_officer: 0,
             teller: 0,
             auditor: 0
@@ -195,8 +196,8 @@ export function StaffUsersPage() {
     const provisioningMode = form.watch("send_invite");
     const selectedRole = form.watch("role");
     const provisionableRoles: ProvisionableRole[] = profile?.role === "super_admin"
-        ? ["branch_manager"]
-        : ["loan_officer", "teller", "auditor"];
+        ? ["branch_manager", "treasury_officer"]
+        : ["treasury_officer", "loan_officer", "teller", "auditor"];
     const editable = profile?.role === "super_admin";
 
     useEffect(() => {
@@ -351,11 +352,11 @@ export function StaffUsersPage() {
 
     const canInviteRole = (role: keyof StaffRoleCounts) => {
         if (profile?.role === "super_admin") {
-            return role === "branch_manager";
+            return role === "branch_manager" || role === "treasury_officer";
         }
 
         if (profile?.role === "branch_manager") {
-            return ["loan_officer", "teller", "auditor"].includes(role);
+            return ["treasury_officer", "loan_officer", "teller", "auditor"].includes(role);
         }
 
         return false;
@@ -371,8 +372,8 @@ export function StaffUsersPage() {
     };
 
     const governanceSummary = useMemo(() => ({
-        gaps: (Object.keys(roleCounts) as Array<keyof StaffRoleCounts>).filter((role) => roleCounts[role] === 0).length,
-        lowCoverage: (Object.keys(roleCounts) as Array<keyof StaffRoleCounts>).filter((role) => roleCounts[role] > 0 && roleCounts[role] < 1).length
+        gaps: (Object.keys(roleCounts) as Array<keyof StaffRoleCounts>).filter((role) => getCoverageStatus(role, roleCounts[role]) === "missing").length,
+        lowCoverage: (Object.keys(roleCounts) as Array<keyof StaffRoleCounts>).filter((role) => getCoverageStatus(role, roleCounts[role]) === "low").length
     }), [roleCounts]);
 
     const openStoredCredential = async (user: StaffAccessUser) => {
@@ -481,7 +482,7 @@ export function StaffUsersPage() {
                         <MetricCard
                             title="Operating Roles"
                             value={String(totals.operators)}
-                            helper="Execution users covering loans and cash handling."
+                            helper="Execution users covering treasury, lending, and cash handling."
                             icon={<MarkEmailReadRoundedIcon fontSize="small" />}
                             chips={[`Admins: ${totals.administrators}`, `Managers: ${totals.managers}`]}
                         />
@@ -740,6 +741,7 @@ export function StaffUsersPage() {
                                         helperText={form.formState.errors.role?.message || "Determines allowed screens and actions."}
                                     >
                                         {provisionableRoles.includes("branch_manager") ? <MenuItem value="branch_manager">Branch Manager</MenuItem> : null}
+                                        {provisionableRoles.includes("treasury_officer") ? <MenuItem value="treasury_officer">Treasury Officer</MenuItem> : null}
                                         {provisionableRoles.includes("loan_officer") ? <MenuItem value="loan_officer">Loan Officer</MenuItem> : null}
                                         {provisionableRoles.includes("teller") ? <MenuItem value="teller">Teller</MenuItem> : null}
                                         {provisionableRoles.includes("auditor") ? <MenuItem value="auditor">Auditor</MenuItem> : null}

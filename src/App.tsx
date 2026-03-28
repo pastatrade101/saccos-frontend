@@ -33,6 +33,8 @@ import { LoansPage } from "./pages/Loans";
 import { LoanDetailPage } from "./pages/LoanDetail";
 import { ProductCatalogPage } from "./pages/ProductCatalog";
 import { ReportsPage } from "./pages/Reports";
+import { TreasuryPage } from "./pages/Treasury";
+import { TreasuryPolicySettingsPage } from "./pages/TreasuryPolicySettings";
 import { MemberPortalPage } from "./pages/MemberPortal";
 import { MemberImportPage } from "./pages/MemberImport";
 import { ChangePasswordPage } from "./pages/ChangePassword";
@@ -77,6 +79,10 @@ function WorkspaceRedirect() {
         return <Navigate to="/dashboard" replace />;
     }
 
+    if (profile.role === "treasury_officer") {
+        return <Navigate to="/treasury" replace />;
+    }
+
     return <Navigate to="/dashboard" replace />;
 }
 
@@ -91,10 +97,13 @@ function DashboardEntryRoute() {
         isInternalOps ||
         profile?.role === "super_admin" ||
         profile?.role === "branch_manager" ||
+        profile?.role === "treasury_officer" ||
         profile?.role === "loan_officer" ||
         profile?.role === "teller"
     ) {
-        return <DashboardPage />;
+        return profile?.role === "treasury_officer"
+            ? <Navigate to="/treasury" replace />
+            : <DashboardPage />;
     }
 
     return <Navigate to="/access-denied" replace />;
@@ -154,7 +163,16 @@ function SetupRouteGuard({ children }: { children: ReactNode }) {
     }
 
     if (profile) {
-        return <Navigate to="/dashboard" replace />;
+        return <Navigate
+            to={
+                profile.role === "member"
+                    ? "/portal"
+                    : profile.role === "treasury_officer"
+                        ? "/treasury"
+                        : "/dashboard"
+            }
+            replace
+        />;
     }
 
     return <>{children}</>;
@@ -174,7 +192,7 @@ export default function App() {
             <Route
                 element={
                     <ProtectedRoute
-                        allowedRoles={["platform_admin", "platform_owner", "super_admin", "branch_manager", "loan_officer", "teller", "auditor", "member"]}
+                        allowedRoles={["platform_admin", "platform_owner", "super_admin", "branch_manager", "treasury_officer", "loan_officer", "teller", "auditor", "member"]}
                     />
                 }
             >
@@ -192,7 +210,7 @@ export default function App() {
                     <Route
                         element={
                             <ProtectedRoute
-                                allowedRoles={["platform_admin", "platform_owner", "super_admin", "branch_manager", "loan_officer", "teller", "auditor"]}
+                                allowedRoles={["platform_admin", "platform_owner", "super_admin", "branch_manager", "treasury_officer", "loan_officer", "teller", "auditor"]}
                             />
                         }
                     >
@@ -213,7 +231,7 @@ export default function App() {
                     <Route
                         element={
                             <ProtectedRoute
-                                allowedRoles={["super_admin", "branch_manager", "loan_officer", "teller"]}
+                                allowedRoles={["super_admin", "branch_manager", "treasury_officer", "loan_officer", "teller"]}
                             />
                         }
                     >
@@ -247,7 +265,7 @@ export default function App() {
                     <Route
                         element={
                             <ProtectedRoute
-                                allowedRoles={["super_admin", "branch_manager", "auditor"]}
+                                allowedRoles={["super_admin", "branch_manager", "treasury_officer", "auditor"]}
                                 allowInternalOps={false}
                             />
                         }
@@ -307,12 +325,32 @@ export default function App() {
                     <Route
                         element={
                             <ProtectedRoute
-                                allowedRoles={["super_admin", "branch_manager", "loan_officer"]}
+                                allowedRoles={["super_admin", "branch_manager", "treasury_officer", "loan_officer"]}
                                 allowInternalOps={false}
                             />
                         }
                     >
                         <Route path="/reports" element={<ReportsPage />} />
+                    </Route>
+                    <Route
+                        element={
+                            <ProtectedRoute
+                                allowedRoles={["super_admin", "branch_manager", "treasury_officer", "auditor"]}
+                                allowInternalOps={false}
+                            />
+                        }
+                    >
+                        <Route path="/treasury" element={<TreasuryPage />} />
+                    </Route>
+                    <Route
+                        element={
+                            <ProtectedRoute
+                                allowedRoles={["super_admin", "branch_manager"]}
+                                allowInternalOps={false}
+                            />
+                        }
+                    >
+                        <Route path="/treasury/policy-settings" element={<TreasuryPolicySettingsPage />} />
                     </Route>
                 </Route>
             </Route>
