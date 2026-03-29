@@ -78,6 +78,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 
 import { useAuth } from "../auth/AuthContext";
 import { ChartPanel } from "../components/ChartPanel";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { DataTable, type Column } from "../components/DataTable";
 import { MemberOverview, type MemberAlertItem } from "../components/member-overview";
 import { LoanEligibilitySummary } from "../components/loan-capacity/LoanEligibilitySummary";
@@ -552,8 +553,8 @@ const contributionProviderOptions: Array<{ value: ContributionPaymentValues["pro
 ];
 
 const PAYMENT_APPROVAL_EXPECTATION_MS = 90 * 1000;
-const PAYMENT_PENDING_POLL_MS = 2000;
-const PAYMENT_HANDSET_RESPONSE_POLL_MS = 1200;
+const PAYMENT_PENDING_POLL_MS = 4000;
+const PAYMENT_HANDSET_RESPONSE_POLL_MS = 2000;
 
 const portalSections = [
     {
@@ -853,6 +854,8 @@ export function MemberPortalPage() {
     const [warning, setWarning] = useState<string | null>(null);
     const [showApplyDialog, setShowApplyDialog] = useState(false);
     const [editingLoanApplicationId, setEditingLoanApplicationId] = useState<string | null>(null);
+    const [deletingLoanApplicationId, setDeletingLoanApplicationId] = useState<string | null>(null);
+    const [pendingDraftDeletion, setPendingDraftDeletion] = useState<LoanApplication | null>(null);
     const [loanFormStep, setLoanFormStep] = useState(0);
     const [loanCapacity, setLoanCapacity] = useState<LoanCapacitySummary | null>(null);
     const [loanCapacityLoading, setLoanCapacityLoading] = useState(false);
@@ -1066,6 +1069,19 @@ export function MemberPortalPage() {
         ) || null,
         [editingLoanApplicationId, loanApplications]
     );
+    const editingLoanApplication = useMemo(
+        () => loanApplications.find((application) => application.id === editingLoanApplicationId) || null,
+        [editingLoanApplicationId, loanApplications]
+    );
+    const selectedLoanDraft = useMemo(
+        () => loanApplications.find((application) =>
+            application.id !== editingLoanApplicationId
+            && application.status === "draft"
+        ) || null,
+        [editingLoanApplicationId, loanApplications]
+    );
+    const isEditingDraftLoanApplication = editingLoanApplication?.status === "draft";
+    const isEditingRejectedLoanApplication = editingLoanApplication?.status === "rejected";
     const memberHasProblemLoan = useMemo(
         () => loans.some((loan) => ["in_arrears", "written_off"].includes(loan.status)),
         [loans]
@@ -1461,8 +1477,8 @@ export function MemberPortalPage() {
                 : gatewayStillConfirming
                     ? "Mobile Money did not answer before the timeout, but the order is still open and being tracked. If you already approved on your phone, keep this dialog open while callback confirmation arrives."
                     : paymentApprovalTakingLongerThanExpected
-                        ? `Most phone approvals arrive within about 1 minute. The portal is still listening for the provider callback${pendingOrderMinutesRemaining !== null ? ` while the provider window stays open for about ${pendingOrderMinutesRemaining} more minute(s)` : ""}, but you do not need to stay on this screen. Use Check Status if you already responded on your phone, or close and track it later from Payments.`
-                        : "Approve the mobile money prompt on your phone. If you cancel on the handset, use Check status after a few seconds so the portal can pick up the terminal result."
+                    ? `Most phone approvals arrive within about 1 minute. The portal is still listening for the provider callback${pendingOrderMinutesRemaining !== null ? ` while the provider window stays open for about ${pendingOrderMinutesRemaining} more minute(s)` : ""}, but you do not need to stay on this screen. Use Check Status if you already responded on your phone, or close and track it later from Payments.`
+                        : `Waiting for approval on your phone. Approve the request to complete payment. If you cancel, this screen will update automatically.${pendingOrderMinutesRemaining !== null ? ` If no action is taken, the request expires in about ${pendingOrderMinutesRemaining} minute(s).` : ""}`
             : contributionFlowState === "paid"
                 ? activePaymentPurpose === "savings_deposit"
                     ? "Mobile Money confirmed the payment. The backend is now posting the savings deposit into your account."
@@ -1505,7 +1521,7 @@ export function MemberPortalPage() {
         : contributionFlowState === "pending"
             ? phoneCancellationRequested
                 ? "Listening for the provider callback after handset cancellation..."
-                : "Waiting for the mobile money approval and gateway webhook confirmation..."
+                : "Waiting for approval on your phone. This screen checks for webhook and status updates automatically..."
             : activePaymentPurpose === "membership_fee"
                 ? "Payment is confirmed. Posting the membership fee in the background..."
                 : activePaymentPurpose === "loan_repayment"
@@ -1630,13 +1646,11 @@ export function MemberPortalPage() {
 
     const handleStopTrackingPayment = () => {
         const openOrder = trackedContributionOrder;
-        setActiveContributionOrderId(null);
-        setPhoneCancellationRequested(false);
         setShowContributionDialog(false);
         pushToast({
-            title: "Tracking closed",
+            title: "Tracking continues in background",
             message: openOrder?.status === "pending"
-                ? "This payment request is still open in the background. You can reopen it from Payments or start again later if it expires."
+                ? "This payment request is still being tracked in the background. You can reopen it from Payments, and the portal will notify you when the provider confirms a final result."
                 : "The payment progress dialog has been closed.",
             type: "info"
         });
@@ -1749,9 +1763,10 @@ export function MemberPortalPage() {
     const handleMarkCancelledOnPhone = () => {
         setPhoneCancellationRequested(true);
         void refreshTrackedPaymentOrder(false);
+        setShowContributionDialog(false);
         pushToast({
             title: "Phone cancellation noted",
-            message: "The portal is now listening for the provider callback. If handset cancellation is confirmed, this screen will update automatically.",
+            message: "The dialog is closed, but the portal is still checking in the background. If the provider confirms cancellation, you will see the final status automatically in Payments.",
             type: "info"
         });
     };
@@ -1829,8 +1844,8 @@ export function MemberPortalPage() {
 
             if (manual && nextOrder.status === "pending") {
                 pushToast({
-                    title: "Still waiting for confirmation",
-                    message: "If you cancelled on the phone, wait a few seconds and check again. Pending requests will also expire automatically if the provider does not confirm them.",
+                    title: "Still waiting for provider response",
+                    message: "The request is still pending with the provider. This screen will keep checking automatically, and the request will expire only if no terminal callback or status update arrives.",
                     type: "info"
                 });
             }
@@ -3143,6 +3158,21 @@ export function MemberPortalPage() {
                     <Button size="small" variant="outlined" onClick={() => openLoanApplicationEditor(row)}>
                         Edit & Resubmit
                     </Button>
+                ) : row.status === "draft" ? (
+                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                        <Button size="small" variant="outlined" onClick={() => openLoanApplicationEditor(row)}>
+                            Continue Draft
+                        </Button>
+                        <Button
+                            size="small"
+                            variant="text"
+                            color="error"
+                            onClick={() => setPendingDraftDeletion(row)}
+                            disabled={deletingLoanApplicationId === row.id}
+                        >
+                            {deletingLoanApplicationId === row.id ? "Deleting..." : "Delete Draft"}
+                        </Button>
+                    </Stack>
                 ) : (
                     <Chip size="small" variant="outlined" label={row.status === "submitted" ? "In review" : row.status.replace(/_/g, " ")} />
                 )
@@ -3294,12 +3324,51 @@ export function MemberPortalPage() {
         setShowApplyDialog(true);
     };
 
+    const openLoanApplicationDraft = () => {
+        if (selectedLoanDraft) {
+            openLoanApplicationEditor(selectedLoanDraft);
+            return;
+        }
+
+        openLoanApplicationEditor();
+    };
+
     const closeLoanApplicationDialog = () => {
         setShowApplyDialog(false);
         setEditingLoanApplicationId(null);
+        setPendingDraftDeletion(null);
         setRequestedAmountInput("");
         setLoanFormStep(0);
         loanApplicationForm.reset();
+    };
+
+    const confirmDeleteLoanApplicationDraft = async () => {
+        if (!profile || !pendingDraftDeletion || pendingDraftDeletion.status !== "draft") {
+            return;
+        }
+
+        setDeletingLoanApplicationId(pendingDraftDeletion.id);
+        try {
+            await api.delete(endpoints.loanApplications.detail(pendingDraftDeletion.id));
+            if (editingLoanApplicationId === pendingDraftDeletion.id) {
+                closeLoanApplicationDialog();
+            }
+            setPendingDraftDeletion(null);
+            await reloadLoanApplications(profile.tenant_id);
+            pushToast({
+                type: "success",
+                title: "Draft loan application deleted",
+                message: "The draft was removed from your loan applications."
+            });
+        } catch (deleteError) {
+            pushToast({
+                type: "error",
+                title: "Unable to delete draft",
+                message: getApiErrorMessage(deleteError)
+            });
+        } finally {
+            setDeletingLoanApplicationId(null);
+        }
     };
 
     const handleAdvanceLoanFormStep = async () => {
@@ -3336,7 +3405,10 @@ export function MemberPortalPage() {
         setLoanFormStep((current) => Math.max(0, current - 1));
     };
 
-    const submitLoanApplication = loanApplicationForm.handleSubmit(async (values) => {
+    const persistLoanApplication = async (
+        values: z.infer<typeof loanApplicationSchema>,
+        options: { submitAfterSave: boolean }
+    ) => {
         if (!profile) {
             return;
         }
@@ -3353,7 +3425,7 @@ export function MemberPortalPage() {
             return;
         }
 
-        if (memberRecord?.status !== "active") {
+        if (options.submitAfterSave && memberRecord?.status !== "active") {
             pushToast({
                 type: "error",
                 title: "Member not eligible",
@@ -3362,7 +3434,7 @@ export function MemberPortalPage() {
             return;
         }
 
-        if (memberHasProblemLoan) {
+        if (options.submitAfterSave && memberHasProblemLoan) {
             pushToast({
                 type: "error",
                 title: "Loan blocked",
@@ -3371,7 +3443,7 @@ export function MemberPortalPage() {
             return;
         }
 
-        if (selectedLoanConflict) {
+        if (options.submitAfterSave && selectedLoanConflict) {
             pushToast({
                 type: "error",
                 title: "Existing application in progress",
@@ -3440,14 +3512,22 @@ export function MemberPortalPage() {
                     await api.post<LoanApplicationResponse>(endpoints.loanApplications.list(), payload)
                 ).data.data.id;
 
-            await api.post<LoanApplicationResponse>(endpoints.loanApplications.submit(applicationId), {});
+            if (options.submitAfterSave) {
+                await api.post<LoanApplicationResponse>(endpoints.loanApplications.submit(applicationId), {});
+            }
 
             pushToast({
                 type: "success",
-                title: editingLoanApplicationId ? "Loan application updated" : "Loan application submitted",
-                message: editingLoanApplicationId
-                    ? "Your corrected application has been resubmitted for appraisal."
-                    : "Your application is now waiting for appraisal."
+                title: options.submitAfterSave
+                    ? editingLoanApplicationId
+                        ? "Loan application updated"
+                        : "Loan application submitted"
+                    : "Draft loan application saved",
+                message: options.submitAfterSave
+                    ? editingLoanApplicationId
+                        ? "Your corrected application has been resubmitted for appraisal."
+                        : "Your application is now waiting for appraisal."
+                    : "Your draft changes were saved. You can submit the application once the current lock is cleared."
             });
             closeLoanApplicationDialog();
             await reloadLoanApplications(profile.tenant_id);
@@ -3475,12 +3555,24 @@ export function MemberPortalPage() {
 
             pushToast({
                 type: "error",
-                title: editingLoanApplicationId ? "Unable to resubmit application" : "Unable to submit application",
+                title: options.submitAfterSave
+                    ? editingLoanApplicationId
+                        ? "Unable to resubmit application"
+                        : "Unable to submit application"
+                    : "Unable to save draft",
                 message: errorMessage
             });
         } finally {
             setSubmittingApplication(false);
         }
+    };
+
+    const submitLoanApplication = loanApplicationForm.handleSubmit(async (values) => {
+        await persistLoanApplication(values, { submitAfterSave: true });
+    });
+
+    const saveLoanApplicationDraft = loanApplicationForm.handleSubmit(async (values) => {
+        await persistLoanApplication(values, { submitAfterSave: false });
     });
 
     const respondGuarantorRequest = async (request: GuarantorRequestItem, decision: "accepted" | "rejected") => {
@@ -4339,7 +4431,7 @@ export function MemberPortalPage() {
             onApplyLoan={() => {
                 handleSectionSelect("member-loans");
                 if (canApplyForLoan) {
-                    openLoanApplicationEditor();
+                    openLoanApplicationDraft();
                 }
             }}
             onMakeContribution={() => handleSectionSelect("member-contributions")}
@@ -4772,7 +4864,7 @@ export function MemberPortalPage() {
                                 {canApplyForLoan ? (
                                     <Button
                                         variant="contained"
-                                        onClick={() => openLoanApplicationEditor()}
+                                        onClick={openLoanApplicationDraft}
                                         sx={{
                                             alignSelf: "flex-start",
                                             width: { xs: "100%", sm: "auto" },
@@ -4784,7 +4876,7 @@ export function MemberPortalPage() {
                                             }
                                         }}
                                     >
-                                        Apply for Loan
+                                        {selectedLoanDraft ? "Continue Draft Application" : "Apply for Loan"}
                                     </Button>
                                 ) : null}
                             </Box>
@@ -4886,6 +4978,25 @@ export function MemberPortalPage() {
                                                 >
                                                     Edit & Resubmit
                                                 </Button>
+                                            ) : application.status === "draft" ? (
+                                                <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} useFlexGap flexWrap="wrap">
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        onClick={() => openLoanApplicationEditor(application)}
+                                                    >
+                                                        Continue Draft
+                                                    </Button>
+                                                    <Button
+                                                        size="small"
+                                                        variant="text"
+                                                        color="error"
+                                                        onClick={() => setPendingDraftDeletion(application)}
+                                                        disabled={deletingLoanApplicationId === application.id}
+                                                    >
+                                                        {deletingLoanApplicationId === application.id ? "Deleting..." : "Delete Draft"}
+                                                    </Button>
+                                                </Stack>
                                             ) : null}
                                         </Box>
                                     </Grid>
@@ -7582,7 +7693,7 @@ export function MemberPortalPage() {
 
             <MotionModal
                 open={showApplyDialog}
-                onClose={submittingApplication ? undefined : closeLoanApplicationDialog}
+                onClose={submittingApplication || deletingLoanApplicationId === editingLoanApplicationId ? undefined : closeLoanApplicationDialog}
                 maxWidth="md"
                 fullWidth
                 PaperProps={{
@@ -7596,7 +7707,13 @@ export function MemberPortalPage() {
                     }
                 }}
             >
-                <DialogTitle>{editingLoanApplicationId ? "Edit Rejected Loan Application" : "Apply for Loan"}</DialogTitle>
+                <DialogTitle>
+                    {isEditingDraftLoanApplication
+                        ? "Continue Draft Loan Application"
+                        : isEditingRejectedLoanApplication
+                            ? "Edit Rejected Loan Application"
+                            : "Apply for Loan"}
+                </DialogTitle>
                 <DialogContent
                     dividers
                     sx={{
@@ -7608,9 +7725,11 @@ export function MemberPortalPage() {
                 >
                     <Stack spacing={1.25} sx={{ pt: 0.25, minHeight: 0 }}>
                         <Alert severity="info" variant="outlined" sx={{ py: 0.35 }}>
-                            {editingLoanApplicationId
-                                ? "Update the rejected application details, then resubmit it back into appraisal workflow."
-                                : "This submits a loan application into appraisal and approval workflow. No money movement happens until a teller or loan officer disburses an approved application."}
+                            {isEditingDraftLoanApplication
+                                ? "Continue updating your saved draft. You can save draft changes now and submit later once any submission lock is cleared."
+                                : isEditingRejectedLoanApplication
+                                    ? "Update the rejected application details, then resubmit it back into appraisal workflow."
+                                    : "This submits a loan application into appraisal and approval workflow. No money movement happens until a teller or loan officer disburses an approved application."}
                         </Alert>
                         {memberRecord?.status !== "active" ? (
                             <Alert severity="warning" variant="outlined" sx={{ py: 0.35 }}>
@@ -7639,6 +7758,16 @@ export function MemberPortalPage() {
                                         </Typography>
                                     ))}
                                 </Stack>
+                                {selectedLoanDraft && !isEditingDraftLoanApplication ? (
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        sx={{ mt: 1.25, alignSelf: "flex-start" }}
+                                        onClick={() => openLoanApplicationEditor(selectedLoanDraft)}
+                                    >
+                                        Continue Existing Draft
+                                    </Button>
+                                ) : null}
                             </Alert>
                         ) : null}
                         {loanCapacityWarnings.length ? (
@@ -8181,34 +8310,66 @@ export function MemberPortalPage() {
                         pb: { xs: 2, sm: 1.5 }
                     }}
                 >
-                    <Button onClick={closeLoanApplicationDialog}>
+                    {isEditingDraftLoanApplication ? (
+                        <Button
+                            color="error"
+                            onClick={() => editingLoanApplication && setPendingDraftDeletion(editingLoanApplication)}
+                            disabled={submittingApplication || deletingLoanApplicationId === editingLoanApplicationId}
+                        >
+                            {deletingLoanApplicationId === editingLoanApplicationId ? "Deleting Draft..." : "Delete Draft"}
+                        </Button>
+                    ) : null}
+                    <Button
+                        onClick={closeLoanApplicationDialog}
+                        disabled={deletingLoanApplicationId === editingLoanApplicationId}
+                    >
                         Cancel
                     </Button>
                     {loanFormStep > 0 ? (
-                        <Button onClick={handleRetreatLoanFormStep} startIcon={<ChevronLeftRoundedIcon />}>
+                        <Button
+                            onClick={handleRetreatLoanFormStep}
+                            startIcon={<ChevronLeftRoundedIcon />}
+                            disabled={deletingLoanApplicationId === editingLoanApplicationId}
+                        >
                             Back
                         </Button>
                     ) : null}
                     {isLoanReviewStep ? (
-                        <Button
-                            variant="contained"
-                            type="submit"
-                            form="member-loan-application-form"
-                            disabled={submittingApplication || loanSubmissionLocks.length > 0}
-                            fullWidth={isMobile}
-                            sx={
-                                isDarkMode
-                                    ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
-                                    : undefined
-                            }
-                        >
-                            {submittingApplication ? "Submitting..." : editingLoanApplicationId ? "Save & Resubmit" : "Submit Application"}
-                        </Button>
+                        <>
+                            {isEditingDraftLoanApplication ? (
+                                <Button
+                                    variant="outlined"
+                                    onClick={() => void saveLoanApplicationDraft()}
+                                    disabled={submittingApplication || deletingLoanApplicationId === editingLoanApplicationId}
+                                    fullWidth={isMobile}
+                                >
+                                    {submittingApplication ? "Saving..." : "Save Draft Changes"}
+                                </Button>
+                            ) : null}
+                            <Button
+                                variant="contained"
+                                type="submit"
+                                form="member-loan-application-form"
+                                disabled={submittingApplication || deletingLoanApplicationId === editingLoanApplicationId || loanSubmissionLocks.length > 0}
+                                fullWidth={isMobile}
+                                sx={
+                                    isDarkMode
+                                        ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                        : undefined
+                                }
+                            >
+                                {submittingApplication
+                                    ? "Submitting..."
+                                    : isEditingRejectedLoanApplication
+                                        ? "Save & Resubmit"
+                                        : "Submit Application"}
+                            </Button>
+                        </>
                     ) : (
                         <Button
                             variant="contained"
                             onClick={() => void handleAdvanceLoanFormStep()}
-                            disabled={loanSubmissionLocks.length > 0 && isLoanProductStep}
+                            disabled={submittingApplication || deletingLoanApplicationId === editingLoanApplicationId || (isLoanProductStep && !selectedLoanProduct)}
                             fullWidth={isMobile}
                             sx={
                                 isDarkMode
@@ -8221,6 +8382,41 @@ export function MemberPortalPage() {
                     )}
                 </DialogActions>
             </MotionModal>
+
+            <ConfirmModal
+                open={Boolean(pendingDraftDeletion)}
+                title="Delete Draft Loan Application"
+                summary={
+                    <Stack spacing={1.25}>
+                        <Alert severity="warning" variant="outlined">
+                            This will permanently remove the draft loan application. Submitted or approved applications cannot be deleted here.
+                        </Alert>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
+                            <Typography variant="body2" color="text.secondary">Product</Typography>
+                            <Typography variant="body2" fontWeight={600}>
+                                {pendingDraftDeletion?.loan_products?.name || "Loan application"}
+                            </Typography>
+                        </Box>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
+                            <Typography variant="body2" color="text.secondary">Requested amount</Typography>
+                            <Typography variant="body2" fontWeight={600}>
+                                {formatCurrency(pendingDraftDeletion?.requested_amount || 0)}
+                            </Typography>
+                        </Box>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
+                            <Typography variant="body2" color="text.secondary">Last updated</Typography>
+                            <Typography variant="body2" fontWeight={600}>
+                                {pendingDraftDeletion?.updated_at ? formatDate(pendingDraftDeletion.updated_at) : "Unknown"}
+                            </Typography>
+                        </Box>
+                    </Stack>
+                }
+                confirmLabel="Delete Draft"
+                cancelLabel="Keep Draft"
+                loading={Boolean(pendingDraftDeletion && deletingLoanApplicationId === pendingDraftDeletion.id)}
+                onCancel={() => setPendingDraftDeletion(null)}
+                onConfirm={() => void confirmDeleteLoanApplicationDraft()}
+            />
 
             {!mobileMenuOpen ? (
                 <Paper

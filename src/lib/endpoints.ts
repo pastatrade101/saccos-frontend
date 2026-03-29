@@ -37,6 +37,7 @@ import type {
     ProductBootstrapPayload,
     LoanProduct,
     LoanApplication,
+    LoanDisbursementOrder,
     LoanCapacitySummary,
     LoanProductPolicy,
     BranchLiquidityPolicy,
@@ -161,6 +162,7 @@ const routeMap = {
         approve: (applicationId: string) => `/loan-applications/${applicationId}/approve`,
         reject: (applicationId: string) => `/loan-applications/${applicationId}/reject`,
         disburse: (applicationId: string) => `/loan-applications/${applicationId}/disburse`,
+        disbursementStatus: (orderId: string) => `/loan-applications/disbursements/${orderId}/status`,
         guarantorRequests: "/loan-applications/guarantor-requests",
         guarantorConsent: (applicationId: string) => `/loan-applications/${applicationId}/guarantor-consent`
     },
@@ -378,6 +380,7 @@ export const endpoints = {
         approve: (applicationId: string) => routeMap.loanApplications.approve(applicationId),
         reject: (applicationId: string) => routeMap.loanApplications.reject(applicationId),
         disburse: (applicationId: string) => routeMap.loanApplications.disburse(applicationId),
+        disbursementStatus: (orderId: string) => routeMap.loanApplications.disbursementStatus(orderId),
         guarantorRequests: () => routeMap.loanApplications.guarantorRequests,
         guarantorConsent: (applicationId: string) => routeMap.loanApplications.guarantorConsent(applicationId)
     },
@@ -892,11 +895,26 @@ export interface RejectLoanApplicationRequest {
 export interface DisburseApprovedLoanRequest {
     reference?: string | null;
     description?: string | null;
+    disbursement_channel?: "cash" | "mobile_money";
+    recipient_msisdn?: string | null;
     approval_request_id?: string;
     receipt_ids?: string[];
     two_factor_code?: string | null;
     recovery_code?: string | null;
 }
+
+export interface LoanDisbursementActionResult {
+    application?: LoanApplication;
+    disbursement?: FinanceResult;
+    mobile_disbursement?: LoanDisbursementOrder;
+    approval_required?: boolean;
+    approval_request_id?: string;
+    existing_order?: boolean;
+    status?: string;
+}
+
+export type LoanDisbursementActionResponse = ApiEnvelope<LoanDisbursementActionResult>;
+export type LoanDisbursementOrderStatusResponse = ApiEnvelope<{ order: LoanDisbursementOrder }>;
 
 export interface GuarantorConsentRequest {
     tenant_id?: string;
@@ -1040,7 +1058,15 @@ export interface ChargeRevenueSummaryQuery {
 }
 
 export type ChargeRevenueSummaryResponse = ApiEnvelope<import("../types/api").ChargeRevenueSummary>;
-export type PaymentOrderStatusResponse = ApiEnvelope<{ order: PaymentOrder }>;
+export type PaymentOrderStatusResponse = ApiEnvelope<{
+    order: PaymentOrder;
+    order_id?: string;
+    status?: "pending" | "completed" | "failed" | "expired";
+    gateway_reference?: string | null;
+    amount?: number;
+    gateway_checked?: boolean;
+    gateway_status?: string | null;
+}>;
 export type ReconcilePaymentOrderResponse = ApiEnvelope<{ reconciled: boolean; order: PaymentOrder }>;
 export type NotificationsResponse = ApiEnvelope<NotificationListPayload>;
 export type NotificationResponse = ApiEnvelope<NotificationItem>;

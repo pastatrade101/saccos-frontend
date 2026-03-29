@@ -703,6 +703,45 @@ export interface LoanApplication {
     loan_approvals?: LoanApproval[];
     loan_guarantors?: LoanGuarantor[];
     collateral_items?: CollateralItem[];
+    latest_mobile_disbursement?: LoanDisbursementOrder | null;
+}
+
+export type LoanDisbursementOrderStatus = "created" | "pending" | "completed" | "failed" | "expired" | "posted";
+
+export interface LoanDisbursementOrder {
+    id: string;
+    tenant_id: string;
+    branch_id: string;
+    application_id: string;
+    member_id: string;
+    created_by_user_id: string;
+    approval_request_id?: string | null;
+    gateway: string;
+    channel: string;
+    provider?: MobileMoneyProvider | string | null;
+    msisdn: string;
+    amount: number;
+    currency: string;
+    status: LoanDisbursementOrderStatus;
+    external_id: string;
+    provider_ref?: string | null;
+    reference?: string | null;
+    description?: string | null;
+    member_name?: string | null;
+    member_no?: string | null;
+    callback_received_at?: string | null;
+    completed_at?: string | null;
+    posted_at?: string | null;
+    failed_at?: string | null;
+    expired_at?: string | null;
+    expires_at?: string | null;
+    loan_id?: string | null;
+    journal_id?: string | null;
+    error_code?: string | null;
+    error_message?: string | null;
+    latest_provider_status?: string | null;
+    created_at: string;
+    updated_at: string;
 }
 
 export interface LoanCapacitySummary {

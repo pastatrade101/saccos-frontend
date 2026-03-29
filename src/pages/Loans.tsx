@@ -50,7 +50,8 @@ import {
     type AppraiseLoanApplicationRequest,
     type CreateLoanApplicationRequest,
     type DisburseApprovedLoanRequest,
-    type PendingApprovalPayload,
+    type LoanDisbursementActionResponse,
+    type LoanDisbursementOrderStatusResponse,
     type LoanApplicationResponse,
     type LoanApplicationsResponse,
     type LoanCapacityResponse,
@@ -63,7 +64,7 @@ import {
     type ApproveLoanApplicationRequest,
     type RejectLoanApplicationRequest
 } from "../lib/endpoints";
-import type { ApiEnvelope, FinanceResult, Loan, LoanApplication, LoanCapacitySummary, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
+import type { ApiEnvelope, FinanceResult, Loan, LoanApplication, LoanCapacitySummary, LoanDisbursementOrder, LoanGuarantor, LoanProduct, LoanSchedule, LoanTransaction, Member } from "../types/api";
 import { MotionCard, MotionModal } from "../ui/motion";
 import { formatCurrency, formatDate } from "../utils/format";
 
@@ -98,7 +99,20 @@ const rejectSchema = z.object({
 
 const disburseSchema = z.object({
     reference: z.string().max(80).optional().or(z.literal("")),
-    description: z.string().max(255).optional().or(z.literal(""))
+    description: z.string().max(255).optional().or(z.literal("")),
+    disbursement_channel: z.enum(["cash", "mobile_money"]).default("cash"),
+    recipient_msisdn: z.string().trim().max(20).optional().or(z.literal(""))
+}).superRefine((values, ctx) => {
+    if (values.disbursement_channel === "mobile_money") {
+        const normalized = String(values.recipient_msisdn || "").replace(/[^\d+]/g, "");
+        if (normalized.length < 9) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["recipient_msisdn"],
+                message: "Enter the member mobile number for mobile money disbursement."
+            });
+        }
+    }
 });
 
 const repaySchema = z.object({
@@ -120,7 +134,74 @@ type PendingMoneyAction =
     | { type: "repay"; values: RepayValues }
     | null;
 
+type PendingDisbursementNotice = {
+    requestId: string;
+    applicationId: string;
+    applicationName?: string | null;
+    reference?: string | null;
+    description?: string | null;
+    disbursement_channel: "cash" | "mobile_money";
+    recipient_msisdn?: string | null;
+};
+
 type LoanWorkspaceTab = "applications" | "portfolio" | "collections" | "activity";
+
+const OPEN_LOAN_DISBURSEMENT_STATUSES = new Set<LoanDisbursementOrder["status"]>(["created", "pending", "completed"]);
+
+function isActiveLoanDisbursementStatus(status?: LoanDisbursementOrder["status"] | null) {
+    return status ? OPEN_LOAN_DISBURSEMENT_STATUSES.has(status) : false;
+}
+
+function getLoanDisbursementAlertSeverity(status?: LoanDisbursementOrder["status"] | null): "info" | "success" | "error" | "warning" {
+    switch (status) {
+    case "posted":
+        return "success";
+    case "failed":
+        return "error";
+    case "expired":
+        return "warning";
+    default:
+        return "info";
+    }
+}
+
+function getLoanDisbursementHeadline(order: LoanDisbursementOrder | null) {
+    if (!order) {
+        return "Mobile disbursement";
+    }
+
+    switch (order.status) {
+    case "posted":
+        return "Loan disbursed";
+    case "failed":
+        return "Mobile disbursement failed";
+    case "expired":
+        return "Mobile disbursement expired";
+    case "completed":
+        return "Payout confirmed";
+    default:
+        return "Waiting for mobile payout";
+    }
+}
+
+function getLoanDisbursementMessage(order: LoanDisbursementOrder | null) {
+    if (!order) {
+        return "The mobile disbursement request is being prepared.";
+    }
+
+    switch (order.status) {
+    case "posted":
+        return "Funds were sent to the member and the loan was posted to the ledger successfully.";
+    case "failed":
+        return order.error_message || "The mobile disbursement request failed at the provider.";
+    case "expired":
+        return order.error_message || "The mobile disbursement request expired before the member completed it.";
+    case "completed":
+        return "The provider confirmed the payout. The system is finalizing the loan posting now.";
+    default:
+        return "The payout request has been sent to the member phone. This screen updates automatically when the provider confirms the result.";
+    }
+}
 
 type CreditRiskDefaultCase = {
     id: string;
@@ -460,14 +541,11 @@ export function LoansPage() {
     const [approvalTarget, setApprovalTarget] = useState<LoanApplication | null>(null);
     const [rejectionTarget, setRejectionTarget] = useState<LoanApplication | null>(null);
     const [disbursementTarget, setDisbursementTarget] = useState<LoanApplication | null>(null);
+    const [trackedLoanDisbursementOrder, setTrackedLoanDisbursementOrder] = useState<LoanDisbursementOrder | null>(null);
+    const [checkingLoanDisbursementStatus, setCheckingLoanDisbursementStatus] = useState(false);
     const [showRepayModal, setShowRepayModal] = useState(false);
     const [pendingMoneyAction, setPendingMoneyAction] = useState<PendingMoneyAction>(null);
-    const [pendingApprovalNotice, setPendingApprovalNotice] = useState<{
-        requestId: string;
-        applicationId: string;
-        reference?: string | null;
-        description?: string | null;
-    } | null>(null);
+    const [pendingApprovalNotice, setPendingApprovalNotice] = useState<PendingDisbursementNotice | null>(null);
     const [applicationPage, setApplicationPage] = useState(1);
     const [loanPage, setLoanPage] = useState(1);
     const [applicationTotal, setApplicationTotal] = useState(0);
@@ -559,7 +637,12 @@ export function LoansPage() {
 
     const disburseForm = useForm<DisburseValues>({
         resolver: zodResolver(disburseSchema),
-        defaultValues: { reference: "", description: "" }
+        defaultValues: {
+            reference: "",
+            description: "",
+            disbursement_channel: "cash",
+            recipient_msisdn: ""
+        }
     });
 
     const repayForm = useForm<RepayValues>({
@@ -571,6 +654,68 @@ export function LoansPage() {
             description: ""
         }
     });
+    const selectedDisbursementChannel = disburseForm.watch("disbursement_channel");
+
+    const applyTrackedLoanDisbursementOrder = async (nextOrder: LoanDisbursementOrder, previousOrder: LoanDisbursementOrder | null = trackedLoanDisbursementOrder) => {
+        setTrackedLoanDisbursementOrder(nextOrder);
+
+        if (isActiveLoanDisbursementStatus(previousOrder?.status) && !isActiveLoanDisbursementStatus(nextOrder.status)) {
+            await loadWorkspace();
+            if (activityLoaded) {
+                await loadActivityData({ silent: true, force: true });
+            }
+            if (creditRiskLoaded) {
+                await loadCreditRiskData({ silent: true, force: true });
+            }
+        }
+    };
+
+    const refreshLoanDisbursementOrder = async (orderId: string, options?: { silent?: boolean; manual?: boolean }) => {
+        if (options?.manual) {
+            setCheckingLoanDisbursementStatus(true);
+        }
+
+        try {
+            const { data } = await api.get<LoanDisbursementOrderStatusResponse>(
+                endpoints.loanApplications.disbursementStatus(orderId)
+            );
+            const nextOrder = data.data.order;
+            await applyTrackedLoanDisbursementOrder(nextOrder);
+            return nextOrder;
+        } catch (error) {
+            if (!options?.silent) {
+                pushToast({
+                    type: "error",
+                    title: "Unable to refresh disbursement",
+                    message: getApiErrorMessage(error)
+                });
+            }
+            return null;
+        } finally {
+            if (options?.manual) {
+                setCheckingLoanDisbursementStatus(false);
+            }
+        }
+    };
+
+    const openLoanDisbursementProgress = (order: LoanDisbursementOrder) => {
+        setTrackedLoanDisbursementOrder(order);
+        setDisbursementTarget(null);
+        disburseForm.reset({
+            reference: "",
+            description: "",
+            disbursement_channel: "cash",
+            recipient_msisdn: ""
+        });
+        if (isActiveLoanDisbursementStatus(order.status)) {
+            void refreshLoanDisbursementOrder(order.id, { silent: true });
+        }
+    };
+
+    const closeLoanDisbursementProgress = () => {
+        setTrackedLoanDisbursementOrder(null);
+        setCheckingLoanDisbursementStatus(false);
+    };
 
     const loadWorkspace = async () => {
         if (!selectedTenantId) {
@@ -780,6 +925,11 @@ export function LoansPage() {
         setApplications([]);
         setLoans([]);
         setSchedules([]);
+        setDisbursementTarget(null);
+        setTrackedLoanDisbursementOrder(null);
+        setCheckingLoanDisbursementStatus(false);
+        setPendingApprovalNotice(null);
+        setPendingMoneyAction(null);
         setApplicationTotal(0);
         setLoanTotal(0);
         setApplicationPage(1);
@@ -819,6 +969,19 @@ export function LoansPage() {
             void loadCreditRiskData({ silent: true });
         }
     }, [activeTab, creditRiskLoaded, creditRiskLoading, role]);
+
+    useEffect(() => {
+        if (!trackedLoanDisbursementOrder?.id || !isActiveLoanDisbursementStatus(trackedLoanDisbursementOrder.status)) {
+            return undefined;
+        }
+
+        const intervalMs = trackedLoanDisbursementOrder.status === "completed" ? 2500 : 4000;
+        const timer = window.setInterval(() => {
+            void refreshLoanDisbursementOrder(trackedLoanDisbursementOrder.id, { silent: true });
+        }, intervalMs);
+
+        return () => window.clearInterval(timer);
+    }, [trackedLoanDisbursementOrder?.id, trackedLoanDisbursementOrder?.status]);
 
     useEffect(() => {
         if ((showCreateModal || showRepayModal || Boolean(appraisalTarget)) && !referencesLoaded && !referencesLoading) {
@@ -1168,6 +1331,17 @@ export function LoansPage() {
             readyToDisburse
         };
     }, [applications, loans, role]);
+
+    const trackedLoanDisbursementStatus = trackedLoanDisbursementOrder?.status || null;
+    const loanDisbursementProgressValue = trackedLoanDisbursementStatus === "posted"
+        ? 100
+        : trackedLoanDisbursementStatus === "completed"
+            ? 78
+            : trackedLoanDisbursementStatus === "failed" || trackedLoanDisbursementStatus === "expired"
+                ? 100
+                : trackedLoanDisbursementStatus === "pending"
+                    ? 46
+                    : 16;
     const dashboardAccent = theme.palette.mode === "dark" ? "#D9B273" : theme.palette.primary.main;
     const dashboardAccentStrong = theme.palette.mode === "dark" ? "#C89B52" : theme.palette.primary.dark;
     const darkAccentContainedSx = theme.palette.mode === "dark"
@@ -1803,6 +1977,48 @@ export function LoansPage() {
         setPendingMoneyAction({ type: "repay", values });
     });
 
+    const handleLoanDisbursementResponse = async (
+        result: LoanDisbursementActionResponse["data"],
+        context: { applicationId: string; borrowerName: string | null },
+        values: DisburseValues
+    ) => {
+        if (result.approval_required && result.approval_request_id) {
+            pushToast({
+                type: "success",
+                title: "Sent for approval",
+                message: `Request ${result.approval_request_id.slice(0, 8)}... is now waiting for checker approval.`
+            });
+            setPendingApprovalNotice({
+                requestId: result.approval_request_id,
+                applicationId: context.applicationId,
+                applicationName: context.borrowerName,
+                reference: values.reference || null,
+                description: values.description || null,
+                disbursement_channel: values.disbursement_channel,
+                recipient_msisdn: values.recipient_msisdn || null
+            });
+            return;
+        }
+
+        if (result.mobile_disbursement) {
+            openLoanDisbursementProgress(result.mobile_disbursement);
+            pushToast({
+                type: "success",
+                title: result.mobile_disbursement.status === "posted" ? "Loan disbursed" : "Mobile disbursement started",
+                message: result.mobile_disbursement.status === "posted"
+                    ? `${context.borrowerName || "The borrower"} received the loan successfully.`
+                    : `${context.borrowerName || "The borrower"} is being paid out through mobile money.`
+            });
+            return;
+        }
+
+        pushToast({
+            type: "success",
+            title: "Loan disbursed",
+            message: `${context.borrowerName || "The borrower"} has been disbursed successfully.`
+        });
+    };
+
     const confirmMoneyAction = async () => {
         if (!pendingMoneyAction) {
             return;
@@ -1815,36 +2031,26 @@ export function LoansPage() {
                     const payload: DisburseApprovedLoanRequest = {
                         reference: pendingMoneyAction.values.reference || null,
                         description: pendingMoneyAction.values.description || null,
+                        disbursement_channel: pendingMoneyAction.values.disbursement_channel,
+                        recipient_msisdn: pendingMoneyAction.values.recipient_msisdn || null,
                         two_factor_code: stepUpPayload?.two_factor_code || null,
                         recovery_code: stepUpPayload?.recovery_code || null
                     };
-                    return api.post<LoanApplicationResponse | ApiEnvelope<PendingApprovalPayload>>(
+                    return api.post<LoanDisbursementActionResponse>(
                         endpoints.loanApplications.disburse(pendingMoneyAction.application.id),
                         payload
                     );
                 };
 
                 const { data } = await runDisbursement();
-                const maybePending = data.data as Partial<PendingApprovalPayload>;
-                if (maybePending.approval_required && maybePending.approval_request_id) {
-                    pushToast({
-                        type: "success",
-                        title: "Sent for approval",
-                        message: `Request ${maybePending.approval_request_id.slice(0, 8)}... is now waiting for checker approval.`
-                    });
-                    setPendingApprovalNotice({
-                        requestId: maybePending.approval_request_id,
+                await handleLoanDisbursementResponse(
+                    data.data,
+                    {
                         applicationId: pendingMoneyAction.application.id,
-                        reference: pendingMoneyAction.values.reference || null,
-                        description: pendingMoneyAction.values.description || null
-                    });
-                } else {
-                    pushToast({
-                        type: "success",
-                        title: "Loan disbursed",
-                        message: `${pendingMoneyAction.application.members?.full_name || "The borrower"} has been disbursed successfully.`
-                    });
-                }
+                        borrowerName: pendingMoneyAction.application.members?.full_name || null
+                    },
+                    pendingMoneyAction.values
+                );
                 setDisbursementTarget(null);
                 disburseForm.reset();
             } else {
@@ -1885,35 +2091,25 @@ export function LoansPage() {
                     "A fresh authenticator check is required before disbursing this approved loan.",
                     "Verify and disburse",
                     async (payload) => {
-                        const response = await api.post<LoanApplicationResponse | ApiEnvelope<PendingApprovalPayload>>(
+                        const response = await api.post<LoanDisbursementActionResponse>(
                             endpoints.loanApplications.disburse(action.application.id),
                             {
                                 reference: action.values.reference || null,
                                 description: action.values.description || null,
+                                disbursement_channel: action.values.disbursement_channel,
+                                recipient_msisdn: action.values.recipient_msisdn || null,
                                 two_factor_code: payload.two_factor_code || null,
                                 recovery_code: payload.recovery_code || null
                             }
                         );
-                        const maybePending = response.data.data as Partial<PendingApprovalPayload>;
-                        if (maybePending.approval_required && maybePending.approval_request_id) {
-                            pushToast({
-                                type: "success",
-                                title: "Sent for approval",
-                                message: `Request ${maybePending.approval_request_id.slice(0, 8)}... is now waiting for checker approval.`
-                            });
-                            setPendingApprovalNotice({
-                                requestId: maybePending.approval_request_id,
+                        await handleLoanDisbursementResponse(
+                            response.data.data,
+                            {
                                 applicationId: action.application.id,
-                                reference: action.values.reference || null,
-                                description: action.values.description || null
-                            });
-                        } else {
-                            pushToast({
-                                type: "success",
-                                title: "Loan disbursed",
-                                message: `${action.application.members?.full_name || "The borrower"} has been disbursed successfully.`
-                            });
-                        }
+                                borrowerName: action.application.members?.full_name || null
+                            },
+                            action.values
+                        );
                         setDisbursementTarget(null);
                         disburseForm.reset();
                         setPendingMoneyAction(null);
@@ -1950,25 +2146,32 @@ export function LoansPage() {
                 const payload: DisburseApprovedLoanRequest = {
                     reference: pendingApprovalNotice.reference || null,
                     description: pendingApprovalNotice.description || null,
+                    disbursement_channel: pendingApprovalNotice.disbursement_channel,
+                    recipient_msisdn: pendingApprovalNotice.recipient_msisdn || null,
                     approval_request_id: pendingApprovalNotice.requestId,
                     two_factor_code: stepUpPayload?.two_factor_code || null,
                     recovery_code: stepUpPayload?.recovery_code || null
                 };
 
-                return api.post<LoanApplicationResponse>(
+                return api.post<LoanDisbursementActionResponse>(
                     endpoints.loanApplications.disburse(pendingApprovalNotice.applicationId),
                     payload
                 );
             };
 
-            await runApprovedDisbursement();
-
-            pushToast({
-                type: "success",
-                title: "Loan disbursed",
-                message: "Approved disbursement request was executed successfully."
+            const response = await runApprovedDisbursement();
+            await handleLoanDisbursementResponse(response.data.data, {
+                applicationId: pendingApprovalNotice.applicationId,
+                borrowerName: pendingApprovalNotice.applicationName || null
+            }, {
+                reference: pendingApprovalNotice.reference || "",
+                description: pendingApprovalNotice.description || "",
+                disbursement_channel: pendingApprovalNotice.disbursement_channel,
+                recipient_msisdn: pendingApprovalNotice.recipient_msisdn || ""
             });
-            setPendingApprovalNotice(null);
+            if (!response.data.data.approval_required) {
+                setPendingApprovalNotice(null);
+            }
             await loadWorkspace();
             if (activityLoaded) {
                 await loadActivityData({ silent: true, force: true });
@@ -1984,22 +2187,30 @@ export function LoansPage() {
                     "Executing an approved disbursement requires a fresh authenticator check.",
                     "Verify and execute",
                     async (payload) => {
-                        await api.post<LoanApplicationResponse>(
+                        const response = await api.post<LoanDisbursementActionResponse>(
                             endpoints.loanApplications.disburse(notice.applicationId),
                             {
                                 reference: notice.reference || null,
                                 description: notice.description || null,
+                                disbursement_channel: notice.disbursement_channel,
+                                recipient_msisdn: notice.recipient_msisdn || null,
                                 approval_request_id: notice.requestId,
                                 two_factor_code: payload.two_factor_code || null,
                                 recovery_code: payload.recovery_code || null
                             }
                         );
-                        pushToast({
-                            type: "success",
-                            title: "Loan disbursed",
-                            message: "Approved disbursement request was executed successfully."
+                        await handleLoanDisbursementResponse(response.data.data, {
+                            applicationId: notice.applicationId,
+                            borrowerName: notice.applicationName || null
+                        }, {
+                            reference: notice.reference || "",
+                            description: notice.description || "",
+                            disbursement_channel: notice.disbursement_channel,
+                            recipient_msisdn: notice.recipient_msisdn || ""
                         });
-                        setPendingApprovalNotice(null);
+                        if (!response.data.data.approval_required) {
+                            setPendingApprovalNotice(null);
+                        }
                         setStepUpOpen(false);
                         await loadWorkspace();
                         if (activityLoaded) {
@@ -2127,10 +2338,16 @@ export function LoansPage() {
                         });
                         return;
                     }
+                    if (row.latest_mobile_disbursement && isActiveLoanDisbursementStatus(row.latest_mobile_disbursement.status)) {
+                        openLoanDisbursementProgress(row.latest_mobile_disbursement);
+                        return;
+                    }
                     setDisbursementTarget(row);
                     disburseForm.reset({
                         reference: row.external_reference || "",
-                        description: row.purpose || ""
+                        description: row.purpose || "",
+                        disbursement_channel: "cash",
+                        recipient_msisdn: row.members?.phone || ""
                     });
                 };
 
@@ -2157,7 +2374,9 @@ export function LoansPage() {
                             onClick={openDisbursement}
                             fullWidth
                         >
-                            Disburse Loan
+                            {row.latest_mobile_disbursement && isActiveLoanDisbursementStatus(row.latest_mobile_disbursement.status)
+                                ? "Track Disbursement"
+                                : "Disburse Loan"}
                         </Button>
                     );
                 } else if (canRunApproval) {
@@ -2554,7 +2773,7 @@ export function LoansPage() {
                     action={
                         <Stack direction="row" spacing={1}>
                             <Button size="small" onClick={() => void executeApprovedDisbursement()} disabled={processing}>
-                                Execute Approved
+                                {pendingApprovalNotice.disbursement_channel === "mobile_money" ? "Execute Payout" : "Execute Approved"}
                             </Button>
                             <Button size="small" onClick={() => navigate("/approvals")}>
                                 Open Queue
@@ -2565,7 +2784,9 @@ export function LoansPage() {
                         </Stack>
                     }
                 >
-                    Disbursement was sent for maker-checker approval. Request ID: {pendingApprovalNotice.requestId}
+                    {pendingApprovalNotice.disbursement_channel === "mobile_money"
+                        ? `Mobile loan payout for ${pendingApprovalNotice.applicationName || "the borrower"} is waiting for checker approval. Request ID: ${pendingApprovalNotice.requestId}`
+                        : `Disbursement was sent for maker-checker approval. Request ID: ${pendingApprovalNotice.requestId}`}
                 </Alert>
             ) : null}
 
@@ -4004,10 +4225,41 @@ export function LoansPage() {
                 <DialogTitle>Disburse Approved Application</DialogTitle>
                 <DialogContent dividers>
                     <Stack spacing={2} sx={{ pt: 0.5 }}>
-                        <Alert severity="warning" variant="outlined">
-                            This is the money-posting step. A balanced journal, loan account, and repayment schedule will be created when you confirm.
+                        <Alert severity={selectedDisbursementChannel === "mobile_money" ? "info" : "warning"} variant="outlined">
+                            {selectedDisbursementChannel === "mobile_money"
+                                ? "The teller will trigger a mobile money payout to the member phone. The loan will only post after the provider confirms a successful payout."
+                                : "This is the money-posting step. A balanced journal, loan account, and repayment schedule will be created when you confirm."}
                         </Alert>
+                        {disbursementTarget?.members?.phone ? (
+                            <Alert severity="info" variant="outlined" sx={darkAccentInfoAlertSx}>
+                                Member payout number on file: {disbursementTarget.members.phone}. Switch the channel to mobile money to send the loan through Snippe.
+                            </Alert>
+                        ) : null}
                         <Box component="form" id="loan-disburse-application-form" onSubmit={launchDisbursement} sx={{ display: "grid", gap: 2 }}>
+                            <TextField
+                                select
+                                label="Disbursement channel"
+                                fullWidth
+                                defaultValue="cash"
+                                {...disburseForm.register("disbursement_channel")}
+                            >
+                                <MenuItem value="cash">Cash / teller posting</MenuItem>
+                                <MenuItem value="mobile_money">Mobile money payout</MenuItem>
+                            </TextField>
+                            <TextField
+                                label="Recipient mobile number"
+                                fullWidth
+                                placeholder="2557XXXXXXXX"
+                                disabled={selectedDisbursementChannel !== "mobile_money"}
+                                {...disburseForm.register("recipient_msisdn")}
+                                error={Boolean(disburseForm.formState.errors.recipient_msisdn)}
+                                helperText={
+                                    disburseForm.formState.errors.recipient_msisdn?.message
+                                    || (selectedDisbursementChannel === "mobile_money"
+                                        ? "Use the member number that should receive the loan payout."
+                                        : "Select Mobile money payout to enable Snippe disbursement to the member phone.")
+                                }
+                            />
                             <TextField label="Reference" fullWidth {...disburseForm.register("reference")} />
                             <TextField label="Description" fullWidth multiline minRows={3} {...disburseForm.register("description")} />
                         </Box>
@@ -4016,7 +4268,7 @@ export function LoansPage() {
                 <DialogActions>
                     <Button onClick={() => setDisbursementTarget(null)}>Cancel</Button>
                     <Button variant="contained" color="success" type="submit" form="loan-disburse-application-form" disabled={processing}>
-                        Review Disbursement
+                        {selectedDisbursementChannel === "mobile_money" ? "Review Payout" : "Review Disbursement"}
                     </Button>
                 </DialogActions>
             </MotionModal>
@@ -4204,6 +4456,95 @@ export function LoansPage() {
                 </DialogActions>
             </MotionModal>
 
+            <MotionModal open={Boolean(trackedLoanDisbursementOrder)} onClose={closeLoanDisbursementProgress} maxWidth="sm" fullWidth>
+                <DialogTitle>Mobile Loan Disbursement</DialogTitle>
+                <DialogContent dividers>
+                    {trackedLoanDisbursementOrder ? (
+                        <Stack spacing={2.5} sx={{ pt: 0.5 }}>
+                            <Alert severity={getLoanDisbursementAlertSeverity(trackedLoanDisbursementOrder.status)} variant="outlined">
+                                <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.75 }}>
+                                    {getLoanDisbursementHeadline(trackedLoanDisbursementOrder)}
+                                </Typography>
+                                <Typography variant="body2">
+                                    {getLoanDisbursementMessage(trackedLoanDisbursementOrder)}
+                                </Typography>
+                            </Alert>
+
+                            <Stack spacing={1.2}>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                    <Typography variant="body2" color="text.secondary">
+                                        Disbursement progress
+                                    </Typography>
+                                    <Chip
+                                        size="small"
+                                        color={
+                                            trackedLoanDisbursementOrder.status === "posted"
+                                                ? "success"
+                                                : trackedLoanDisbursementOrder.status === "failed"
+                                                    ? "error"
+                                                    : trackedLoanDisbursementOrder.status === "expired"
+                                                        ? "warning"
+                                                        : "info"
+                                        }
+                                        label={trackedLoanDisbursementOrder.status}
+                                    />
+                                </Stack>
+                                <LinearProgress
+                                    variant="determinate"
+                                    value={loanDisbursementProgressValue}
+                                    sx={{ height: 10, borderRadius: 999 }}
+                                    color={
+                                        trackedLoanDisbursementOrder.status === "posted"
+                                            ? "success"
+                                            : trackedLoanDisbursementOrder.status === "failed"
+                                                ? "error"
+                                                : trackedLoanDisbursementOrder.status === "expired"
+                                                    ? "warning"
+                                                    : "primary"
+                                    }
+                                />
+                            </Stack>
+
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5 }}>
+                                <Stack spacing={1.1}>
+                                    <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Amount</Typography><Typography variant="body2">{formatCurrency(trackedLoanDisbursementOrder.amount)}</Typography></Stack>
+                                    <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Recipient</Typography><Typography variant="body2">{trackedLoanDisbursementOrder.msisdn}</Typography></Stack>
+                                    <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Provider ref</Typography><Typography variant="body2">{trackedLoanDisbursementOrder.provider_ref || "Pending"}</Typography></Stack>
+                                    <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Loan journal</Typography><Typography variant="body2">{trackedLoanDisbursementOrder.journal_id || "Posting not complete yet"}</Typography></Stack>
+                                    {trackedLoanDisbursementOrder.expires_at ? (
+                                        <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Provider expiry</Typography><Typography variant="body2">{formatDate(trackedLoanDisbursementOrder.expires_at)}</Typography></Stack>
+                                    ) : null}
+                                    {trackedLoanDisbursementOrder.error_message ? (
+                                        <Typography variant="body2" color="error.main">
+                                            {trackedLoanDisbursementOrder.error_message}
+                                        </Typography>
+                                    ) : null}
+                                </Stack>
+                            </Paper>
+                        </Stack>
+                    ) : null}
+                </DialogContent>
+                <DialogActions>
+                    {trackedLoanDisbursementOrder && isActiveLoanDisbursementStatus(trackedLoanDisbursementOrder.status) ? (
+                        <>
+                            <Button onClick={closeLoanDisbursementProgress}>Close</Button>
+                            <Button
+                                variant="contained"
+                                onClick={() => void refreshLoanDisbursementOrder(trackedLoanDisbursementOrder.id, { manual: true })}
+                                disabled={checkingLoanDisbursementStatus}
+                                sx={darkAccentContainedSx}
+                            >
+                                {checkingLoanDisbursementStatus ? "Checking..." : "Check Status"}
+                            </Button>
+                        </>
+                    ) : (
+                        <Button variant="contained" onClick={closeLoanDisbursementProgress} sx={darkAccentContainedSx}>
+                            Done
+                        </Button>
+                    )}
+                </DialogActions>
+            </MotionModal>
+
             <ConfirmModal
                 open={Boolean(pendingMoneyAction)}
                 title={pendingMoneyAction?.type === "disburse" ? "Confirm Loan Disbursement" : "Confirm Loan Repayment"}
@@ -4212,6 +4553,10 @@ export function LoansPage() {
                         <Stack spacing={1.25}>
                             <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Borrower</Typography><Typography variant="body2">{pendingMoneyAction.application.members?.full_name || "Unknown"}</Typography></Stack>
                             <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Approved Amount</Typography><Typography variant="body2">{formatCurrency(pendingMoneyAction.application.recommended_amount || pendingMoneyAction.application.requested_amount)}</Typography></Stack>
+                            <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Channel</Typography><Typography variant="body2">{pendingMoneyAction.values.disbursement_channel === "mobile_money" ? "Mobile money" : "Cash / teller"}</Typography></Stack>
+                            {pendingMoneyAction.values.disbursement_channel === "mobile_money" ? (
+                                <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Recipient phone</Typography><Typography variant="body2">{pendingMoneyAction.values.recipient_msisdn || "Not provided"}</Typography></Stack>
+                            ) : null}
                             <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="text.secondary">Reference</Typography><Typography variant="body2">{pendingMoneyAction.values.reference || "N/A"}</Typography></Stack>
                         </Stack>
                     ) : (
@@ -4226,7 +4571,11 @@ export function LoansPage() {
                     )
                 }
                 loading={processing}
-                confirmLabel={pendingMoneyAction?.type === "disburse" ? "Disburse Loan" : "Post Repayment"}
+                confirmLabel={
+                    pendingMoneyAction?.type === "disburse"
+                        ? (pendingMoneyAction.values.disbursement_channel === "mobile_money" ? "Send Mobile Payout" : "Disburse Loan")
+                        : "Post Repayment"
+                }
                 onCancel={() => setPendingMoneyAction(null)}
                 onConfirm={() => void confirmMoneyAction()}
             />
