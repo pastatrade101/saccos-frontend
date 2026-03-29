@@ -177,6 +177,43 @@ export interface NotificationPreferenceItem {
     toast_enabled: boolean;
 }
 
+export interface LocationRegion {
+    id: string;
+    name: string;
+}
+
+export interface LocationDistrict {
+    id: string;
+    region_id: string;
+    name: string;
+}
+
+export interface LocationWard {
+    id: string;
+    district_id: string;
+    name: string;
+}
+
+export interface LocationVillage {
+    id: string;
+    ward_id: string;
+    name: string;
+    code?: string | null;
+}
+
+export interface MemberApplicationAttachment {
+    id: string;
+    application_id: string;
+    storage_bucket: string;
+    storage_path: string;
+    file_name: string;
+    mime_type?: string | null;
+    file_size_bytes?: number | null;
+    document_type?: "national_id" | "passport_photo" | "supporting_document" | null;
+    created_at: string;
+    download_url?: string | null;
+}
+
 export interface TreasuryLedgerAccount {
     id: string;
     account_code: string;
@@ -444,6 +481,9 @@ export interface Member {
     branch_id: string;
     user_id?: string | null;
     full_name: string;
+    gender?: "male" | "female" | "other" | null;
+    marital_status?: "single" | "married" | "divorced" | "widowed" | null;
+    occupation?: string | null;
     phone: string | null;
     email?: string | null;
     member_no?: string | null;
@@ -457,15 +497,29 @@ export interface Member {
     state?: string | null;
     country?: string | null;
     postal_code?: string | null;
+    region_id?: string | null;
+    district_id?: string | null;
+    ward_id?: string | null;
+    village_id?: string | null;
+    region?: string | null;
+    district?: string | null;
+    ward?: string | null;
+    street_or_village?: string | null;
+    residential_address?: string | null;
     nida_no?: string | null;
     tin_no?: string | null;
     next_of_kin_name?: string | null;
     next_of_kin_phone?: string | null;
     next_of_kin_relationship?: string | null;
+    next_of_kin_address?: string | null;
     employer?: string | null;
+    membership_type?: "individual" | "group" | "company" | null;
+    initial_share_amount?: number | null;
+    monthly_savings_commitment?: number | null;
     kyc_status?: KycStatus;
     kyc_reason?: string | null;
     created_at: string;
+    updated_at?: string;
 }
 
 export interface MemberApplication {
@@ -478,9 +532,21 @@ export interface MemberApplication {
     kyc_status: KycStatus;
     kyc_reason?: string | null;
     full_name: string;
+    gender?: "male" | "female" | "other" | null;
+    marital_status?: "single" | "married" | "divorced" | "widowed" | null;
+    occupation?: string | null;
     dob?: string | null;
     phone?: string | null;
     email?: string | null;
+    region_id?: string | null;
+    district_id?: string | null;
+    ward_id?: string | null;
+    village_id?: string | null;
+    region?: string | null;
+    district?: string | null;
+    ward?: string | null;
+    street_or_village?: string | null;
+    residential_address?: string | null;
     address_line1?: string | null;
     address_line2?: string | null;
     city?: string | null;
@@ -492,7 +558,13 @@ export interface MemberApplication {
     next_of_kin_name?: string | null;
     next_of_kin_phone?: string | null;
     next_of_kin_relationship?: string | null;
+    next_of_kin_address?: string | null;
     employer?: string | null;
+    membership_type?: "individual" | "group" | "company" | null;
+    initial_share_amount?: number | null;
+    monthly_savings_commitment?: number | null;
+    terms_accepted?: boolean | null;
+    data_processing_consent?: boolean | null;
     member_no?: string | null;
     national_id?: string | null;
     notes?: string | null;
@@ -507,8 +579,12 @@ export interface MemberApplication {
     rejected_by?: string | null;
     rejected_at?: string | null;
     rejection_reason?: string | null;
+    request_more_info_reason?: string | null;
+    requested_more_info_by?: string | null;
+    requested_more_info_at?: string | null;
     created_at: string;
     updated_at: string;
+    attachments?: MemberApplicationAttachment[];
 }
 
 export interface LoanProduct {

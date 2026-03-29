@@ -81,11 +81,13 @@ import { ChartPanel } from "../components/ChartPanel";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { DataTable, type Column } from "../components/DataTable";
 import { MemberOverview, type MemberAlertItem } from "../components/member-overview";
+import { PaymentReceiptDialog } from "../components/member-portal/PaymentReceiptDialog";
 import { LoanEligibilitySummary } from "../components/loan-capacity/LoanEligibilitySummary";
 import { NotificationBell } from "../components/notifications/NotificationBell";
 import { SearchableSelect } from "../components/SearchableSelect";
 import { useToast } from "../components/Toast";
 import { AppLoader } from "../components/AppLoader";
+import { findLocationByName, useTanzaniaLocations } from "../hooks/useTanzaniaLocations";
 import { api, getApiErrorCode, getApiErrorDetails, getApiErrorMessage } from "../lib/api";
 import {
     endpoints,
@@ -100,6 +102,8 @@ import {
     type LoanTransactionsResponse,
     type MemberAccountsResponse,
     type MembersResponse,
+    type UpdateOwnMemberProfileCompletionRequest,
+    type UpdateOwnMemberProfileCompletionResponse,
     type MemberApplicationResponse,
     type StatementsResponse,
     type GuarantorConsentRequest,
@@ -116,6 +120,14 @@ import { useUI } from "../ui/UIProvider";
 import type { Loan, LoanApplication, LoanCapacitySummary, LoanProduct, LoanSchedule, LoanTransaction, Member, MemberAccount, MemberApplication, MemberApplicationStatus, PaymentOrder, StatementRow } from "../types/api";
 import { downloadLoanStatementPdf, downloadMemberStatementPdf } from "../utils/memberStatementPdf";
 import { memberApplicationStatusLabels } from "../utils/member-application-status";
+import {
+    formatNextOfKinRelationship,
+    isLegacyNextOfKinRelationship,
+    isSupportedNextOfKinRelationship,
+    LEGACY_NEXT_OF_KIN_RELATIONSHIP_VALUES,
+    NEXT_OF_KIN_RELATIONSHIP_OPTIONS,
+    NEXT_OF_KIN_RELATIONSHIP_VALUES
+} from "../utils/nextOfKin";
 import { formatCurrency, formatDate, formatRole } from "../utils/format";
 
 type LoanRepaymentFrequency = "daily" | "weekly" | "monthly";
@@ -324,6 +336,49 @@ const contributionPaymentSchema = z.object({
 type ContributionPaymentValues = z.infer<typeof contributionPaymentSchema>;
 type MemberPaymentPurpose = "share_contribution" | "savings_deposit" | "membership_fee" | "loan_repayment";
 type DateRangePreset = "month" | "quarter" | "year" | "custom";
+
+const memberProfileCompletionPhonePattern = /^255[67]\d{8}$/;
+function isAdultPortalDate(value: string) {
+    const today = new Date();
+    const dob = new Date(`${value}T00:00:00`);
+    const minimumBirthDate = new Date(today.getFullYear() - 18, today.getMonth(), today.getDate());
+    return dob <= minimumBirthDate;
+}
+
+const memberProfileCompletionSchema = z.object({
+    full_name: z.string().trim().min(3, "Full name is required.").max(120, "Full name is too long."),
+    dob: z.string().optional().or(z.literal("")).refine((value) => !value || isAdultPortalDate(value), "Member must be at least 18 years old."),
+    phone: z.string().trim().optional().or(z.literal("")).refine(
+        (value) => !value || memberProfileCompletionPhonePattern.test(value),
+        "Use 2557XXXXXXXX or 2556XXXXXXXX."
+    ),
+    email: z.string().trim().optional().or(z.literal("")).refine(
+        (value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+        "Enter a valid email address."
+    ),
+    gender: z.enum(["male", "female", "other"]).or(z.literal("")),
+    marital_status: z.enum(["single", "married", "divorced", "widowed"]).or(z.literal("")),
+    occupation: z.string().trim().max(160, "Occupation is too long.").optional().or(z.literal("")),
+    employer: z.string().trim().max(160, "Employer name is too long.").optional().or(z.literal("")),
+    national_id: z.string().trim().max(50, "National ID is too long.").optional().or(z.literal("")),
+    nida_no: z.string().trim().max(50, "NIDA number is too long.").optional().or(z.literal("")),
+    tin_no: z.string().trim().max(50, "TIN number is too long.").optional().or(z.literal("")),
+    region_id: z.string().uuid().optional().or(z.literal("")),
+    district_id: z.string().uuid().optional().or(z.literal("")),
+    ward_id: z.string().uuid().optional().or(z.literal("")),
+    village_id: z.string().uuid().optional().or(z.literal("")),
+    region: z.string().trim().max(120, "Region is too long.").optional().or(z.literal("")),
+    district: z.string().trim().max(120, "District is too long.").optional().or(z.literal("")),
+    ward: z.string().trim().max(120, "Ward is too long.").optional().or(z.literal("")),
+    street_or_village: z.string().trim().max(160, "Street or village is too long.").optional().or(z.literal("")),
+    residential_address: z.string().trim().max(255, "Residential address is too long.").optional().or(z.literal("")),
+    next_of_kin_name: z.string().trim().max(120, "Next of kin name is too long.").optional().or(z.literal("")),
+    next_of_kin_phone: z.string().trim().max(30, "Next of kin phone is too long.").optional().or(z.literal("")),
+    next_of_kin_relationship: z.string().trim().max(80, "Relationship is too long.").optional().or(z.literal("")),
+    next_of_kin_address: z.string().trim().max(255, "Next of kin address is too long.").optional().or(z.literal(""))
+});
+
+type MemberProfileCompletionValues = z.infer<typeof memberProfileCompletionSchema>;
 
 interface DateRangeState {
     preset: DateRangePreset;
@@ -852,6 +907,8 @@ export function MemberPortalPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [warning, setWarning] = useState<string | null>(null);
+    const [showProfileCompletionDialog, setShowProfileCompletionDialog] = useState(false);
+    const [savingProfileCompletion, setSavingProfileCompletion] = useState(false);
     const [showApplyDialog, setShowApplyDialog] = useState(false);
     const [editingLoanApplicationId, setEditingLoanApplicationId] = useState<string | null>(null);
     const [deletingLoanApplicationId, setDeletingLoanApplicationId] = useState<string | null>(null);
@@ -927,6 +984,36 @@ export function MemberPortalPage() {
             description: ""
         }
     });
+    const memberProfileCompletionForm = useForm<MemberProfileCompletionValues>({
+        resolver: zodResolver(memberProfileCompletionSchema),
+        mode: "onChange",
+        defaultValues: {
+            full_name: "",
+            dob: "",
+            phone: "",
+            email: "",
+            gender: "",
+            marital_status: "",
+            occupation: "",
+            employer: "",
+            national_id: "",
+            nida_no: "",
+            tin_no: "",
+            region_id: "",
+            district_id: "",
+            ward_id: "",
+            village_id: "",
+            region: "",
+            district: "",
+            ward: "",
+            street_or_village: "",
+            residential_address: "",
+            next_of_kin_name: "",
+            next_of_kin_phone: "",
+            next_of_kin_relationship: "",
+            next_of_kin_address: ""
+        }
+    });
     const requiresMembershipFeePayment = memberApplication?.status === "approved_pending_payment";
     const canUsePortalPayments = canUsePortalDeposits || requiresMembershipFeePayment;
     const membershipFeeOutstanding = Math.max(
@@ -934,6 +1021,68 @@ export function MemberPortalPage() {
         0
     );
     const canShowMembershipFeePaymentOption = requiresMembershipFeePayment && membershipFeeOutstanding > 0;
+    const memberProfileMissingFields = useMemo(() => {
+        if (!memberRecord) {
+            return [];
+        }
+
+        const missing: string[] = [];
+
+        if (!memberRecord.dob) missing.push("date of birth");
+        if (!memberRecord.gender) missing.push("gender");
+        if (!memberRecord.marital_status) missing.push("marital status");
+        if (!memberRecord.occupation) missing.push("occupation");
+        if (!memberRecord.phone) missing.push("phone number");
+        if (!memberRecord.national_id && !memberRecord.nida_no) missing.push("identity number");
+        if (!memberRecord.region) missing.push("region");
+        if (!memberRecord.district) missing.push("district");
+        if (!memberRecord.ward) missing.push("ward");
+        if (!memberRecord.residential_address && !memberRecord.address_line1) missing.push("residential address");
+        if (!memberRecord.next_of_kin_name || !memberRecord.next_of_kin_phone || !memberRecord.next_of_kin_relationship) {
+            missing.push("next of kin details");
+        }
+
+        return missing;
+    }, [memberRecord]);
+    const memberProfileNeedsCompletion = Boolean(memberRecord && memberProfileMissingFields.length);
+    const memberProfileRegionId = memberProfileCompletionForm.watch("region_id");
+    const memberProfileDistrictId = memberProfileCompletionForm.watch("district_id");
+    const memberProfileWardId = memberProfileCompletionForm.watch("ward_id");
+    const {
+        regions,
+        districts,
+        wards,
+        villages,
+        regionOptions,
+        districtOptions,
+        wardOptions,
+        villageOptions,
+        loadingRegions,
+        loadingDistricts,
+        loadingWards,
+        loadingVillages
+    } = useTanzaniaLocations({
+        regionId: memberProfileRegionId,
+        districtId: memberProfileDistrictId,
+        wardId: memberProfileWardId
+    });
+    const memberProfileLegacyLocationSummary = useMemo(() => {
+        const parts = [
+            memberProfileCompletionForm.getValues("region"),
+            memberProfileCompletionForm.getValues("district"),
+            memberProfileCompletionForm.getValues("ward"),
+            memberProfileCompletionForm.getValues("street_or_village")
+        ]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean);
+
+        return parts.length ? parts.join(" / ") : null;
+    }, [
+        memberProfileCompletionForm.watch("region"),
+        memberProfileCompletionForm.watch("district"),
+        memberProfileCompletionForm.watch("ward"),
+        memberProfileCompletionForm.watch("street_or_village")
+    ]);
     const selectedLoanProductId = loanApplicationForm.watch("product_id");
     const requestedLoanTerm = loanApplicationForm.watch("requested_term_count");
     const requestedLoanAmount = loanApplicationForm.watch("requested_amount");
@@ -953,6 +1102,7 @@ export function MemberPortalPage() {
         () => resolveLoanEligibilityPolicy(selectedLoanProduct),
         [selectedLoanProduct]
     );
+
     const latestStatementBalanceByAccountId = useMemo(() => {
         const latestBalances = new Map<string, { createdAt: number; runningBalance: number }>();
 
@@ -1656,6 +1806,88 @@ export function MemberPortalPage() {
         });
     };
 
+    const openProfileCompletionDialog = () => {
+        memberProfileCompletionForm.reset({
+            full_name: memberRecord?.full_name || "",
+            dob: memberRecord?.dob || "",
+            phone: memberRecord?.phone || "",
+            email: memberRecord?.email || "",
+            gender: memberRecord?.gender || "",
+            marital_status: memberRecord?.marital_status || "",
+            occupation: memberRecord?.occupation || "",
+            employer: memberRecord?.employer || "",
+            national_id: memberRecord?.national_id || "",
+            nida_no: memberRecord?.nida_no || "",
+            tin_no: memberRecord?.tin_no || "",
+            region_id: memberRecord?.region_id || "",
+            district_id: memberRecord?.district_id || "",
+            ward_id: memberRecord?.ward_id || "",
+            village_id: memberRecord?.village_id || "",
+            region: memberRecord?.region || "",
+            district: memberRecord?.district || "",
+            ward: memberRecord?.ward || "",
+            street_or_village: memberRecord?.street_or_village || "",
+            residential_address: memberRecord?.residential_address || memberRecord?.address_line1 || "",
+            next_of_kin_name: memberRecord?.next_of_kin_name || "",
+            next_of_kin_phone: memberRecord?.next_of_kin_phone || "",
+            next_of_kin_relationship: memberRecord?.next_of_kin_relationship || "",
+            next_of_kin_address: memberRecord?.next_of_kin_address || ""
+        });
+        setShowProfileCompletionDialog(true);
+    };
+
+    useEffect(() => {
+        if (!showProfileCompletionDialog || memberProfileCompletionForm.getValues("region_id") || !regions.length) {
+            return;
+        }
+
+        const match = findLocationByName(regions, memberProfileCompletionForm.getValues("region"));
+        if (match) {
+            memberProfileCompletionForm.setValue("region_id", match.id, { shouldValidate: false });
+        }
+    }, [showProfileCompletionDialog, regions, memberProfileCompletionForm]);
+
+    useEffect(() => {
+        if (!showProfileCompletionDialog || memberProfileCompletionForm.getValues("district_id") || !districts.length) {
+            return;
+        }
+
+        const match = findLocationByName(districts, memberProfileCompletionForm.getValues("district"));
+        if (match) {
+            memberProfileCompletionForm.setValue("district_id", match.id, { shouldValidate: false });
+        }
+    }, [showProfileCompletionDialog, districts, memberProfileCompletionForm]);
+
+    useEffect(() => {
+        if (!showProfileCompletionDialog || memberProfileCompletionForm.getValues("ward_id") || !wards.length) {
+            return;
+        }
+
+        const match = findLocationByName(wards, memberProfileCompletionForm.getValues("ward"));
+        if (match) {
+            memberProfileCompletionForm.setValue("ward_id", match.id, { shouldValidate: false });
+        }
+    }, [showProfileCompletionDialog, wards, memberProfileCompletionForm]);
+
+    useEffect(() => {
+        if (!showProfileCompletionDialog || memberProfileCompletionForm.getValues("village_id") || !villages.length) {
+            return;
+        }
+
+        const match = findLocationByName(
+            villages,
+            memberProfileCompletionForm.getValues("street_or_village") || memberProfileCompletionForm.getValues("residential_address")
+        );
+        if (match) {
+            memberProfileCompletionForm.setValue("village_id", match.id, { shouldValidate: false });
+        }
+    }, [showProfileCompletionDialog, villages, memberProfileCompletionForm]);
+
+    const toNullableProfileValue = (value?: string | null) => {
+        const normalized = String(value || "").trim();
+        return normalized ? normalized : null;
+    };
+
     const refreshMemberContributionData = async (targetMemberId = memberId) => {
         if (!profile?.tenant_id) {
             return;
@@ -1759,6 +1991,64 @@ export function MemberPortalPage() {
             setLoanTransactions(loanTransactionsResult.value.data.data || []);
         }
     };
+
+    const submitProfileCompletion = memberProfileCompletionForm.handleSubmit(async (values) => {
+        setSavingProfileCompletion(true);
+        try {
+            const payload: UpdateOwnMemberProfileCompletionRequest = {
+                full_name: toNullableProfileValue(values.full_name),
+                dob: toNullableProfileValue(values.dob),
+                phone: toNullableProfileValue(values.phone),
+                email: toNullableProfileValue(values.email),
+                gender: values.gender || null,
+                marital_status: values.marital_status || null,
+                occupation: toNullableProfileValue(values.occupation),
+                employer: toNullableProfileValue(values.employer),
+                national_id: toNullableProfileValue(values.national_id),
+                nida_no: toNullableProfileValue(values.nida_no),
+                tin_no: toNullableProfileValue(values.tin_no),
+                region_id: toNullableProfileValue(values.region_id),
+                district_id: toNullableProfileValue(values.district_id),
+                ward_id: toNullableProfileValue(values.ward_id),
+                village_id: toNullableProfileValue(values.village_id),
+                region: toNullableProfileValue(values.region),
+                district: toNullableProfileValue(values.district),
+                ward: toNullableProfileValue(values.ward),
+                street_or_village: toNullableProfileValue(values.street_or_village),
+                residential_address: toNullableProfileValue(values.residential_address),
+                address_line1: toNullableProfileValue(values.residential_address),
+                city: toNullableProfileValue(values.district),
+                state: toNullableProfileValue(values.region),
+                country: memberRecord?.country || "Tanzania",
+                next_of_kin_name: toNullableProfileValue(values.next_of_kin_name),
+                next_of_kin_phone: toNullableProfileValue(values.next_of_kin_phone),
+                next_of_kin_relationship: toNullableProfileValue(values.next_of_kin_relationship),
+                next_of_kin_address: toNullableProfileValue(values.next_of_kin_address)
+            };
+
+            const { data } = await api.patch<UpdateOwnMemberProfileCompletionResponse>(
+                endpoints.members.profileCompletion(),
+                payload
+            );
+
+            setMemberRecord(data.data || null);
+            setShowProfileCompletionDialog(false);
+            pushToast({
+                type: "success",
+                title: "Profile updated",
+                message: "Your member profile details were saved and your branch will now see the completed compliance information."
+            });
+            await refreshMemberContributionData(data.data?.id || memberId);
+        } catch (error) {
+            pushToast({
+                type: "error",
+                title: "Unable to update profile",
+                message: getApiErrorMessage(error)
+            });
+        } finally {
+            setSavingProfileCompletion(false);
+        }
+    });
 
     const handleMarkCancelledOnPhone = () => {
         setPhoneCancellationRequested(true);
@@ -6969,6 +7259,21 @@ export function MemberPortalPage() {
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                                             {getMemberApplicationMessage(memberApplication.status)}
                                         </Typography>
+                                        {memberApplication.request_more_info_reason && ["submitted", "under_review"].includes(memberApplication.status) ? (
+                                            <Alert severity="warning" variant="outlined" sx={{ mt: 0.75 }}>
+                                                <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.35 }}>
+                                                    Branch manager requested more information
+                                                </Typography>
+                                                <Typography variant="body2">
+                                                    {memberApplication.request_more_info_reason}
+                                                </Typography>
+                                                {memberApplication.requested_more_info_at ? (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Requested on {formatDate(memberApplication.requested_more_info_at)}
+                                                    </Typography>
+                                                ) : null}
+                                            </Alert>
+                                        ) : null}
                                         {memberApplication.status === "approved_pending_payment" ? (
                                             <Stack direction={{ xs: "column", sm: "row" }} spacing={1.1} sx={{ pt: 0.5 }}>
                                                 <Button
@@ -6983,6 +7288,67 @@ export function MemberPortalPage() {
                                                 </Typography>
                                             </Stack>
                                         ) : null}
+                                    </Stack>
+                                </CardContent>
+                            </MotionCard>
+                        ) : null}
+                        {memberRecord && memberProfileNeedsCompletion ? (
+                            <MotionCard
+                                variant="outlined"
+                                sx={{
+                                    ...contentCardSx,
+                                    borderColor: alpha(theme.palette.warning.main, isDarkMode ? 0.34 : 0.24),
+                                    bgcolor: alpha(theme.palette.warning.main, isDarkMode ? 0.1 : 0.04)
+                                }}
+                            >
+                                <CardContent>
+                                    <Stack spacing={1.4}>
+                                        <Stack
+                                            direction={{ xs: "column", md: "row" }}
+                                            justifyContent="space-between"
+                                            alignItems={{ xs: "flex-start", md: "center" }}
+                                            spacing={1.25}
+                                        >
+                                            <Box>
+                                                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                                    Complete your member profile
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>
+                                                    Some identity and contact details are still missing from your member record. Complete them now so branch reviews and future servicing do not get delayed.
+                                                </Typography>
+                                            </Box>
+                                            <Button
+                                                variant="contained"
+                                                onClick={openProfileCompletionDialog}
+                                                sx={
+                                                    isDarkMode
+                                                        ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                                        : undefined
+                                                }
+                                            >
+                                                Complete profile
+                                            </Button>
+                                        </Stack>
+                                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                            {memberProfileMissingFields.slice(0, 5).map((field) => (
+                                                <Chip
+                                                    key={field}
+                                                    size="small"
+                                                    color="warning"
+                                                    variant="outlined"
+                                                    label={field}
+                                                    sx={{ borderRadius: 1.2 }}
+                                                />
+                                            ))}
+                                            {memberProfileMissingFields.length > 5 ? (
+                                                <Chip
+                                                    size="small"
+                                                    variant="outlined"
+                                                    label={`+${memberProfileMissingFields.length - 5} more`}
+                                                    sx={{ borderRadius: 1.2 }}
+                                                />
+                                            ) : null}
+                                        </Stack>
                                     </Stack>
                                 </CardContent>
                             </MotionCard>
@@ -7619,77 +7985,13 @@ export function MemberPortalPage() {
                 </DialogActions>
             </MotionModal>
 
-            <MotionModal open={Boolean(selectedPaymentReceipt)} onClose={() => setSelectedPaymentReceipt(null)} maxWidth="sm" fullWidth>
-                <DialogTitle>Payment Receipt</DialogTitle>
-                <DialogContent dividers>
-                    {selectedPaymentReceipt ? (
-                        <Stack spacing={2}>
-                            <Alert
-                                severity={
-                                    selectedPaymentReceipt.status === "posted"
-                                        ? "success"
-                                        : selectedPaymentReceipt.status === "failed"
-                                            ? "error"
-                                            : selectedPaymentReceipt.status === "expired"
-                                                ? "warning"
-                                                : "info"
-                                }
-                                variant="outlined"
-                            >
-                                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.4 }}>
-                                    {formatPaymentPurpose(selectedPaymentReceipt.purpose)}
-                                </Typography>
-                                <Typography variant="body2">
-                                    Status: {formatPaymentStatus(selectedPaymentReceipt.status)}
-                                </Typography>
-                            </Alert>
-
-                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                                <Stack spacing={1.15}>
-                                    <Typography variant="h5" sx={{ fontWeight: 800 }}>
-                                        {formatCurrency(selectedPaymentReceipt.amount)}
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        {selectedPaymentReceipt.provider.toUpperCase()} · {selectedPaymentReceipt.currency}
-                                    </Typography>
-                                    <Divider />
-                                    <Typography variant="body2">
-                                        <strong>{selectedPaymentReceipt.purpose === "loan_repayment" ? "Loan" : "Account"}:</strong>{" "}
-                                        {selectedPaymentReceipt.purpose === "loan_repayment"
-                                            ? selectedPaymentReceipt.loan_number || selectedPaymentReceipt.loan_id
-                                            : selectedPaymentReceipt.account_name || selectedPaymentReceipt.account_number || selectedPaymentReceipt.account_id}
-                                    </Typography>
-                                    <Typography variant="body2"><strong>Reference:</strong> {selectedPaymentReceipt.provider_ref || selectedPaymentReceipt.external_id}</Typography>
-                                    <Typography variant="body2"><strong>Initiated:</strong> {formatDate(selectedPaymentReceipt.created_at)}</Typography>
-                                    {selectedPaymentReceipt.paid_at ? (
-                                        <Typography variant="body2"><strong>Paid:</strong> {formatDate(selectedPaymentReceipt.paid_at)}</Typography>
-                                    ) : null}
-                                    {selectedPaymentReceipt.posted_at ? (
-                                        <Typography variant="body2"><strong>Posted:</strong> {formatDate(selectedPaymentReceipt.posted_at)}</Typography>
-                                    ) : null}
-                                    {selectedPaymentReceipt.journal_id ? (
-                                        <Typography variant="body2"><strong>Journal:</strong> {selectedPaymentReceipt.journal_id}</Typography>
-                                    ) : null}
-                                    {selectedPaymentReceipt.description ? (
-                                        <Typography variant="body2"><strong>Description:</strong> {selectedPaymentReceipt.description}</Typography>
-                                    ) : null}
-                                    {selectedPaymentReceipt.error_message ? (
-                                        <Typography variant="body2" color="error.main"><strong>Issue:</strong> {selectedPaymentReceipt.error_message}</Typography>
-                                    ) : null}
-                                </Stack>
-                            </Paper>
-                        </Stack>
-                    ) : null}
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => window.print()} startIcon={<PrintRoundedIcon />}>
-                        Print
-                    </Button>
-                    <Button onClick={() => setSelectedPaymentReceipt(null)}>
-                        Close
-                    </Button>
-                </DialogActions>
-            </MotionModal>
+            <PaymentReceiptDialog
+                receipt={selectedPaymentReceipt}
+                open={Boolean(selectedPaymentReceipt)}
+                onClose={() => setSelectedPaymentReceipt(null)}
+                formatPaymentPurpose={formatPaymentPurpose}
+                formatPaymentStatus={formatPaymentStatus}
+            />
 
             <MotionModal
                 open={showApplyDialog}
@@ -8380,6 +8682,269 @@ export function MemberPortalPage() {
                             Continue
                         </Button>
                     )}
+                </DialogActions>
+            </MotionModal>
+
+            <MotionModal
+                open={showProfileCompletionDialog}
+                onClose={savingProfileCompletion ? undefined : () => setShowProfileCompletionDialog(false)}
+                maxWidth="md"
+                fullWidth
+            >
+                <DialogTitle>Complete Member Profile</DialogTitle>
+                <DialogContent dividers>
+                    <Stack spacing={2} sx={{ mt: 0.25 }}>
+                        <Alert severity="info" variant="outlined">
+                            Fill the missing identity, address, and next-of-kin information on your member profile. Branch-controlled items such as membership type, share commitments, and KYC decisions remain managed by your branch.
+                        </Alert>
+
+                        {memberProfileMissingFields.length ? (
+                            <Alert severity="warning" variant="outlined">
+                                Missing now: {memberProfileMissingFields.join(", ")}.
+                            </Alert>
+                        ) : null}
+
+                        <Box component="form" id="member-profile-completion-form" onSubmit={submitProfileCompletion}>
+                            <Grid container spacing={2}>
+                                <Grid size={{ xs: 12 }}>
+                                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                                        <Stack spacing={1.4}>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                                Identity and contact
+                                            </Typography>
+                                            <Grid container spacing={2}>
+                                                <Grid size={{ xs: 12, md: 6 }}>
+                                                    <TextField fullWidth label="Full name" {...memberProfileCompletionForm.register("full_name")} />
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 3 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        type="date"
+                                                        label="Date of birth"
+                                                        InputLabelProps={{ shrink: true }}
+                                                        {...memberProfileCompletionForm.register("dob")}
+                                                        error={Boolean(memberProfileCompletionForm.formState.errors.dob)}
+                                                        helperText={memberProfileCompletionForm.formState.errors.dob?.message}
+                                                    />
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 3 }}>
+                                                    <TextField
+                                                        select
+                                                        fullWidth
+                                                        label="Gender"
+                                                        InputLabelProps={{ shrink: true }}
+                                                        defaultValue=""
+                                                        {...memberProfileCompletionForm.register("gender")}
+                                                    >
+                                                        <MenuItem value="">Not set</MenuItem>
+                                                        <MenuItem value="male">Male</MenuItem>
+                                                        <MenuItem value="female">Female</MenuItem>
+                                                        <MenuItem value="other">Other</MenuItem>
+                                                    </TextField>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        label="Phone number"
+                                                        placeholder="2557XXXXXXXX"
+                                                        {...memberProfileCompletionForm.register("phone")}
+                                                        error={Boolean(memberProfileCompletionForm.formState.errors.phone)}
+                                                        helperText={memberProfileCompletionForm.formState.errors.phone?.message || "Use Tanzania format starting with 255."}
+                                                    />
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        label="Email"
+                                                        {...memberProfileCompletionForm.register("email")}
+                                                        error={Boolean(memberProfileCompletionForm.formState.errors.email)}
+                                                        helperText={memberProfileCompletionForm.formState.errors.email?.message}
+                                                    />
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField
+                                                        select
+                                                        fullWidth
+                                                        label="Marital status"
+                                                        InputLabelProps={{ shrink: true }}
+                                                        defaultValue=""
+                                                        {...memberProfileCompletionForm.register("marital_status")}
+                                                    >
+                                                        <MenuItem value="">Not set</MenuItem>
+                                                        <MenuItem value="single">Single</MenuItem>
+                                                        <MenuItem value="married">Married</MenuItem>
+                                                        <MenuItem value="divorced">Divorced</MenuItem>
+                                                        <MenuItem value="widowed">Widowed</MenuItem>
+                                                    </TextField>
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField fullWidth label="Occupation" {...memberProfileCompletionForm.register("occupation")} />
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField fullWidth label="Employer name" {...memberProfileCompletionForm.register("employer")} />
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField fullWidth label="National ID" {...memberProfileCompletionForm.register("national_id")} />
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField fullWidth label="NIDA number" {...memberProfileCompletionForm.register("nida_no")} />
+                                                </Grid>
+                                                <Grid size={{ xs: 12, md: 4 }}>
+                                                    <TextField fullWidth label="TIN number" {...memberProfileCompletionForm.register("tin_no")} />
+                                                </Grid>
+                                            </Grid>
+                                        </Stack>
+                                    </Paper>
+                                </Grid>
+
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, height: "100%" }}>
+                                        <Stack spacing={1.4}>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                                Residential address
+                                            </Typography>
+                                            {!memberProfileCompletionForm.watch("region_id") && memberProfileLegacyLocationSummary ? (
+                                                <Alert severity="info" variant="outlined">
+                                                    Existing location record: {memberProfileLegacyLocationSummary}. Select the structured hierarchy below to normalize it.
+                                                </Alert>
+                                            ) : null}
+                                            <SearchableSelect
+                                                value={memberProfileCompletionForm.watch("region_id") || ""}
+                                                options={regionOptions}
+                                                label="Region"
+                                                placeholder={loadingRegions ? "Loading regions..." : "Search region..."}
+                                                helperText="Select the member's region."
+                                                onChange={(value) => {
+                                                    const selectedRegion = regions.find((item) => item.id === value);
+                                                    memberProfileCompletionForm.setValue("region_id", value, { shouldValidate: true });
+                                                    memberProfileCompletionForm.setValue("district_id", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("ward_id", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("village_id", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("region", selectedRegion?.name || "", { shouldValidate: true });
+                                                    memberProfileCompletionForm.setValue("district", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("ward", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("street_or_village", "", { shouldValidate: false });
+                                                }}
+                                            />
+                                            <SearchableSelect
+                                                value={memberProfileCompletionForm.watch("district_id") || ""}
+                                                options={districtOptions}
+                                                label="District"
+                                                placeholder={memberProfileRegionId ? (loadingDistricts ? "Loading districts..." : "Search district...") : "Select a region first"}
+                                                helperText="Districts are filtered by the selected region."
+                                                onChange={(value) => {
+                                                    const selectedDistrict = districts.find((item) => item.id === value);
+                                                    memberProfileCompletionForm.setValue("district_id", value, { shouldValidate: true });
+                                                    memberProfileCompletionForm.setValue("ward_id", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("village_id", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("district", selectedDistrict?.name || "", { shouldValidate: true });
+                                                    memberProfileCompletionForm.setValue("ward", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("street_or_village", "", { shouldValidate: false });
+                                                }}
+                                            />
+                                            <SearchableSelect
+                                                value={memberProfileCompletionForm.watch("ward_id") || ""}
+                                                options={wardOptions}
+                                                label="Ward"
+                                                placeholder={memberProfileDistrictId ? (loadingWards ? "Loading wards..." : "Search ward...") : "Select a district first"}
+                                                helperText="Wards are filtered by the selected district."
+                                                onChange={(value) => {
+                                                    const selectedWard = wards.find((item) => item.id === value);
+                                                    memberProfileCompletionForm.setValue("ward_id", value, { shouldValidate: true });
+                                                    memberProfileCompletionForm.setValue("village_id", "", { shouldValidate: false });
+                                                    memberProfileCompletionForm.setValue("ward", selectedWard?.name || "", { shouldValidate: true });
+                                                    memberProfileCompletionForm.setValue("street_or_village", "", { shouldValidate: false });
+                                                }}
+                                            />
+                                            <SearchableSelect
+                                                value={memberProfileCompletionForm.watch("village_id") || ""}
+                                                options={villageOptions}
+                                                label="Village / Mtaa"
+                                                placeholder={memberProfileWardId ? (loadingVillages ? "Loading villages..." : "Search village or mtaa...") : "Select a ward first"}
+                                                helperText="Choose the official village or mtaa. Code omitted."
+                                                onChange={(value) => {
+                                                    const selectedVillage = villages.find((item) => item.id === value);
+                                                    memberProfileCompletionForm.setValue("village_id", value, { shouldValidate: true });
+                                                    memberProfileCompletionForm.setValue("street_or_village", selectedVillage?.name || "", { shouldValidate: true });
+                                                    if (!memberProfileCompletionForm.getValues("residential_address")) {
+                                                        memberProfileCompletionForm.setValue("residential_address", selectedVillage?.name || "", { shouldValidate: true });
+                                                    }
+                                                }}
+                                            />
+                                            <TextField
+                                                fullWidth
+                                                multiline
+                                                minRows={2}
+                                                maxRows={3}
+                                                label="Residential address"
+                                                {...memberProfileCompletionForm.register("residential_address")}
+                                                helperText="Add house number, plot, landmark, or extra address detail."
+                                            />
+                                        </Stack>
+                                    </Paper>
+                                </Grid>
+
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, height: "100%" }}>
+                                        <Stack spacing={1.4}>
+                                            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
+                                                Next of kin
+                                            </Typography>
+                                            <TextField fullWidth label="Next of kin name" {...memberProfileCompletionForm.register("next_of_kin_name")} />
+                                            <TextField
+                                                select
+                                                fullWidth
+                                                label="Relationship"
+                                                value={memberProfileCompletionForm.watch("next_of_kin_relationship")}
+                                                onChange={(event) => memberProfileCompletionForm.setValue("next_of_kin_relationship", event.target.value, { shouldValidate: true })}
+                                            >
+                                                <MenuItem value="">Select relationship</MenuItem>
+                                                {NEXT_OF_KIN_RELATIONSHIP_OPTIONS.map((option) => (
+                                                    <MenuItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                    </MenuItem>
+                                                ))}
+                                                {memberProfileCompletionForm.watch("next_of_kin_relationship") &&
+                                                !isSupportedNextOfKinRelationship(memberProfileCompletionForm.watch("next_of_kin_relationship")) ? (
+                                                    <MenuItem value={memberProfileCompletionForm.watch("next_of_kin_relationship")}>
+                                                        {formatNextOfKinRelationship(memberProfileCompletionForm.watch("next_of_kin_relationship"))}
+                                                        {isLegacyNextOfKinRelationship(memberProfileCompletionForm.watch("next_of_kin_relationship")) ? " (legacy)" : " (current)"}
+                                                    </MenuItem>
+                                                ) : null}
+                                            </TextField>
+                                            <TextField fullWidth label="Phone number" {...memberProfileCompletionForm.register("next_of_kin_phone")} />
+                                            <TextField
+                                                fullWidth
+                                                multiline
+                                                minRows={2}
+                                                maxRows={3}
+                                                label="Next of kin address"
+                                                {...memberProfileCompletionForm.register("next_of_kin_address")}
+                                            />
+                                        </Stack>
+                                    </Paper>
+                                </Grid>
+                            </Grid>
+                        </Box>
+                    </Stack>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setShowProfileCompletionDialog(false)} disabled={savingProfileCompletion}>
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="contained"
+                        type="submit"
+                        form="member-profile-completion-form"
+                        disabled={savingProfileCompletion}
+                        sx={
+                            isDarkMode
+                                ? { bgcolor: memberAccent, color: "#1a1a1a", "&:hover": { bgcolor: memberAccentAlt } }
+                                : undefined
+                        }
+                    >
+                        {savingProfileCompletion ? "Saving..." : "Save profile details"}
+                    </Button>
                 </DialogActions>
             </MotionModal>
 

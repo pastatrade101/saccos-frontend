@@ -64,7 +64,11 @@ import type {
     MobileMoneyProvider,
     NotificationItem,
     NotificationListPayload,
-    NotificationPreferenceItem
+    NotificationPreferenceItem,
+    LocationRegion,
+    LocationDistrict,
+    LocationWard,
+    LocationVillage
 } from "../types/api";
 
 const routeMap = {
@@ -133,6 +137,7 @@ const routeMap = {
         list: "/members",
         accounts: "/members/accounts",
         create: "/members",
+        profileCompletion: "/members/me/profile-completion",
         bulkDelete: "/members/bulk-delete",
         update: (memberId: string) => `/members/${memberId}`,
         delete: (memberId: string) => `/members/${memberId}`,
@@ -146,6 +151,7 @@ const routeMap = {
         detail: (applicationId: string) => `/member-applications/${applicationId}`,
         submit: (applicationId: string) => `/member-applications/${applicationId}/submit`,
         review: (applicationId: string) => `/member-applications/${applicationId}/review`,
+        requestMoreInfo: (applicationId: string) => `/member-applications/${applicationId}/request-more-info`,
         me: "/member-applications/me",
         approve: (applicationId: string) => `/member-applications/${applicationId}/approve`,
         reject: (applicationId: string) => `/member-applications/${applicationId}/reject`
@@ -153,6 +159,12 @@ const routeMap = {
     public: {
         signup: "/public/signup",
         branches: "/public/branches"
+    },
+    locations: {
+        regions: "/locations/regions",
+        districts: "/locations/districts",
+        wards: "/locations/wards",
+        villages: "/locations/villages"
     },
     loanApplications: {
         list: "/loan-applications",
@@ -350,6 +362,7 @@ export const endpoints = {
         list: () => routeMap.members.list,
         accounts: () => routeMap.members.accounts,
         create: () => routeMap.members.create,
+        profileCompletion: () => routeMap.members.profileCompletion,
         bulkDelete: () => routeMap.members.bulkDelete,
         update: (memberId: string) => routeMap.members.update(memberId),
         delete: (memberId: string) => routeMap.members.delete(memberId),
@@ -363,6 +376,7 @@ export const endpoints = {
         detail: (applicationId: string) => routeMap.memberApplications.detail(applicationId),
         submit: (applicationId: string) => routeMap.memberApplications.submit(applicationId),
         review: (applicationId: string) => routeMap.memberApplications.review(applicationId),
+        requestMoreInfo: (applicationId: string) => routeMap.memberApplications.requestMoreInfo(applicationId),
         me: () => routeMap.memberApplications.me,
         approve: (applicationId: string) => routeMap.memberApplications.approve(applicationId),
         reject: (applicationId: string) => routeMap.memberApplications.reject(applicationId)
@@ -370,6 +384,12 @@ export const endpoints = {
     public: {
         signup: () => routeMap.public.signup,
         branches: () => routeMap.public.branches
+    },
+    locations: {
+        regions: () => routeMap.locations.regions,
+        districts: () => routeMap.locations.districts,
+        wards: () => routeMap.locations.wards,
+        villages: () => routeMap.locations.villages
     },
     loanApplications: {
         list: () => routeMap.loanApplications.list,
@@ -589,11 +609,57 @@ export interface PublicSignupRequest {
     branch_id: string;
     first_name: string;
     last_name: string;
+    gender: "male" | "female" | "other";
+    marital_status: "single" | "married" | "divorced" | "widowed";
+    occupation: string;
+    employer_name?: string | null;
     phone: string;
     email: string;
     password: string;
     national_id: string;
     date_of_birth: string;
+    region_id: string;
+    district_id: string;
+    ward_id: string;
+    village_id?: string | null;
+    region?: string | null;
+    district?: string | null;
+    ward?: string | null;
+    street_or_village?: string | null;
+    residential_address: string;
+    next_of_kin_name: string;
+    relationship:
+        | "spouse"
+        | "father"
+        | "mother"
+        | "son"
+        | "daughter"
+        | "brother"
+        | "sister"
+        | "guardian"
+        | "relative"
+        | "friend"
+        | "other"
+        | "parent"
+        | "sibling"
+        | "child";
+    next_of_kin_phone: string;
+    next_of_kin_address: string;
+    membership_type: "individual" | "group" | "company";
+    initial_share_amount: number;
+    monthly_savings_commitment: number;
+    terms_accepted: true;
+    data_processing_consent: true;
+}
+
+export interface PublicSignupBranch {
+    id: string;
+    tenant_id: string;
+    name: string;
+    code: string;
+    membership_fee_amount: number;
+    minimum_initial_share_amount: number;
+    minimum_monthly_savings_commitment: number;
 }
 
 export type PublicSignupResponse = ApiEnvelope<{
@@ -607,7 +673,7 @@ export type PublicSignupResponse = ApiEnvelope<{
     application: MemberApplication;
 }>;
 
-export type PublicSignupBranchesResponse = ApiEnvelope<Branch[]>;
+export type PublicSignupBranchesResponse = ApiEnvelope<PublicSignupBranch[]>;
 
 export interface SetupSuperAdminRequest {
     tenant_id: string;
@@ -719,6 +785,9 @@ export interface UpdateMemberRequest {
     dob?: string | null;
     phone?: string | null;
     email?: string | null;
+    gender?: "male" | "female" | "other" | null;
+    marital_status?: "single" | "married" | "divorced" | "widowed" | null;
+    occupation?: string | null;
     member_no?: string | null;
     national_id?: string | null;
     address_line1?: string | null;
@@ -727,18 +796,65 @@ export interface UpdateMemberRequest {
     state?: string | null;
     country?: string | null;
     postal_code?: string | null;
+    region_id?: string | null;
+    district_id?: string | null;
+    ward_id?: string | null;
+    village_id?: string | null;
+    region?: string | null;
+    district?: string | null;
+    ward?: string | null;
+    street_or_village?: string | null;
+    residential_address?: string | null;
     nida_no?: string | null;
     tin_no?: string | null;
     next_of_kin_name?: string | null;
     next_of_kin_phone?: string | null;
     next_of_kin_relationship?: string | null;
+    next_of_kin_address?: string | null;
     employer?: string | null;
+    membership_type?: "individual" | "group" | "company" | null;
+    initial_share_amount?: number | null;
+    monthly_savings_commitment?: number | null;
     kyc_status?: "pending" | "verified" | "rejected" | "waived";
     kyc_reason?: string | null;
     notes?: string | null;
     status?: "active" | "suspended" | "exited" | "approved_pending_payment";
 }
 export type UpdateMemberResponse = ApiEnvelope<Member>;
+
+export interface UpdateOwnMemberProfileCompletionRequest {
+    full_name?: string | null;
+    dob?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    gender?: "male" | "female" | "other" | null;
+    marital_status?: "single" | "married" | "divorced" | "widowed" | null;
+    occupation?: string | null;
+    employer?: string | null;
+    national_id?: string | null;
+    nida_no?: string | null;
+    tin_no?: string | null;
+    address_line1?: string | null;
+    address_line2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    postal_code?: string | null;
+    region_id?: string | null;
+    district_id?: string | null;
+    ward_id?: string | null;
+    village_id?: string | null;
+    region?: string | null;
+    district?: string | null;
+    ward?: string | null;
+    street_or_village?: string | null;
+    residential_address?: string | null;
+    next_of_kin_name?: string | null;
+    next_of_kin_phone?: string | null;
+    next_of_kin_relationship?: string | null;
+    next_of_kin_address?: string | null;
+}
+export type UpdateOwnMemberProfileCompletionResponse = ApiEnvelope<Member>;
 
 export interface BulkDeleteMembersRequest {
     member_ids: string[];
@@ -764,6 +880,15 @@ export interface CreateMemberApplicationRequest {
     state?: string | null;
     country?: string | null;
     postal_code?: string | null;
+    region_id?: string | null;
+    district_id?: string | null;
+    ward_id?: string | null;
+    village_id?: string | null;
+    region?: string | null;
+    district?: string | null;
+    ward?: string | null;
+    street_or_village?: string | null;
+    residential_address?: string | null;
     nida_no?: string | null;
     tin_no?: string | null;
     next_of_kin_name?: string | null;
@@ -785,12 +910,27 @@ export interface ReviewMemberApplicationRequest {
     kyc_reason?: string | null;
 }
 
+export interface RequestMoreInfoMemberApplicationRequest {
+    reason: string;
+}
+
 export interface RejectMemberApplicationRequest {
     reason: string;
 }
 
 export type MemberApplicationsResponse = ApiEnvelope<MemberApplication[]>;
 export type MemberApplicationResponse = ApiEnvelope<MemberApplication | null>;
+export type LocationRegionsResponse = ApiEnvelope<LocationRegion[]>;
+export type LocationDistrictsResponse = ApiEnvelope<LocationDistrict[]>;
+export type LocationWardsResponse = ApiEnvelope<LocationWard[]>;
+export type LocationVillagesResponse = ApiEnvelope<{
+    items: LocationVillage[];
+    pagination: {
+        page: number;
+        limit: number;
+        total: number;
+    };
+}>;
 export type ProductBootstrapResponse = ApiEnvelope<ProductBootstrapPayload>;
 export type LoanProductsResponse = ApiEnvelope<LoanProduct[]>;
 export type SavingsProductsResponse = ApiEnvelope<SavingsProduct[]>;
